@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "seed": "node scripts/seed-payments.js",
+    "seed:payments": "npx ts-node prisma/seed-payment-settings.ts",
+    "db:seed": "npm run seed:payments && npm run seed:users",
+    "dev:with-seed": "npm run seed && npm run dev",
+    "build:with-seed": "npm run seed && npm run build"
+  }
+}
+
+

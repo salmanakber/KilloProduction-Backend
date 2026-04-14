@@ -1,0 +1,11 @@
+app/admin/special-offers/page.tsx(855,25): error TS1005: ')' expected.
+app/admin/special-offers/page.tsx(855,27): error TS17002: Expected corresponding JSX closing tag for 'SectionCard'.
+app/admin/special-offers/page.tsx(856,25): error TS17002: Expected corresponding JSX closing tag for 'TabsContent'.
+app/admin/special-offers/page.tsx(857,23): error TS17002: Expected corresponding JSX closing tag for 'Tabs'.
+app/admin/special-offers/page.tsx(945,21): error TS17002: Expected corresponding JSX closing tag for 'form'.
+app/admin/special-offers/page.tsx(946,19): error TS17002: Expected corresponding JSX closing tag for 'div'.
+app/admin/special-offers/page.tsx(947,17): error TS17002: Expected corresponding JSX closing tag for 'SheetContent'.
+app/admin/special-offers/page.tsx(960,15): error TS17002: Expected corresponding JSX closing tag for 'Sheet'.
+app/admin/special-offers/page.tsx(961,13): error TS17002: Expected corresponding JSX closing tag for 'div'.
+app/admin/special-offers/page.tsx(1116,5): error TS1005: ')' expected.
+app/admin/special-offers/page.tsx(1117,3): error TS1109: Expression expected.

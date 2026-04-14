@@ -1,0 +1,143 @@
+import { type NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const city = searchParams.get('city')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '20')
+    const skip = (page - 1) * limit
+    const sortBy = searchParams.get('sortBy') || 'createdAt'
+    const sortOrder = searchParams.get('sortOrder') || 'desc'
+
+    // Verify category exists
+    const category = await prisma.category.findUnique({
+      where: { id: params.id, module: 'AUTO_PARTS' }
+    })
+
+    if (!category) {
+      return NextResponse.json({ error: "Category not found" }, { status: 404 })
+    }
+
+    // Build product where clause
+    const productWhere: any = {
+      type: 'AUTO_PART',
+      categoryId: params.id,
+      isActive: true,
+      stockQuantity: { gt: 0 }
+    }
+
+    // Filter by city if provided
+    if (city) {
+      productWhere.vendor = {
+        vendorProfile: {
+          is: {
+            city: {
+              contains: city,
+              mode: 'insensitive'
+            }
+          }
+        }
+      }
+    }
+
+    // Build orderBy
+    const orderBy: any = {}
+    if (sortBy === 'price') {
+      orderBy.price = sortOrder
+    } else if (sortBy === 'name') {
+      orderBy.name = sortOrder
+    } else {
+      orderBy.createdAt = sortOrder
+    }
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where: productWhere,
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              name: true,
+              vendorProfile: {
+                select: {
+                  businessName: true,
+                  logo: true,
+                  city: true,
+                }
+              }
+            }
+          },
+          category: {
+            select: {
+              name: true,
+            }
+          },
+          reviews: {
+            select: {
+              rating: true,
+            }
+          }
+        },
+        skip,
+        take: limit,
+        orderBy
+      }),
+      prisma.product.count({ where: productWhere })
+    ])
+
+    const formattedProducts = products.map(product => {
+      const avgRating = product.reviews.length > 0
+        ? product.reviews.reduce((sum, r) => sum + r.rating, 0) / product.reviews.length
+        : 4.5
+
+      const vendorProfile = product.vendor.vendorProfile
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        compareAtPrice: product.comparePrice,
+        images: product.images,
+        stock: product.stockQuantity,
+        rating: avgRating,
+        reviews: product.reviews.length,
+        category: product.category?.name || '',
+        brand: product.brand || '',
+        sku: product.sku || '',
+        store: {
+          id: product.vendor.id,
+          name: vendorProfile?.businessName || product.vendor.name || '',
+          logo: vendorProfile?.logo,
+          city: vendorProfile?.city || '',
+        }
+      }
+    })
+
+    return NextResponse.json({
+      category: {
+        id: category.id,
+        name: category.name,
+        description: category.description,
+        icon: category.icon,
+      },
+      products: formattedProducts,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    console.error("Category products fetch error:", error)
+    return NextResponse.json({ error: "Failed to fetch category products" }, { status: 500 })
+  }
+}
+
+

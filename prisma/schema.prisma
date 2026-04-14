@@ -1,0 +1,4939 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:postgres@localhost:5432/killo_super_app"
+}
+
+model Currency {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  symbol        String
+  isDefault     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  exchangeRate  Float    @default(1.0)
+  decimalPlaces Int      @default(2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("currencies")
+}
+
+model User {
+  id                      String                    @id @default(cuid())
+  phone                   String?                   @unique
+  email                   String?                   @unique
+  name                    String?
+  avatar                  String?
+  role                    UserRole                  @default(CUSTOMER)
+  isVerified              Boolean                   @default(false)
+  isActive                Boolean                   @default(true)
+  language                String                    @default("en")
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  resetToken              String?
+  resetTokenExpiry        DateTime?
+  status                  UserStatus                @default(PENDING)
+  password                String?
+  lastLoginAt             DateTime?
+  deletedAt               DateTime?
+  abTestParticipations    ABTestParticipant[]       @relation("UserABTestParticipations")
+  createdABTests          ABTest[]                  @relation("ABTestCreator")
+  addresses               Address[]
+  adminProfile            AdminProfile?             @relation("AdminProfile")
+  auditLogs               AuditLog[]                @relation("AuditLogs")
+  autoPartsStore          AutoPartsStore?
+  createdAutomations      AutomationRule[]          @relation("AutomationCreator")
+  bankAccounts            BankAccount[]             @relation("UserBankAccounts")
+  campaignParticipations  CampaignParticipant[]     @relation("UserCampaignParticipations")
+  carts                   Cart[]
+  communicationLogs       CommunicationLog[]        @relation("UserCommunicationLogs")
+  customerConversations   Conversation[]            @relation("CustomerConversations")
+  riderConversations      Conversation[]            @relation("RiderConversations")
+  vendorConversations     Conversation[]            @relation("VendorConversations")
+  createdCoupons          CouponTemplate[]          @relation("CouponCreator")
+  couponUsages            CouponUsage[]             @relation("UserCouponUsages")
+  courierBookings         CourierBooking[]          @relation("CourierCustomer")
+  riderBookings           CourierBooking[]          @relation("CourierRider")
+  behaviorEvents          CustomerBehaviorEvent[]   @relation("UserBehaviorEvents")
+  interestProfiles        CustomerInterestProfile[] @relation("UserInterestProfiles")
+  segmentMemberships      CustomerSegmentMember[]   @relation("UserSegmentMemberships")
+  deliverySchedules       DeliverySchedule[]
+  savedMealPlans          SavedMealPlan[]
+  emailLogs               EmailLog[]                @relation("UserEmailLogs")
+  favoriteRestaurants     FavoriteRestaurant[]
+  favoriteGroceryStores   FavoriteGroceryStore[]
+  customizations          FoodCustomization[]
+  groceryStore            GroceryStore?
+  loyaltyPoints           LoyaltyPoint[]
+  loyaltyTransactions     LoyaltyTransaction[]      @relation("UserLoyaltyTransactions")
+  createdCampaigns        MarketingCampaign[]       @relation("CampaignCreator")
+  medicineReminders       MedicineReminder[]
+  sentMessages            Message[]                 @relation("SentMessages")
+  milestoneProgress       MilestoneProgress[]       @relation("UserMilestoneProgress")
+  notifications           Notification[]
+  customerOrders          Order[]                   @relation("CustomerOrders")
+  prescriptionQueues      PrescriptionQueue[]
+  riderDeliveries         Order[]                   @relation("RiderDeliveries")
+  vendorOrders            Order[]                   @relation("VendorOrders")
+  otps                    Otp[]
+  partOffers              PartOffer[]
+  partOfferMechanics      PartOffer[]               @relation("PartOfferMechanic")
+  partRequests            PartRequest[]
+  paymentMethods          PaymentMethod[]
+  payments                Payment[]
+  paymentProcessingLedgers PaymentProcessingLedger[]
+  consultations           PharmConsultation[]       @relation("ConsumerConsultations")
+  pharmacy                Pharmacy?
+  pharmacyChats           PharmacyChat[]
+  autoPartsChatsAsUser    AutoPartsChat[]           @relation("AutoPartsChatUser")
+  autoPartsChatsAsVendor  AutoPartsChat[]           @relation("AutoPartsChatVendor")
+  autoPartsChatMessages   AutoPartsChatMessage[]    @relation("AutoPartsChatMessageSender")
+  prescriptions           Prescription[]
+  vendorProducts          Product[]                 @relation("VendorProducts")
+  referralCodes           ReferralCode[]            @relation("UserReferralCodes")
+  referralRewards         ReferralReward[]          @relation("UserReferralRewards")
+  referredBy              Referral[]                @relation("ReferredUser")
+  referrals               Referral[]                @relation("ReferrerUser")
+  reorderSuggestions      ReorderSuggestion[]
+  restaurant              Restaurant?
+  receivedReviews         Review[]                  @relation("ReviewTarget")
+  reviews                 Review[]
+  rewardRedemptions       RewardRedemption[]        @relation("UserRedemptions")
+  rideBids                RideBid[]                 @relation("RiderBids")
+  courierBids             CourierBid[]              @relation("CourierBids")
+  serviceAreas            ServiceArea[]             @relation("RiderServiceAreas")
+  customerRideBookings    RideBooking[]             @relation("CustomerRideBookings")
+  riderRideBookings       RideBooking[]             @relation("RiderBookings")
+  rideMessages            RideMessage[]             @relation("RideMessageSender")
+  riderCashouts           RiderCashout[]            @relation("RiderCashouts")
+  riderCommissions        RiderCommission[]         @relation("RiderCommissions")
+  riderEarnings           RiderEarning[]            @relation("RiderEarnings")
+  riderProfile            RiderProfile?
+  supportTickets          SupportTicket[]
+  supportTicketReplies    SupportTicketReply[]
+  transactions            Transaction[]
+  achievements            UserAchievement[]         @relation("UserAchievements")
+  userProfile             UserProfile?
+  userSettings            UserSettings?
+  vendorBankAccounts      VendorBankAccount[]       @relation("VendorBankAccounts")
+  vendorCommissions       VendorCommission[]        @relation("VendorCommissions")
+  customerTaxes           CustomerTax[]             @relation("CustomerTaxes")
+  vendorProfile           VendorProfile?            @relation("UserVendorProfile")
+  vendorWithdrawals       VendorWithdrawal[]        @relation("VendorWithdrawals")
+  walletTransactions      WalletTransaction[]       @relation("UserWalletTransactions")
+  wallet                  Wallet?
+  wholesaler              Wholesaler?
+  sosAlertsAsCustomer     SOSAlert[]                @relation("SOSCustomer")
+  sosAlertsAsRider        SOSAlert[]                @relation("SOSRider")
+  appRatings              AppRating[]               @relation("UserAppRatings")
+  mechanicProfile         MechanicProfile[]
+  mechanicServiceRequests MechanicServiceRequest[]  @relation("CustomerServiceRequests")
+  mechanicOffers          MechanicOffer[]           @relation("MechanicOffers")
+  customerQuotes          MechanicQuote[]           @relation("CustomerQuotes")
+  mechanicQuotes          MechanicQuote[]           @relation("MechanicQuotes")
+  mechanicNotifications   MechanicNotification[]    @relation("MechanicNotifications")
+  kycRejections           KycRejection[]            @relation("KycRejections")
+  userKycRejections       KycRejection[]            @relation("UserKycRejections")
+  sentMoneyTransfers      MoneyTransfer[]           @relation("MoneyTransferSender")
+  receivedMoneyTransfers  MoneyTransfer[]           @relation("MoneyTransferReceiver")
+  userActivities          UserActivity[]            @relation("UserActivities")
+  specialOfferVendors     SpecialOfferVendor[]
+  specialOfferSubmissions SpecialOfferSubmission[]
+  healthVitals            HealthVital?
+  healthLogs              HealthLog[]              @relation("UserHealthLogs")
+  healthLabResults        HealthLabResult[]         @relation("UserHealthLabResults")
+  doctorVisits            DoctorVisit[]             @relation("UserDoctorVisits")
+  healthSummaries         HealthSummary[]           @relation("UserHealthSummaries")
+  /// Aggregate of Review rows where this user is the rated party (targetType CUSTOMER)
+  customerTargetRating       Float @default(0)
+  customerTargetReviewCount  Int   @default(0)
+
+  @@map("users")
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String?
+  email     String?
+  code      String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([phone])
+  @@index([email])
+  @@map("otps")
+}
+
+model UserProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  firstName        String?
+  lastName         String?
+  dateOfBirth      DateTime?
+  bodyTemp         String?
+  bodyBp           String?
+  gender           Gender?
+  bio              String?
+  profileImage     String?
+  emergencyContact String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model UserSettings {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  pushNotifications    Boolean  @default(true)
+  emailNotifications   Boolean  @default(true)
+  smsNotifications     Boolean  @default(true)
+  locationTracking     Boolean  @default(true)
+  dataSharing          Boolean  @default(false)
+  language             String   @default("en")
+  currency             String   @default("USD")
+  theme                String   @default("light")
+  autoReorder          Boolean  @default(false)
+  deliveryInstructions String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deviceTokens         Json?
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model Address {
+  id           String      @id @default(cuid())
+  userId       String
+  type         AddressType @default(OTHER)
+  title        String
+  street       String
+  city         String
+  state        String
+  country      String
+  postalCode   String
+  latitude     Float?
+  longitude    Float?
+  isDefault    Boolean     @default(false)
+  instructions String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@map("addresses")
+}
+
+model CustomerSegment {
+  id               String                  @id @default(cuid())
+  name             String
+  description      String?
+  segmentType      SegmentType
+  conditions       Json
+  isActive         Boolean                 @default(true)
+  isDynamic        Boolean                 @default(true)
+  priority         Int                     @default(0)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  CampaignSegments CampaignSegments[]
+  members          CustomerSegmentMember[]
+
+  @@map("customer_segments")
+}
+
+model CustomerSegmentMember {
+  id        String          @id @default(cuid())
+  segmentId String
+  userId    String
+  joinedAt  DateTime        @default(now())
+  leftAt    DateTime?
+  isActive  Boolean         @default(true)
+  segment   CustomerSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  user      User            @relation("UserSegmentMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([segmentId, userId])
+  @@map("customer_segment_members")
+}
+
+model CustomerBehaviorEvent {
+  id         String            @id @default(cuid())
+  userId     String
+  eventType  BehaviorEventType
+  module     Module?
+  entityId   String?
+  entityType String?
+  properties Json?
+  sessionId  String?
+  deviceInfo Json?
+  location   Json?
+  timestamp  DateTime          @default(now())
+  user       User              @relation("UserBehaviorEvents", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType])
+  @@index([timestamp])
+  @@map("customer_behavior_events")
+}
+
+model CustomerInterestProfile {
+  id               String    @id @default(cuid())
+  userId           String
+  module           Module
+  category         String?
+  interestScore    Float     @default(0)
+  interactionCount Int       @default(0)
+  lastInteraction  DateTime?
+  purchaseCount    Int       @default(0)
+  totalSpent       Float     @default(0)
+  avgOrderValue    Float     @default(0)
+  conversionRate   Float     @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation("UserInterestProfiles", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, category])
+  @@map("customer_interest_profiles")
+}
+
+model MarketingCampaign {
+  id                String                  @id @default(cuid())
+  name              String
+  description       String?
+  type              CampaignType
+  status            CampaignStatus          @default(DRAFT)
+  channels          Json
+  content           Json
+  isABTest          Boolean                 @default(false)
+  abTestId          String?
+  schedule          Json
+  startDate         DateTime?
+  endDate           DateTime?
+  timezone          String                  @default("UTC")
+  totalSent         Int                     @default(0)
+  totalDelivered    Int                     @default(0)
+  totalOpened       Int                     @default(0)
+  totalClicked      Int                     @default(0)
+  totalConverted    Int                     @default(0)
+  totalRevenue      Float                   @default(0)
+  priority          Int                     @default(0)
+  budget            Float?
+  costPerSend       Float                   @default(0)
+  createdById       String
+  sentAt            DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  CampaignSegments  CampaignSegments[]
+  analytics         CampaignAnalytics[]
+  metrics           CampaignMetrics?
+  participants      CampaignParticipant[]
+  targetAudience    CampaignTargetAudience?
+  communicationLogs CommunicationLog[]
+  emailLogs         EmailLog[]
+  abTest            ABTest?                 @relation(fields: [abTestId], references: [id])
+  createdBy         User                    @relation("CampaignCreator", fields: [createdById], references: [id])
+  notifications     Notification[]          @relation("CampaignNotifications")
+
+  @@map("marketing_campaigns")
+}
+
+model CampaignTargetAudience {
+  id         String            @id @default(cuid())
+  campaignId String            @unique
+  userType   Json
+  modules    Json
+  segments   Json
+  totalUsers Int
+  campaign   MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_target_audience")
+}
+
+model CampaignMetrics {
+  id           String            @id @default(cuid())
+  campaignId   String            @unique
+  sent         Int               @default(0)
+  delivered    Int               @default(0)
+  opened       Int               @default(0)
+  clicked      Int               @default(0)
+  converted    Int               @default(0)
+  revenue      Float             @default(0)
+  unsubscribed Int               @default(0)
+  bounced      Int               @default(0)
+  campaign     MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_metrics")
+}
+
+model CampaignParticipant {
+  id              String            @id @default(cuid())
+  campaignId      String
+  userId          String
+  variant         String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  openedAt        DateTime?
+  clickedAt       DateTime?
+  convertedAt     DateTime?
+  conversionValue Float?
+  unsubscribedAt  DateTime?
+  createdAt       DateTime          @default(now())
+  campaign        MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user            User              @relation("UserCampaignParticipations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, userId])
+  @@map("campaign_participants")
+}
+
+model ABTest {
+  id               String              @id @default(cuid())
+  name             String
+  description      String?
+  hypothesis       String?
+  status           ABTestStatus        @default(DRAFT)
+  trafficSplit     Json
+  primaryMetric    String
+  secondaryMetrics Json?
+  confidenceLevel  Float               @default(95)
+  minSampleSize    Int                 @default(100)
+  maxDuration      Int?
+  winningVariant   String?
+  significance     Float?
+  results          Json?
+  startDate        DateTime?
+  endDate          DateTime?
+  createdById      String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  participants     ABTestParticipant[]
+  variants         ABTestVariant[]
+  createdBy        User                @relation("ABTestCreator", fields: [createdById], references: [id])
+  campaigns        MarketingCampaign[]
+
+  @@map("ab_tests")
+}
+
+model ABTestVariant {
+  id        String   @id @default(cuid())
+  name      String
+  config    Json?
+  abTestId  String
+  createdAt DateTime @default(now())
+  abTest    ABTest   @relation(fields: [abTestId], references: [id], onDelete: Cascade)
+
+  @@map("ab_test_variants")
+}
+
+model ABTestParticipant {
+  id              String    @id @default(cuid())
+  testId          String
+  userId          String
+  variant         String
+  assignedAt      DateTime  @default(now())
+  convertedAt     DateTime?
+  conversionValue Float?
+  test            ABTest    @relation(fields: [testId], references: [id], onDelete: Cascade)
+  user            User      @relation("UserABTestParticipations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, userId])
+  @@map("ab_test_participants")
+}
+
+model CommunicationLog {
+  id               String               @id @default(cuid())
+  userId           String
+  campaignId       String?
+  channel          CommunicationChannel
+  messageType      String
+  subject          String?
+  content          String
+  status           CommunicationStatus
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  openedAt         DateTime?
+  clickedAt        DateTime?
+  failedAt         DateTime?
+  errorMessage     String?
+  externalId       String?
+  phoneNumber      String?
+  emailAddress     String?
+  deviceToken      String?
+  trackingPixel    String?
+  clickTrackingUrl String?
+  unsubscribeUrl   String?
+  createdAt        DateTime             @default(now())
+  campaign         MarketingCampaign?   @relation(fields: [campaignId], references: [id])
+  user             User                 @relation("UserCommunicationLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel])
+  @@index([campaignId])
+  @@map("communication_logs")
+}
+
+model CouponTemplate {
+  id                   String             @id @default(cuid())
+  name                 String
+  description          String?
+  type                 CouponType
+  discountType         PromoType
+  discountValue        Float
+  maxUsageTotal        Int?
+  maxUsagePerUser      Int?
+  currentUsage         Int                @default(0)
+  minOrderAmount       Float?
+  maxDiscount          Float?
+  applicableModules    Json?
+  applicableCategories Json?
+  applicableProducts   Json?
+  codePrefix           String?
+  codeLength           Int                @default(8)
+  codePattern          String?
+  validFrom            DateTime
+  validUntil           DateTime
+  isActive             Boolean            @default(true)
+  createdById          String
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  generations          CouponGeneration[]
+  createdBy            User               @relation("CouponCreator", fields: [createdById], references: [id])
+  usages               CouponUsage[]
+
+  @@map("coupon_templates")
+}
+
+model CouponGeneration {
+  id             String         @id @default(cuid())
+  templateId     String
+  batchName      String?
+  quantity       Int
+  generatedCodes Json
+  generatedAt    DateTime       @default(now())
+  expiresAt      DateTime?
+  template       CouponTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("coupon_generations")
+}
+
+model CouponUsage {
+  id             String         @id @default(cuid())
+  templateId     String
+  userId         String
+  couponCode     String
+  orderId        String?
+  discountAmount Float
+  usedAt         DateTime       @default(now())
+  template       CouponTemplate @relation(fields: [templateId], references: [id])
+  user           User           @relation("UserCouponUsages", fields: [userId], references: [id])
+
+  @@unique([couponCode, userId])
+  @@map("coupon_usages")
+}
+
+model ReferralCode {
+  id             String           @id @default(cuid())
+  userId         String
+  code           String           @unique
+  type           ReferralType     @default(GENERAL)
+  module         Module?
+  referrerReward Json
+  referredReward Json
+  maxUses        Int?
+  currentUses    Int              @default(0)
+  validFrom      DateTime         @default(now())
+  validUntil     DateTime?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  user           User             @relation("UserReferralCodes", fields: [userId], references: [id], onDelete: Cascade)
+  rewards        ReferralReward[]
+
+  @@map("referral_codes")
+}
+
+model ReferralReward {
+  id             String               @id @default(cuid())
+  referralCodeId String
+  referrerId     String
+  referredId     String
+  rewardType     RewardType
+  rewardValue    Float
+  status         ReferralRewardStatus @default(PENDING)
+  conditionMet   Boolean              @default(false)
+  conditionType  String?
+  conditionValue Float?
+  processedAt    DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  referralCode   ReferralCode         @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  referrer       User                 @relation("UserReferralRewards", fields: [referrerId], references: [id])
+
+  @@map("referral_rewards")
+}
+
+model Achievement {
+  id               String            @id @default(cuid())
+  name             String
+  description      String
+  icon             String?
+  category         String
+  module           Module?
+  conditions       Json
+  points           Int               @default(0)
+  badge            String?
+  rewards          Json?
+  isActive         Boolean           @default(true)
+  sortOrder        Int               @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime    @default(now())
+  progress      Json?
+  isNotified    Boolean     @default(false)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  user          User        @relation("UserAchievements", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model Milestone {
+  id           String              @id @default(cuid())
+  name         String
+  description  String
+  category     String
+  module       Module?
+  levels       Json
+  isActive     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  userProgress MilestoneProgress[]
+
+  @@map("milestones")
+}
+
+model MilestoneProgress {
+  id              String    @id @default(cuid())
+  userId          String
+  milestoneId     String
+  currentLevel    Int       @default(0)
+  currentProgress Float     @default(0)
+  totalProgress   Float     @default(0)
+  lastRewardLevel Int       @default(0)
+  updatedAt       DateTime  @updatedAt
+  milestone       Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  user            User      @relation("UserMilestoneProgress", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, milestoneId])
+  @@map("milestone_progress")
+}
+
+model MarketingMetric {
+  id            String   @id @default(cuid())
+  name          String
+  category      String
+  module        Module?
+  value         Float
+  previousValue Float?
+  changePercent Float?
+  date          DateTime
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@unique([name, module, date])
+  @@map("marketing_metrics")
+}
+
+model CampaignAnalytics {
+  id             String            @id @default(cuid())
+  campaignId     String
+  date           DateTime
+  sent           Int               @default(0)
+  delivered      Int               @default(0)
+  bounced        Int               @default(0)
+  failed         Int               @default(0)
+  opened         Int               @default(0)
+  clicked        Int               @default(0)
+  unsubscribed   Int               @default(0)
+  conversions    Int               @default(0)
+  revenue        Float             @default(0)
+  channelMetrics Json?
+  createdAt      DateTime          @default(now())
+  campaign       MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, date])
+  @@map("campaign_analytics")
+}
+
+model AutomationRule {
+  id                   String                @id @default(cuid())
+  name                 String
+  description          String?
+  category             String
+  trigger              Json
+  conditions           Json
+  actions              Json
+  isActive             Boolean               @default(true)
+  priority             Int                   @default(0)
+  cooldownPeriod       Int?
+  maxExecutions        Int?
+  totalExecutions      Int                   @default(0)
+  successfulExecutions Int                   @default(0)
+  failedExecutions     Int                   @default(0)
+  createdById          String
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  executions           AutomationExecution[]
+  createdBy            User                  @relation("AutomationCreator", fields: [createdById], references: [id])
+
+  @@map("automation_rules")
+}
+
+model AutomationExecution {
+  id          String          @id @default(cuid())
+  ruleId      String
+  userId      String?
+  entityId    String?
+  entityType  String?
+  trigger     String
+  status      ExecutionStatus
+  result      Json?
+  error       String?
+  executedAt  DateTime        @default(now())
+  completedAt DateTime?
+  rule        AutomationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("automation_executions")
+}
+
+model CommissionSetting {
+  id             String         @id @default(cuid())
+  module         Module
+  commissionType CommissionType
+  rate           Float
+  minAmount      Float?
+  maxAmount      Float?
+  isActive       Boolean        @default(true)
+  description    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([module, commissionType])
+  @@map("commission_settings")
+}
+
+/// Singleton row id=1: admin-tunable mechanic pickup pricing (AUTO_PARTS vendor→customer distance).
+model AutoPartsMechanicPickupSettings {
+  id         Int      @id @default(1)
+  pricePerKm Float    @default(2)
+  updatedAt  DateTime @updatedAt
+
+  @@map("auto_parts_mechanic_pickup_settings")
+}
+
+model VendorCommission {
+  id               String           @id @default(cuid())
+  vendorId         String
+  orderId          String?
+  module           Module
+  commissionType   CommissionType
+  orderAmount      Float
+  commissionRate   Float
+  commissionAmount Float
+  status           CommissionStatus @default(PENDING)
+  paidAt           DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  order            Order?           @relation(fields: [orderId], references: [id])
+  vendor           User             @relation("VendorCommissions", fields: [vendorId], references: [id])
+
+  @@map("vendor_commissions")
+}
+
+model CustomerTax {
+  id          String           @id @default(cuid())
+  customerId  String
+  orderId     String?
+  module      Module
+  orderAmount Float
+  taxRate     Float
+  taxAmount   Float
+  status      CommissionStatus @default(PENDING)
+  paidAt      DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  order       Order?           @relation("CustomerTaxOrders", fields: [orderId], references: [id])
+  customer    User             @relation("CustomerTaxes", fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([orderId])
+  @@map("customer_taxes")
+}
+
+model RiderCommission {
+  id               String           @id @default(cuid())
+  riderId          String
+  orderId          String?
+  rideBookingId    String?
+  courierBookingId String?
+  module           Module
+  commissionType   CommissionType
+  orderAmount      Float
+  commissionRate   Float
+  commissionAmount Float
+  status           CommissionStatus @default(PENDING)
+  paidAt           DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  order            Order?           @relation(fields: [orderId], references: [id])
+  rideBooking      RideBooking?     @relation(fields: [rideBookingId], references: [id])
+  courierBooking   CourierBooking?  @relation(fields: [courierBookingId], references: [id])
+  rider            User             @relation("RiderCommissions", fields: [riderId], references: [id])
+
+  @@index([courierBookingId])
+  @@map("rider_commissions")
+}
+
+model Wallet {
+  id           String        @id @default(cuid())
+  userId       String        @unique
+  balance      Float         @default(0)
+  currency     String        @default("USD")
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model PaymentMethod {
+  id                     String      @id @default(cuid())
+  userId                 String
+  type                   PaymentType
+  provider               String
+  token                  String
+  lastFour               String?
+  last4                  String? // Alternative field name for compatibility
+  brand                  String? // Card brand (Visa, Mastercard, etc.)
+  expiryMonth            Int?
+  expiryYear             Int?
+  gateway                String? // Payment gateway (stripe, paystack, etc.)
+  gatewayPaymentMethodId String? // ID from the payment gateway
+  isDefault              Boolean     @default(false)
+  isActive               Boolean     @default(true)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  orders                 Order[]
+  payments               Payment[]
+  user                   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payment_methods")
+}
+
+model Payment {
+  id                   String         @id @default(cuid())
+  userId               String
+  paymentMethodId      String?
+  amount               Float
+  currency             String
+  status               PaymentStatus  @default(PENDING)
+  gateway              String
+  gatewayTransactionId String?
+  orderId              String?
+  description          String?
+  metadata             Json?
+  gatewayResponse      Json?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentMethod        PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  processingFeeLedger PaymentProcessingLedger?
+
+  @@map("payments")
+}
+
+/// Audit row for PAYMENT_PROCESSING commission charged to the customer (card/wallet top-up).
+model PaymentProcessingLedger {
+  id               String   @id @default(cuid())
+  paymentId        String   @unique
+  userId           String
+  module           Module
+  orderAmount      Float
+  commissionRate   Float
+  commissionAmount Float
+  currency         String
+  gateway          String
+  createdAt        DateTime @default(now())
+  payment          Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("payment_processing_ledger")
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String?
+  walletId    String?
+  orderId     String?
+  type        TransactionType
+  amount      Float
+  currency    String            @default("USD")
+  status      TransactionStatus @default(PENDING)
+  description String
+  reference   String?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  order       Order?            @relation(fields: [orderId], references: [id])
+  user        User?             @relation(fields: [userId], references: [id])
+  wallet      Wallet?           @relation(fields: [walletId], references: [id])
+
+  @@map("transactions")
+}
+
+model LoyaltyPoint {
+  id         String      @id @default(cuid())
+  userId     String
+  points     Int
+  type       LoyaltyType
+  reason     String
+  module     Module
+  orderId    String?
+  expiresAt  DateTime?
+  isRedeemed Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("loyalty_points")
+}
+
+model Referral {
+  id          String         @id @default(cuid())
+  referrerId  String
+  referredId  String
+  code        String         @unique
+  status      ReferralStatus @default(PENDING)
+  reward      Float?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+  referred    User           @relation("ReferredUser", fields: [referredId], references: [id])
+  referrer    User           @relation("ReferrerUser", fields: [referrerId], references: [id])
+
+  @@map("referrals")
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String
+  module    Module
+  vendorId  String?
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  cartItems CartItem[]
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("carts")
+}
+
+model CartItem {
+  id             String   @id @default(cuid())
+  cartId         String
+  productId      String
+  productType    String
+  quantity       Int
+  price          Float
+  notes          String?
+  customizations Json?
+  createdAt      DateTime @default(now())
+  cart           Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@map("cart_items")
+}
+
+model Order {
+  id                  String              @id @default(cuid())
+  orderNumber         String              @unique
+  customerId          String
+  vendorId            String?
+  riderId             String?
+  addressId           String?
+  paymentMethodId     String?
+  module              Module
+  status              OrderStatus         @default(PENDING)
+  subtotal            Float
+  deliveryFee         Float               @default(0)
+  serviceFee          Float               @default(0)
+  tax                 Float               @default(0)
+  discount            Float               @default(0)
+  total               Float
+  vendorCommission    Float               @default(0)
+  riderCommission     Float               @default(0)
+  platformCommission  Float               @default(0)
+  paymentStatus       PaymentStatus       @default(PENDING)
+  paymentMethod       String?
+  deliveryType        DeliveryType        @default(STANDARD)
+  estimatedDelivery   DateTime?
+  actualDelivery      DateTime?
+  trackingNumber      String?
+  notes               String?
+  specialInstructions String?
+  confirmedAt         DateTime?
+  preparedAt          DateTime?
+  pickedUpAt          DateTime?
+  deliveredAt         DateTime?
+  cancelledAt         DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  pharmacyId          String?
+  foodId              String?
+  groceryId           String?
+  autoPartId          String?
+  rideBookingId       String?
+  rideMessageId       String?
+  consultationId      String?
+  partRequestId       String?
+  metadata            Json?
+  childId             String? // Parent order ID (for child orders)
+  isChildOrder        Boolean             @default(false) // True if this is a child order
+  childOrders         Order[]             @relation("OrderChildren") // Child orders (for parent orders)
+  parentOrder         Order?              @relation("OrderChildren", fields: [childId], references: [id])
+  orderItems          OrderItem[]
+  orderTracking       OrderTracking[]
+  address             Address?            @relation(fields: [addressId], references: [id])
+  autoPart            AutoPart?           @relation("AutoPartOrders", fields: [autoPartId], references: [id])
+  consultation        PharmConsultation?  @relation("ConsultationOrders", fields: [consultationId], references: [id])
+  customer            User                @relation("CustomerOrders", fields: [customerId], references: [id])
+  food                Restaurant?         @relation("FoodOrders", fields: [foodId], references: [id])
+  grocery             GroceryStore?       @relation("GroceryOrders", fields: [groceryId], references: [id])
+  paymentMethodRel    PaymentMethod?      @relation(fields: [paymentMethodId], references: [id])
+  pharmacy            Pharmacy?           @relation("PharmacyOrders", fields: [pharmacyId], references: [id])
+  rideBooking         RideBooking?        @relation("RideBookingOrders", fields: [rideBookingId], references: [id])
+  rideMessage         RideMessage?        @relation("RideMessageOrders", fields: [rideMessageId], references: [id])
+  rider               User?               @relation("RiderDeliveries", fields: [riderId], references: [id])
+  vendor              User?               @relation("VendorOrders", fields: [vendorId], references: [id])
+  partRequest         PartRequest?        @relation("PartRequestOrders", fields: [partRequestId], references: [id])
+  promoCodeUsage      PromoCodeUsage[]
+  reviews             Review[]
+  riderCommissions    RiderCommission[]
+  transactions        Transaction[]
+  vendorCommissions   VendorCommission[]
+  customerTaxes       CustomerTax[]       @relation("CustomerTaxOrders")
+  prescriptionQueues  PrescriptionQueue[]
+  deliveryQueues      DeliveryQueue[]
+  multiplePickups     MultiplePickup[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String   @id @default(cuid())
+  orderId        String
+  productId      String
+  productType    String
+  productName    String
+  quantity       Int
+  unitPrice      Float
+  totalPrice     Float
+  notes          String?
+  customizations Json?
+  createdAt      DateTime @default(now())
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+model OrderTracking {
+  id        String      @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  location  String?
+  latitude  Float?
+  longitude Float?
+  notes     String?
+  timestamp DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_tracking")
+}
+
+model PromoCode {
+  id             String           @id @default(cuid())
+  code           String           @unique
+  title          String
+  description    String?
+  type           PromoType
+  value          Float
+  minOrderAmount Float?
+  maxDiscount    Float?
+  usageLimit     Int?
+  usedCount      Int              @default(0)
+  modules        Json?
+  isActive       Boolean          @default(true)
+  startsAt       DateTime
+  expiresAt      DateTime
+  createdAt      DateTime         @default(now())
+  usages         PromoCodeUsage[]
+
+  @@map("promo_codes")
+}
+
+model PromoCodeUsage {
+  id               String   @id @default(cuid())
+  promoCodeId      String
+  orderId          String?
+  rideBookingId    String?
+  courierBookingId String?
+  userId           String
+  discount         Float
+  createdAt        DateTime @default(now())
+
+  order          Order?          @relation(fields: [orderId], references: [id])
+  ridebooking    RideBooking?    @relation("RidePromoUsages", fields: [rideBookingId], references: [id])
+  courierbooking CourierBooking? @relation("CourierPromoUsages", fields: [courierBookingId], references: [id])
+  promoCode      PromoCode       @relation(fields: [promoCodeId], references: [id])
+
+  @@map("promo_code_usage")
+}
+
+model AutoPartsStore {
+  id                 String     @id @default(cuid())
+  userId             String     @unique
+  storeName          String
+  description        String?
+  businessLicense    String?
+  taxId              String?
+  address            String
+  latitude           Float?
+  longitude          Float?
+  phone              String
+  email              String?
+  website            String?
+  logo               String?
+  coverImage         String?
+  rating             Float      @default(0)
+  totalReviews       Int        @default(0)
+  totalOrders        Int        @default(0)
+  isVerified         Boolean    @default(false)
+  isActive           Boolean    @default(true)
+  openingHours       Json?
+  deliveryZones      Json?
+  storeFront         String?
+  inventory          String?
+  registrationNumber String?
+  yearsInBusiness    String?
+  specializations    Json?
+  brandsCarried      String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  autoParts          AutoPart[]
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auto_parts_stores")
+}
+
+model AutoPart {
+  id             String         @id @default(cuid())
+  storeId        String
+  name           String
+  description    String?
+  partNumber     String?
+  brand          String
+  model          String
+  year           String
+  partType       String
+  category       String
+  condition      PartCondition
+  price          Float
+  compareAtPrice Float?
+  stock          Int
+  minStock       Int            @default(5)
+  weight         Float?
+  dimensions     Json?
+  images         Json?
+  specifications Json?
+  warranty       String?
+  isActive       Boolean        @default(true)
+  isFeatured     Boolean        @default(false)
+  tags           Json?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  store          AutoPartsStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  autoPartOrders Order[]        @relation("AutoPartOrders")
+  reviews        Review[]
+
+  @@map("auto_parts")
+}
+
+model PartRequest {
+  id                 String         @id @default(cuid())
+  userId             String
+  vehicleBrand       String
+  vehicleModel       String
+  vehicleYear        String
+  partType           String
+  partName           String
+  description        String
+  urgency            UrgencyLevel   @default(MEDIUM)
+  maxBudget          Float?
+  preferredCondition PartCondition?
+  images             Json?
+  needsMechanic      Boolean        @default(false)
+  status             RequestStatus  @default(OPEN)
+  expiresAt          DateTime
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  offers             PartOffer[]
+  orders             Order[]        @relation("PartRequestOrders")
+  user               User           @relation(fields: [userId], references: [id])
+
+  @@map("part_requests")
+}
+
+model PartOffer {
+  id           String        @id @default(cuid())
+  requestId    String
+  vendorId     String
+  partId       String?
+  mechanicId   String? // Optional mechanic recommendation
+  price        Float
+  condition    PartCondition
+  availability String
+  description  String?
+  images       Json?
+  warranty     String?
+  deliveryTime String
+  status       OfferStatus   @default(PENDING)
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+  request      PartRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vendor       User          @relation(fields: [vendorId], references: [id])
+  mechanic     User?         @relation("PartOfferMechanic", fields: [mechanicId], references: [id])
+
+  @@map("part_offers")
+}
+
+model Pharmacy {
+  id                  String                   @id @default(cuid())
+  userId              String                   @unique
+  pharmacyName        String
+  licenseNumber       String                   @unique
+  description         String?
+  address             String
+  lon                 Float?
+  lat                 Float?
+  phone               String
+  email               String?
+  website             String?
+  logo                String?
+  coverImage          String?
+  rating              Float                    @default(0)
+  totalReviews        Int                      @default(0)
+  totalOrders         Int                      @default(0)
+  isVerified          Boolean                  @default(false)
+  is24Hours           Boolean                  @default(false)
+  deliveryAvailable   Boolean                  @default(true)
+  openingHours        Json?
+  deliveryZones       Json?
+  specialties         Json?
+  medicineOrigins     Json?
+  selectedIllnesses   Json?
+  isApprovedByAdmin   Boolean                  @default(false)
+  approvalDate        DateTime?
+  rejectedAt          DateTime?
+  rejectionReason     String?
+  pharmacistOnDuty    String?
+  responseTime        Int                      @default(30)
+  emergencyContact    String?
+  licenseDocument     String?
+  storeFrontImage     String?
+  ownerPhoto          String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  status              PharmacyStatus           @default(PENDING)
+  medicines           Medicine[]
+  pharmacyOrders      Order[]                  @relation("PharmacyOrders")
+  consultations       PharmConsultation[]
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pharmacyChats       PharmacyChat[]
+  pharmacyMedicines   PharmacyMedicine[]
+  specializations     PharmacySpecialization[]
+  prescriptionReviews PrescriptionReview[]
+  reviews             Review[]
+  supplierOrders      SupplierOrder[]
+  specialOffers       SpecialOffer[]
+  prescriptionQueues  PrescriptionQueue[]
+  deliveryQueues      DeliveryQueue[]
+  pharmacyPickups     PharmacyPickup[]
+
+  @@map("pharmacies")
+}
+
+model Medicine {
+  id                     String             @id @default(cuid())
+  pharmacyId             String
+  centralMedicineId      String?
+  centralMedicine        CentralMedicine?   @relation(fields: [centralMedicineId], references: [id])
+  name                   String
+  genericName            String?
+  brand                  String?
+  manufacturer           String?
+  dosage                 String
+  form                   MedicineForm
+  strength               String?
+  category               String
+  price                  Float
+  compareAtPrice         Float?
+  stock                  Int
+  minStock               Int                @default(10)
+  batchNumber            String?
+  manufacturingDate      DateTime?
+  expiryDate             DateTime
+  countryOfOrigin        String?
+  activeIngredients      Json?
+  sideEffects            Json?
+  contraindications      Json?
+  storageInstructions    String?
+  images                 Json?
+  isPrescriptionRequired Boolean            @default(false)
+  isControlled           Boolean            @default(false)
+  isActive               Boolean            @default(true)
+  isFeatured             Boolean            @default(false)
+  tags                   Json?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  medicineReminders      MedicineReminder[]
+  pharmacy               Pharmacy           @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@map("medicines")
+}
+
+model Wholesaler {
+  id                  String               @id @default(cuid())
+  userId              String               @unique
+  companyName         String
+  licenseNumber       String               @unique
+  description         String?
+  address             String
+  latitude            Float?
+  longitude           Float?
+  phone               String
+  email               String?
+  website             String?
+  logo                String?
+  rating              Float                @default(0)
+  totalOrders         Int                  @default(0)
+  isVerified          Boolean              @default(false)
+  specialties         Json?
+  deliveryZones       Json?
+  paymentTerms        String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  supplierOrders      SupplierOrder[]
+  wholesalerMedicines WholesalerMedicine[]
+  wholesalerProducts  WholesalerProduct[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wholesalers")
+}
+
+model WholesalerProduct {
+  id                   String                @id @default(cuid())
+  wholesalerId         String
+  wholesalerMedicineId String?
+  name                 String
+  genericName          String?
+  brand                String?
+  manufacturer         String?
+  dosage               String
+  form                 MedicineForm
+  category             String
+  unitPrice            Float
+  minOrderQuantity     Int
+  stock                Int
+  batchNumber          String?
+  manufacturingDate    DateTime?
+  expiryDate           DateTime
+  countryOfOrigin      String
+  images               Json?
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  wholesaler           Wholesaler            @relation(fields: [wholesalerId], references: [id], onDelete: Cascade)
+  wholesalerMedicine   WholesalerMedicine?   @relation(fields: [wholesalerMedicineId], references: [id])
+  status               SupplierProductStatus @default(PENDING)
+
+  @@map("wholesaler_products")
+}
+
+model SupplierOrder {
+  id                   String              @id @default(cuid())
+  pharmacyId           String
+  wholesalerId         String
+  orderNumber          String              @unique
+  status               SupplierOrderStatus @default(PENDING)
+  totalAmount          Float
+  paymentStatus        PaymentStatus       @default(PENDING)
+  paymentTerms         String?
+  deliveryDate         DateTime?
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  courierBookingId     String?
+  currency             String              @default("NGN")
+  deliveryAddress      String?
+  isQuote              Boolean             @default(true)
+  orderType            OrderType           @default(QUOTE)
+  pharmacyAcceptance   Boolean             @default(false)
+  quoteExpiryDate      DateTime?
+  quoteNumber          String?             @unique
+  supplierResponse     Json?
+  expectedDeliveryDate DateTime?
+  deliveryLatitude     Float?
+  deliveryLongitude    Float?
+  pickupAddress        String?
+  pickupLatitude       Float?
+  pickupLongitude      Float?
+  itemWeight           String?
+  items                SupplierOrderItem[]
+  courierBooking       CourierBooking?     @relation("SupplierOrderCourier", fields: [courierBookingId], references: [id])
+  pharmacy             Pharmacy            @relation(fields: [pharmacyId], references: [id])
+  wholesaler           Wholesaler          @relation(fields: [wholesalerId], references: [id])
+
+  @@map("supplier_orders")
+}
+
+model SupplierOrderItem {
+  id              String        @id @default(cuid())
+  supplierOrderId String
+  productId       String
+  productName     String
+  quantity        Int
+  unitPrice       Float
+  totalPrice      Float
+  supplierOrder   SupplierOrder @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_order_items")
+}
+
+model Prescription {
+  id                 String               @id @default(cuid())
+  userId             String
+  doctorName         String?
+  hospitalName       String?
+  prescriptionDate   DateTime?
+  images             Json?
+  voiceNote          String?
+  status             PrescriptionStatus   @default(UPLOADED)
+  urgency            UrgencyLevel         @default(MEDIUM)
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  chats              PharmacyChat[]
+  reviews            PrescriptionReview[]
+  prescriptionQueues PrescriptionQueue[]
+  user               User                 @relation(fields: [userId], references: [id])
+
+  @@map("prescriptions")
+}
+
+model PrescriptionReview {
+  id             String             @id @default(cuid())
+  prescriptionId String
+  pharmacyId     String
+  pharmacistName String
+  status         PrescriptionStatus
+  medicines      Json?
+  totalCost      Float?
+  notes          String?
+  reviewedAt     DateTime           @default(now())
+  pharmacy       Pharmacy           @relation(fields: [pharmacyId], references: [id])
+  prescription   Prescription       @relation(fields: [prescriptionId], references: [id])
+
+  @@map("prescription_reviews")
+}
+
+model PharmacyChat {
+  id             String        @id @default(cuid())
+  userId         String
+  pharmacyId     String
+  prescriptionId String?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  messages       ChatMessage[]
+  pharmacy       Pharmacy      @relation(fields: [pharmacyId], references: [id])
+  prescription   Prescription? @relation(fields: [prescriptionId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+
+  @@map("pharmacy_chats")
+}
+
+model ChatMessage {
+  id        String       @id @default(cuid())
+  chatId    String
+  senderId  String
+  message   String
+  type      MessageType  @default(TEXT)
+  fileUrl   String?
+  isRead    Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  chat      PharmacyChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}
+
+model AutoPartsChat {
+  id        String                 @id @default(cuid())
+  userId    String
+  vendorId  String
+  requestId String?
+  offerId   String?
+  isActive  Boolean                @default(true)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  messages  AutoPartsChatMessage[]
+  user      User                   @relation("AutoPartsChatUser", fields: [userId], references: [id], onDelete: Cascade)
+  vendor    User                   @relation("AutoPartsChatVendor", fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vendorId, requestId, offerId]) // Prevent duplicate chats for same context
+  @@index([userId, vendorId])
+  @@map("auto_parts_chats")
+}
+
+model AutoPartsChatMessage {
+  id        String        @id @default(cuid())
+  chatId    String
+  senderId  String
+  message   String
+  duration  Int?
+  type      MessageType   @default(TEXT)
+  fileUrl   String?
+  isRead    Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  chat      AutoPartsChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender    User          @relation("AutoPartsChatMessageSender", fields: [senderId], references: [id])
+
+  @@map("auto_parts_chat_messages")
+}
+
+model MedicineReminder {
+  id           String    @id @default(cuid())
+  userId       String
+  medicineId   String?
+  medicineName String
+  dosage       String
+  frequency    String
+  times        Json?
+  duration     Int?
+  startDate    DateTime
+  endDate      DateTime?
+  isActive     Boolean   @default(true)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  medicine     Medicine? @relation(fields: [medicineId], references: [id])
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("medicine_reminders")
+}
+
+model SpecialOffer {
+  id               String                     @id @default(cuid())
+  title            String
+  subtitle         String?
+  description      String?
+  discountType     DiscountType               @default(PERCENTAGE)
+  discountValue    Float
+  discountFundedBy SpecialOfferDiscountFunder @default(PLATFORM)
+  validFrom        DateTime
+  validUntil       DateTime
+  imageUrl         String?
+  bannerImageUrl   String? // Banner image for promotional display
+  isActive         Boolean                    @default(true)
+  targetAudience   Json? // Target specific user segments
+  conditions       Json? // Terms and conditions
+  maxUses          Int? // Maximum number of uses
+  usedCount        Int                        @default(0)
+  // Multi-module support
+  module           SpecialOfferModule         @default(PHARMACY)
+
+  // Optional: legacy pharmacy-specific offer
+  pharmacyId String? // If offer is specific to a pharmacy (legacy)
+
+  // Location targeting (if set, only vendors near this location should participate)
+  locationState     String?
+  locationLatitude  Float?
+  locationLongitude Float?
+  locationRadiusKm  Float? // e.g. 25 = 25km
+
+  // Vendor participation limits
+  maxVendors Int?
+
+  // Participation features
+  enableInvitations Boolean @default(true)
+  enablePaidSlots   Boolean @default(false)
+  slotPrice         Float?
+  maxPaidSlots      Int?
+  enableAiSelection Boolean @default(false)
+
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  pharmacy    Pharmacy?                @relation(fields: [pharmacyId], references: [id])
+  vendors     SpecialOfferVendor[]
+  submissions SpecialOfferSubmission[]
+  reports     SpecialOfferReport[]
+
+  @@map("special_offers")
+}
+
+enum SpecialOfferModule {
+  PHARMACY
+  GROCERY
+  FOOD
+  AUTO_PARTS
+}
+
+enum SpecialOfferVendorSource {
+  INVITED
+  PAID_SLOT
+  AI_SELECTED
+}
+
+enum SpecialOfferVendorStatus {
+  INVITED
+  ACCEPTED
+  DECLINED
+  PURCHASED_SLOT
+  SUBMITTED_PRODUCT
+  APPROVED
+  REJECTED
+}
+
+enum SpecialOfferDiscountFunder {
+  PLATFORM
+  VENDOR
+}
+
+model SpecialOfferVendor {
+  id          String                   @id @default(cuid())
+  offerId     String
+  vendorId    String // User.id (vendor user)
+  module      SpecialOfferModule
+  source      SpecialOfferVendorSource
+  status      SpecialOfferVendorStatus @default(INVITED)
+  invitedAt   DateTime                 @default(now())
+  respondedAt DateTime?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  offer  SpecialOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  vendor User         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, vendorId])
+  @@map("special_offer_vendors")
+}
+
+model SpecialOfferSubmission {
+  id        String             @id @default(cuid())
+  offerId   String
+  vendorId  String // User.id
+  module    SpecialOfferModule
+  productId String // Module-specific product identifier
+  data      Json?
+  status    String             @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  offer  SpecialOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  vendor User         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("special_offer_submissions")
+}
+
+/// Aggregated reporting per offer/vendor, populated by cron
+model SpecialOfferReport {
+  id               String             @id @default(cuid())
+  offerId          String
+  vendorId         String? // null = overall summary (optional)
+  module           SpecialOfferModule
+  totalOrders      Int
+  totalUnits       Int
+  grossSales       Float
+  discountPlatform Float              @default(0)
+  discountVendor   Float              @default(0)
+  createdAt        DateTime           @default(now())
+
+  offer SpecialOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([offerId, vendorId])
+  @@map("special_offer_reports")
+}
+
+model PrescriptionQueue {
+  id                 String                  @id @default(cuid())
+  customerId         String
+  prescriptionId     String?
+  pharmacyId         String
+  orderId            String?
+  chatId             String? // Link to the PharmacyChat for quick lookup
+  status             PrescriptionQueueStatus @default(PENDING_PHARMACY_REVIEW)
+  medicines          Json // Array of suggested medicines with details
+  prescriptionData   Json? // Full AI prescription object { title, prioritizedMedicines, ... }
+  aiResponse         Json? // AI analysis response (summary, recommendations, etc.)
+  userPrompt         String? // User's original symptom / text prompt
+  matchScore         Float? // AI-computed pharmacy match score (0-100)
+  totalCost          Float?
+  pharmacyNotes      String?
+  customerNotes      String?
+  pharmacyApprovedAt DateTime?
+  customerApprovedAt DateTime?
+  rejectedAt         DateTime?
+  rejectionReason    String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  customer           User                    @relation(fields: [customerId], references: [id])
+  pharmacy           Pharmacy                @relation(fields: [pharmacyId], references: [id])
+  prescription       Prescription?           @relation(fields: [prescriptionId], references: [id])
+  order              Order?                  @relation(fields: [orderId], references: [id])
+
+  @@map("prescription_queue")
+}
+
+model DeliveryQueue {
+  id               String          @id @default(cuid())
+  orderId          String
+  courierBookingId String?
+  pharmacyId       String
+  pickupAddress    String
+  pickupLatitude   Float
+  pickupLongitude  Float
+  dropAddress      String
+  dropLatitude     Float
+  dropLongitude    Float
+  sequence         Int // Order of delivery stops
+  status           DeliveryStatus  @default(PENDING)
+  estimatedTime    Int? // Minutes
+  actualTime       Int? // Actual delivery time in minutes
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  notes            String?
+  medicines        Json // Medicines to be picked up from this pharmacy
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  order            Order           @relation(fields: [orderId], references: [id])
+  pharmacy         Pharmacy        @relation(fields: [pharmacyId], references: [id])
+  courierBooking   CourierBooking? @relation(fields: [courierBookingId], references: [id])
+
+  @@map("delivery_queue")
+}
+
+model CentralMedicine {
+  id                String       @id @default(cuid())
+  name              String
+  genericName       String?
+  description       String?
+  purpose           String?
+  dosageInfo        String?
+  warnings          String?
+  sideEffects       Json?
+  category          String
+  illnessTypes      Json?
+  activeIngredients Json?
+  form              MedicineForm
+  strength          String?
+  manufacturer      String?
+  images            Json?
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  medicines           Medicine[]
+  medicineOrigins     CentralMedicineOrigin[]
+  pharmacyMedicines   PharmacyMedicine[]
+  wholesalerMedicines WholesalerMedicine[]
+
+  @@map("central_medicines")
+}
+
+model MedicineOrigin {
+  id                      String                   @id @default(cuid())
+  name                    String                   @unique
+  displayName             String
+  description             String?
+  isActive                Boolean                  @default(true)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  centralMedicines        CentralMedicineOrigin[]
+  pharmacySpecializations PharmacySpecialization[]
+
+  @@map("medicine_origins")
+}
+
+model CentralMedicineOrigin {
+  id                String          @id @default(cuid())
+  centralMedicineId String
+  medicineOriginId  String
+  createdAt         DateTime        @default(now())
+  centralMedicine   CentralMedicine @relation(fields: [centralMedicineId], references: [id], onDelete: Cascade)
+  medicineOrigin    MedicineOrigin  @relation(fields: [medicineOriginId], references: [id], onDelete: Cascade)
+
+  @@unique([centralMedicineId, medicineOriginId])
+  @@map("central_medicine_origins")
+}
+
+model IllnessCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  description String?
+  icon        String?
+  isCommon    Boolean  @default(false)
+  symptoms    Json?
+  medicines   Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("illness_categories")
+}
+
+model PharmacyMedicine {
+  id                  String          @id @default(cuid())
+  pharmacyId          String
+  centralMedicineId   String
+  price               Float
+  stock               Int
+  minStock            Int             @default(10)
+  isAvailable         Boolean         @default(true)
+  lastRestocked       DateTime?
+  expiryDate          DateTime?
+  batchNumber         String?
+  supplierInfo        String?
+  lastSupplierId      String?
+  lastSupplierOrderId String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  centralMedicine     CentralMedicine @relation(fields: [centralMedicineId], references: [id])
+  pharmacy            Pharmacy        @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([pharmacyId, centralMedicineId])
+  @@map("pharmacy_medicines")
+}
+
+model WholesalerMedicine {
+  id                 String                @id @default(cuid())
+  wholesalerId       String
+  centralMedicineId  String
+  unitPrice          Float
+  minOrderQuantity   Int
+  stock              Int
+  isAvailable        Boolean               @default(true)
+  lastRestocked      DateTime?
+  expiryDate         DateTime?
+  batchNumber        String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  centralMedicine    CentralMedicine       @relation(fields: [centralMedicineId], references: [id])
+  wholesaler         Wholesaler            @relation(fields: [wholesalerId], references: [id], onDelete: Cascade)
+  wholesalerProducts WholesalerProduct[]
+  status             SupplierProductStatus @default(PENDING)
+
+  @@unique([wholesalerId, centralMedicineId])
+  @@map("wholesaler_medicines")
+}
+
+model MedicineSuggestion {
+  id                String                   @id @default(cuid())
+  suggestedBy       String
+  suggestedByType   String
+  name              String
+  genericName       String?
+  description       String?
+  purpose           String?
+  dosageInfo        String?
+  warnings          String?
+  sideEffects       Json?
+  category          String
+  illnessTypes      Json?
+  activeIngredients Json?
+  form              MedicineForm
+  strength          String?
+  manufacturer      String?
+  images            Json?
+  status            MedicineSuggestionStatus @default(PENDING)
+  adminNotes        String?
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@map("medicine_suggestions")
+}
+
+model PharmConsultation {
+  id                   String                @id @default(cuid())
+  consultationNumber   String                @unique
+  consumerId           String
+  pharmacyId           String?
+  status               ConsultationStatus    @default(PENDING)
+  queryText            String?
+  queryVoiceUrl        String?
+  queryImages          Json?
+  selectedIllness      String?
+  symptoms             Json?
+  recommendedMedicines Json?
+  totalCost            Float?
+  dosageInstructions   String?
+  pharmacistNotes      String?
+  matchScore           Float?
+  assignedAt           DateTime?
+  respondedAt          DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  messages             ConsultationMessage[]
+  orders               Order[]               @relation("ConsultationOrders")
+  consumer             User                  @relation("ConsumerConsultations", fields: [consumerId], references: [id])
+  pharmacy             Pharmacy?             @relation(fields: [pharmacyId], references: [id])
+
+  @@map("pharm_consultations")
+}
+
+model ConsultationMessage {
+  id             String            @id @default(cuid())
+  consultationId String
+  senderId       String
+  senderType     SenderType
+  messageType    MessageType       @default(TEXT)
+  content        String
+  fileUrl        String?
+  isRead         Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  consultation   PharmConsultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@map("consultation_messages")
+}
+
+model PharmacySpecialization {
+  id               String         @id @default(cuid())
+  pharmacyId       String
+  medicineOriginId String
+  illnessTypes     Json?
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  medicineOrigin   MedicineOrigin @relation(fields: [medicineOriginId], references: [id], onDelete: Cascade)
+  pharmacy         Pharmacy       @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([pharmacyId, medicineOriginId])
+  @@map("pharmacy_specializations")
+}
+
+model PharmacyCommission {
+  id                   String   @id @default(cuid())
+  consumerToPharmacy   Float    @default(5.0)
+  wholesalerToPharmacy Float    @default(3.0)
+  pharmacyToConsumer   Float    @default(2.0)
+  deliveryCommission   Float    @default(1.0)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("pharmacy_commissions")
+}
+
+model Restaurant {
+  id                   String               @id @default(cuid())
+  userId               String               @unique
+  name                 String
+  description          String?
+  cuisine              Json?
+  address              String
+  phone                String
+  email                String?
+  website              String?
+  logo                 String?
+  coverImage           String?
+  images               Json?
+  latitude             Float?
+  longitude            Float?
+  rating               Float                @default(0)
+  totalReviews         Int                  @default(0)
+  totalOrders          Int                  @default(0)
+  priceRange           PriceRange           @default(MODERATE)
+  deliveryTime         String
+  deliveryFee          Float
+  minOrderAmount       Float                @default(0)
+  maxDeliveryDistance  Float                @default(10)
+  isOpen               Boolean              @default(true)
+  isVerified           Boolean              @default(false)
+  acceptsReservations  Boolean              @default(false)
+  hasTableService      Boolean              @default(false)
+  openingHours         Json?
+  deliveryZones        Json?
+  specialDiets         Json?
+  features             Json?
+  apiKey               String?              @unique
+  businessLicense      String?
+  foodLicense          String?
+  restaurantFront      String?
+  kitchenPhoto         String?
+  menuSample           String?
+  businessRegistration String?
+  foodHandlersCert     String?
+  fireServiceCert      String?
+  seatingCapacity      String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  favoriteRestaurants  FavoriteRestaurant[]
+  menuCategories       MenuCategory[]
+  menuItems            MenuItem[]
+  foodOrders           Order[]              @relation("FoodOrders")
+  restaurantOffers     RestaurantOffer[]
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews              Review[]
+  multiplePickups      MultiplePickup[]
+
+  @@map("restaurants")
+}
+
+model MenuCategory {
+  id           String     @id @default(cuid())
+  restaurantId String
+  name         String
+  description  String?
+  templateId   String? // Link to Category.id (admin template)
+  sortOrder    Int        @default(0)
+  isActive     Boolean    @default(true)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  menuItems    MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id              String              @id @default(cuid())
+  restaurantId    String
+  categoryId      String?
+  name            String
+  description     String?
+  price           Float
+  compareAtPrice  Float?
+  preparationTime Int
+  calories        Int?
+  ingredients     Json?
+  allergens       Json?
+  spiceLevel      SpiceLevel          @default(MILD)
+  images          Json?
+  variants        Json? // Array of variant objects: [{name, price, isDefault}]
+  addOns          Json? // Array of addon objects: [{name, price, isRequired, maxQuantity}]
+  isVegetarian    Boolean             @default(false)
+  isVegan         Boolean             @default(false)
+  isGlutenFree    Boolean             @default(false)
+  isAvailable     Boolean             @default(true)
+  isFeatured      Boolean             @default(false)
+  isPopular       Boolean             @default(false)
+  tags            Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  customizations  FoodCustomization[]
+  category        MenuCategory?       @relation(fields: [categoryId], references: [id])
+  restaurant      Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@map("menu_items")
+}
+
+model FoodCustomization {
+  id         String   @id @default(cuid())
+  userId     String
+  menuItemId String
+  name       String?
+  createdAt  DateTime @default(now())
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("food_customizations")
+}
+
+model FavoriteRestaurant {
+  id           String     @id @default(cuid())
+  userId       String
+  restaurantId String
+  createdAt    DateTime   @default(now())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, restaurantId])
+  @@map("favorite_restaurants")
+}
+
+model RestaurantOffer {
+  id             String     @id @default(cuid())
+  restaurantId   String
+  title          String
+  description    String?
+  discountType   PromoType
+  discountValue  Float
+  minOrderAmount Float?
+  maxDiscount    Float?
+  itemName       String?
+  itemPrice      Float?
+  bundleItems    Json?
+  images         Json?
+  /// REGULAR | FLASH | MYSTERY
+  promoKind      String?    @default("REGULAR")
+  mysteryTeaser  String?
+  /// PENDING | APPROVED | REJECTED — admin moderation for MYSTERY / FLASH offers
+  approvalStatus String?    @default("APPROVED")
+  rejectionNote  String?
+  isActive       Boolean    @default(true)
+  startsAt       DateTime
+  expiresAt      DateTime
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt @default(now())
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, promoKind])
+  @@index([approvalStatus])
+  @@map("restaurant_offers")
+}
+
+model EmailLog {
+  id               String               @id @default(cuid())
+  userId           String
+  campaignId       String?
+  channel          CommunicationChannel
+  messageType      String
+  subject          String?
+  content          String
+  status           CommunicationStatus
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  openedAt         DateTime?
+  clickedAt        DateTime?
+  failedAt         DateTime?
+  errorMessage     String?
+  externalId       String?
+  phoneNumber      String?
+  emailAddress     String?
+  deviceToken      String?
+  trackingPixel    String?
+  clickTrackingUrl String?
+  unsubscribeUrl   String?
+  createdAt        DateTime             @default(now())
+  clickedLink      String?
+  campaign         MarketingCampaign?   @relation(fields: [campaignId], references: [id])
+  user             User                 @relation("UserEmailLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel])
+  @@index([campaignId])
+  @@map("email_logs")
+}
+
+model GroceryStore {
+  id                    String                 @id @default(cuid())
+  userId                String                 @unique
+  storeName             String
+  description           String?
+  address               String
+  phone                 String
+  email                 String?
+  website               String?
+  logo                  String?
+  coverImage            String?
+  latitude              Float?
+  longitude             Float?
+  rating                Float                  @default(0)
+  totalReviews          Int                    @default(0)
+  totalOrders           Int                    @default(0)
+  deliveryFee           Float
+  minOrderAmount        Float                  @default(0)
+  maxDeliveryDistance   Float                  @default(15)
+  isOpen                Boolean                @default(true)
+  isVerified            Boolean                @default(false)
+  openingHours          Json?
+  deliveryZones         Json?
+  storeType             Json?
+  apiKey                String?                @unique
+  businessLicense       String?
+  tradeLicense          String?
+  storeFront            String?
+  storeInterior         String?
+  productSample         String?
+  businessRegistration  String?
+  healthPermit          String?
+  storeSize             String?
+  numberOfEmployees     String?
+  productCategories     Json?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  products              GroceryProduct[]
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groceryOrders         Order[]                @relation("GroceryOrders")
+  reviews               Review[]
+  favoriteGroceryStores FavoriteGroceryStore[]
+  groceryOffers         GroceryOffer[]
+  multiplePickups       MultiplePickup[]
+
+  @@map("grocery_stores")
+}
+
+model GroceryProduct {
+  id             String       @id @default(cuid())
+  storeId        String
+  name           String
+  description    String?
+  brand          String?
+  category       String
+  subcategory    String?
+  price          Float
+  compareAtPrice Float?
+  unit           String
+  unitSize       Float?
+  stock          Int
+  minStock       Int          @default(10)
+  barcode        String?
+  sku            String?
+  weight         Float?
+  dimensions     Json?
+  images         Json?
+  nutritionFacts Json?
+  ingredients    Json?
+  allergens      Json?
+  expiryDate     DateTime?
+  isOrganic      Boolean      @default(false)
+  isFrozen       Boolean      @default(false)
+  isActive       Boolean      @default(true)
+  isFeatured     Boolean      @default(false)
+  tags           Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  store          GroceryStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("grocery_products")
+}
+
+model FavoriteGroceryStore {
+  id        String       @id @default(cuid())
+  userId    String
+  storeId   String
+  createdAt DateTime     @default(now())
+  store     GroceryStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@map("favorite_grocery_stores")
+}
+
+model GroceryOffer {
+  id             String       @id @default(cuid())
+  storeId        String
+  title          String
+  description    String?
+  discountType   PromoType
+  discountValue  Float
+  minOrderAmount Float?
+  maxDiscount    Float?
+  itemName       String?
+  itemPrice      Float?
+  bundleItems    Json?
+  images         Json?
+  /// REGULAR | FLASH | MYSTERY — vendor-controlled promotion style
+  promoKind      String?      @default("REGULAR")
+  mysteryTeaser  String?
+  /// PENDING | APPROVED | REJECTED — admin moderation for MYSTERY / FLASH offers
+  approvalStatus String?      @default("APPROVED")
+  rejectionNote  String?
+  isActive       Boolean      @default(true)
+  startsAt       DateTime
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt @default(now())
+  store          GroceryStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, promoKind])
+  @@index([approvalStatus])
+  @@map("grocery_offers")
+}
+
+model ReorderSuggestion {
+  id                String   @id @default(cuid())
+  userId            String
+  productId         String
+  productName       String
+  lastOrderDate     DateTime
+  frequency         Int
+  nextSuggestedDate DateTime
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reorder_suggestions")
+}
+
+model DeliverySchedule {
+  id           String            @id @default(cuid())
+  userId       String
+  title        String
+  frequency    ScheduleFrequency
+  dayOfWeek    Int?
+  dayOfMonth   Int?
+  time         String
+  isActive     Boolean           @default(true)
+  nextDelivery DateTime?
+  products     Json?
+  addressId    String?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_schedules")
+}
+
+model SavedMealPlan {
+  id                     String    @id @default(cuid())
+  userId                 String
+  module                 Module
+  title                  String
+  planType               String    @default("WEEKLY")
+  aiReply                String?
+  items                  Json
+  meals                  Json?
+  isActive               Boolean   @default(true)
+  dietPreference         String?
+  recurrenceIntervalDays Int?
+  nextRunAt              DateTime?
+  lastReminderAt         DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, module])
+  @@index([isActive, nextRunAt])
+  @@map("saved_meal_plans")
+}
+
+model RiderProfile {
+  id                  String               @id @default(cuid())
+  userId              String               @unique
+  vehicleType         VehicleType
+  vehicleBrand        String
+  vehicleModel        String
+  vehicleYear         String
+  vehicleColor        String
+  licensePlate        String
+  vehiclePhotos       Json?
+  licenseNumber       String
+  licenseExpiry       DateTime
+  licensePhoto        String?
+  insurance           String?
+  insuranceExpiry     DateTime?
+  insurancePhoto      String?
+  status              RiderStatus          @default(PENDING)
+  nationalId          String?
+  nationalIdPhoto     String?
+  selfiePhoto         String?
+  backgroundCheck     String?
+  serviceTypes        Json?
+  modules             Json?
+  maxDeliveryDistance Float                @default(15)
+  isAvailable         Boolean              @default(false)
+  currentLocation     Json?
+  lastLocationUpdate  DateTime?
+  rating              Float                @default(0)
+  totalRides          Int                  @default(0)
+  totalDeliveries     Int                  @default(0)
+  totalEarnings       Float                @default(0)
+  completionRate      Float                @default(0)
+  cancellationRate    Float                @default(0)
+  averageRating       Float                @default(0)
+  isVerified          Boolean              @default(false)
+  isApproved          Boolean              @default(false)
+  verificationNotes   String?
+  approvedAt          DateTime?
+  approvedBy          String?
+  workingHours        Json?
+  deliveryZones       Json?
+  emergencyContact    String?
+  bankDetails         Json?
+  documentsComplete   Boolean              @default(false)
+  documentsVerified   Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  isOnline            DateTime             @default(now())
+  bookings            CourierBooking[]     @relation("RiderProfileToCourierBooking")
+  reviews             Review[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  onlineSessions      RiderOnlineSession[]
+
+  @@map("rider_profiles")
+}
+
+model RiderOnlineSession {
+  id        String       @id @default(cuid())
+  riderId   String
+  startTime DateTime
+  endTime   DateTime?
+  rider     RiderProfile @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+}
+
+model CourierBooking {
+  id                 String            @id @default(cuid())
+  bookingNumber      String            @unique
+  customerId         String
+  riderId            String?
+  rideTypeId         String
+  riderProfileId     String?
+  pickupAddress      String
+  pickupLatitude     Float
+  pickupLongitude    Float
+  dropAddress        String
+  dropLatitude       Float
+  dropLongitude      Float
+  distance           Float
+  estimatedTime      Int
+  fare               Float
+  status             CourierStatus     @default(REQUESTED)
+  paymentStatus      PaymentStatus     @default(PENDING)
+  paymentMethod      String?
+  notes              String?
+  recipientName      String?
+  recipientPhone     String?
+  packageType        String?
+  packageWeight      Float?
+  isFragile          Boolean           @default(false)
+  scheduledAt        DateTime?
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  customerRating     Int?
+  riderRating        Int?
+  customerReview     String?
+  riderReview        String?
+  pickupId           String?
+  orderId            String? // Optional link to order for pharmacy cart deliveries
+  module             String? // RIDE, FOOD, GROCERY, PHARMACY, AUTO_PARTS - to distinguish booking types
+  customer           User              @relation("CourierCustomer", fields: [customerId], references: [id])
+  rider              User?             @relation("CourierRider", fields: [riderId], references: [id])
+  riderProfile       RiderProfile?     @relation("RiderProfileToCourierBooking", fields: [riderProfileId], references: [id])
+  rideType           RideType          @relation(fields: [rideTypeId], references: [id])
+  trackingUpdates    CourierTracking[]
+  supplierOrders     SupplierOrder[]   @relation("SupplierOrderCourier")
+  bids               CourierBid[]
+  deliveryQueues     DeliveryQueue[]
+  pharmacyPickups    PharmacyPickup[] // Multiple pharmacy pickups for multi-vendor orders
+  rideMessages       RideMessage[]
+  courierPromoUsages PromoCodeUsage[]  @relation("CourierPromoUsages")
+  multiplePickups    MultiplePickup[]
+  riderCommissions   RiderCommission[]
+
+  @@map("courier_bookings")
+}
+
+model MultiplePickup {
+  id               String  @id @default(cuid())
+  courierBookingId String? // Optional - can be created later when rider is assigned
+  orderId          String?
+
+  // Store identification - at least one must be set
+  restaurantId   String? // For food orders
+  groceryStoreId String? // For grocery orders
+  pharmacyId     String? // For pharmacy orders (future support)
+
+  // Store information (denormalized for performance)
+  storeName      String // Generic name (restaurantName, storeName, etc.)
+  storeAddress   String
+  storeLatitude  Float
+  storeLongitude Float
+  module         String? // GROCERY, FOOD, PHARMACY - for identification
+
+  // Route data
+  sequence             Int    @default(1) // Order of pickup in optimized route
+  distanceFromPrevious Float? // Distance from previous pickup (km)
+  durationFromPrevious Int? // Duration from previous pickup (seconds)
+
+  // Route metadata (stored at order level, but can be per-pickup for flexibility)
+  totalRouteDistance   Float? // Total route distance (km) - stored here for reference
+  totalRouteDuration   Int? // Total route duration (seconds)
+  routePolyline        String? // Encoded polyline for this segment
+  estimatedArrivalTime DateTime? // Estimated arrival time at this pickup
+
+  // Status tracking
+  status     String    @default("PENDING") // PENDING, PICKED_UP, SKIPPED, CANCELLED
+  pickedUpAt DateTime?
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  courierBooking CourierBooking? @relation(fields: [courierBookingId], references: [id], onDelete: Cascade)
+  restaurant     Restaurant?     @relation(fields: [restaurantId], references: [id])
+  groceryStore   GroceryStore?   @relation(fields: [groceryStoreId], references: [id])
+  order          Order?          @relation(fields: [orderId], references: [id])
+
+  @@map("multiple_pickups")
+}
+
+model PharmacyPickup {
+  id                String         @id @default(cuid())
+  courierBookingId  String
+  pharmacyId        String
+  pharmacyName      String
+  pharmacyAddress   String
+  pharmacyLatitude  Float
+  pharmacyLongitude Float
+  pickupOrder       Int            @default(1) // Order in which to pick up (1st, 2nd, etc.)
+  items             Json // Array of items to pick up from this pharmacy
+  status            String         @default("PENDING") // PENDING, PICKED_UP, FAILED
+  pickedUpAt        DateTime?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  courierBooking    CourierBooking @relation(fields: [courierBookingId], references: [id], onDelete: Cascade)
+  pharmacy          Pharmacy       @relation(fields: [pharmacyId], references: [id])
+
+  @@map("pharmacy_pickups")
+}
+
+model CourierTracking {
+  id        String         @id @default(cuid())
+  bookingId String
+  status    CourierStatus
+  latitude  Float?
+  longitude Float?
+  notes     String?
+  timestamp DateTime       @default(now())
+  booking   CourierBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("courier_tracking")
+}
+
+model RideType {
+  id              String           @id @default(cuid())
+  name            String
+  description     String?
+  icon            String
+  basePrice       Float
+  pricePerKm      Float
+  pricePerKg      Float            @default(0)
+  pricePerMinute  Float            @default(0)
+  capacity        String
+  features        Json?
+  weightRanges    Json?
+  vehicleType     VehicleType
+  category        RideTypeCategory @default(RIDE)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  rideBookings    RideBooking[]
+  courierbookings CourierBooking[]
+
+  @@map("ride_types")
+}
+
+model RideBooking {
+  id                String            @id @default(cuid())
+  bookingNumber     String            @unique
+  customerId        String
+  riderId           String?
+  rideTypeId        String
+  pickupAddress     String
+  pickupLatitude    Float
+  pickupLongitude   Float
+  pickupLandmark    String?
+  dropAddress       String
+  dropLatitude      Float
+  dropLongitude     Float
+  dropLandmark      String?
+  distance          Float
+  estimatedTime     Int
+  estimatedFare     Float
+  finalFare         Float?
+  surgePricing      Float             @default(1.0)
+  status            RideStatus        @default(REQUESTED)
+  paymentStatus     PaymentStatus     @default(PENDING)
+  paymentMethod     String?
+  passengerCount    Int               @default(1)
+  passengerPhone    String?
+  specialRequests   String?
+  packageType       String?
+  packageWeight     Float?
+  isFragile         Boolean           @default(false)
+  recipientName     String?
+  recipientPhone    String?
+  requestedAt       DateTime          @default(now())
+  scheduledAt       DateTime?
+  acceptedAt        DateTime?
+  arrivedAt         DateTime?
+  pickedUpAt        DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  customerRating    Int?
+  riderRating       Int?
+  customerReview    String?
+  riderReview       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  rideBookingOrders Order[]           @relation("RideBookingOrders")
+  rideBids          RideBid[]
+  customer          User              @relation("CustomerRideBookings", fields: [customerId], references: [id])
+  rideType          RideType          @relation(fields: [rideTypeId], references: [id])
+  rider             User?             @relation("RiderBookings", fields: [riderId], references: [id])
+  rideMessages      RideMessage[]
+  rideTracking      RideTracking[]
+  riderCommissions  RiderCommission[]
+  ridePromoUsages   PromoCodeUsage[]  @relation("RidePromoUsages")
+
+  @@map("ride_bookings")
+}
+
+model RideBid {
+  id            String      @id @default(cuid())
+  rideBookingId String
+  riderId       String
+  bidAmount     Float
+  estimatedTime Int
+  message       String?
+  status        BidStatus   @default(PENDING)
+  expiresAt     DateTime
+  createdAt     DateTime    @default(now())
+  rideBooking   RideBooking @relation(fields: [rideBookingId], references: [id], onDelete: Cascade)
+  rider         User        @relation("RiderBids", fields: [riderId], references: [id])
+
+  @@map("ride_bids")
+}
+
+model CourierBid {
+  id               String         @id @default(cuid())
+  courierBookingId String
+  riderId          String
+  bidAmount        Float
+  estimatedTime    Int
+  message          String?
+  status           BidStatus      @default(PENDING)
+  expiresAt        DateTime
+  createdAt        DateTime       @default(now())
+  courierBooking   CourierBooking @relation(fields: [courierBookingId], references: [id], onDelete: Cascade)
+  rider            User           @relation("CourierBids", fields: [riderId], references: [id])
+
+  @@map("courier_bids")
+}
+
+model RideTracking {
+  id            String      @id @default(cuid())
+  rideBookingId String
+  latitude      Float
+  longitude     Float
+  heading       Float?
+  speed         Float?
+  status        RideStatus
+  notes         String?
+  timestamp     DateTime    @default(now())
+  rideBooking   RideBooking @relation(fields: [rideBookingId], references: [id], onDelete: Cascade)
+
+  @@map("ride_tracking")
+}
+
+model RideMessage {
+  id                String          @id @default(cuid())
+  rideBookingId     String?
+  courierBookingId  String?
+  senderId          String
+  message           String
+  messageType       MessageType     @default(TEXT)
+  fileUrl           String?
+  isRead            Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  rideMessageOrders Order[]         @relation("RideMessageOrders")
+  rideBooking       RideBooking?    @relation(fields: [rideBookingId], references: [id], onDelete: Cascade)
+  courierBooking    CourierBooking? @relation(fields: [courierBookingId], references: [id], onDelete: Cascade)
+  sender            User            @relation("RideMessageSender", fields: [senderId], references: [id])
+
+  @@map("ride_messages")
+}
+
+model RiderEarning {
+  id            String        @id @default(cuid())
+  riderId       String
+  rideBookingId String?
+  orderId       String?
+  type          EarningType
+  amount        Float
+  commission    Float
+  netAmount     Float
+  status        EarningStatus @default(PENDING)
+  description   String?
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  rider         User          @relation("RiderEarnings", fields: [riderId], references: [id])
+
+  @@map("rider_earnings")
+}
+
+model RiderCashout {
+  id          String        @id @default(cuid())
+  riderId     String
+  amount      Float
+  bankDetails Json?
+  status      CashoutStatus @default(PENDING)
+  processedAt DateTime?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  rider       User          @relation("RiderCashouts", fields: [riderId], references: [id])
+
+  @@map("rider_cashouts")
+}
+
+model Review {
+  id          String           @id @default(cuid())
+  userId      String
+  targetId    String
+  targetType  ReviewTarget
+  orderId     String?
+  pharmacyId  String?
+  foodId      String?
+  bookingID   String?
+  autoPartId  String?
+  groceryId   String?
+  riderId     String?
+  mechanicId  String?
+  productId   String?
+  rating      Int
+  title       String?
+  comment     String?
+  images      Json?
+  isVerified  Boolean          @default(false)
+  isHelpful   Int              @default(0)
+  response    String?
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  autoPart    AutoPart?        @relation(fields: [autoPartId], references: [id])
+  food        Restaurant?      @relation(fields: [foodId], references: [id])
+  grocery     GroceryStore?    @relation(fields: [groceryId], references: [id])
+  order       Order?           @relation(fields: [orderId], references: [id])
+  pharmacy    Pharmacy?        @relation(fields: [pharmacyId], references: [id])
+  product     Product?         @relation("ProductReviews", fields: [productId], references: [id])
+  rider       RiderProfile?    @relation(fields: [riderId], references: [id])
+  mechanic    MechanicProfile? @relation(fields: [mechanicId], references: [id])
+  target      User             @relation("ReviewTarget", fields: [targetId], references: [id])
+  user        User             @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+model Notification {
+  id          String             @id @default(cuid())
+  userId      String
+  title       String
+  message     String
+  type        NotificationType
+  module      Module?
+  data        Json?
+  imageUrl    String?
+  actionUrl   String?
+  isRead      Boolean            @default(false)
+  isArchived  Boolean            @default(false)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime           @default(now())
+  campaignId  String?
+  clickedAt   DateTime?
+  status      String?
+  campaign    MarketingCampaign? @relation("CampaignNotifications", fields: [campaignId], references: [id])
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model SupportTicket {
+  id           String               @id @default(cuid())
+  userId       String
+  ticketNumber String               @unique
+  subject      String
+  description  String
+  category     String
+  priority     TicketPriority       @default(MEDIUM)
+  status       TicketStatus         @default(OPEN)
+  assignedTo   String?
+  resolution   String?
+  attachments  Json?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies      SupportTicketReply[]
+
+  @@map("support_tickets")
+}
+
+model SupportTicketReply {
+  id          String        @id @default(cuid())
+  ticketId    String
+  userId      String
+  message     String
+  isAdmin     Boolean       @default(false)
+  attachments Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("support_ticket_replies")
+}
+
+model FAQ {
+  id         String   @id @default(cuid())
+  question   String
+  answer     String
+  category   String
+  isActive   Boolean  @default(true)
+  order      Int      @default(0)
+  views      Int      @default(0)
+  helpful    Int      @default(0)
+  notHelpful Int      @default(0)
+  tags       Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+enum TemplateModule {
+  GLOBAL
+  PHARMACY
+  FOOD
+  GROCERY
+  AUTO_PARTS
+  RIDING
+  DELIVERY
+  ADMIN
+}
+
+enum EmailTemplateCategory {
+  VERIFICATION
+  NOTIFICATION
+  MARKETING
+  TRANSACTIONAL
+  SUPPORT
+  WELCOME
+  ORDER_CONFIRMATION
+  ORDER_STATUS
+  PAYMENT
+  ACCOUNT
+  RESET_PASSWORD
+  INVITATION
+  REMINDER
+  PROMOTIONAL
+  NEWSLETTER
+  FEEDBACK
+}
+
+enum SmsTemplateCategory {
+  OTP
+  NOTIFICATION
+  ALERT
+  REMINDER
+  ORDER_UPDATE
+  PAYMENT
+  DELIVERY
+  VERIFICATION
+  MARKETING
+  PROMOTIONAL
+}
+
+model EmailTemplate {
+  id          String                @id @default(cuid())
+  templateKey String                @unique // Immutable unique identifier (e.g., "PHARMACY_ORDER_CONFIRMATION")
+  name        String // Human-readable name (can be changed)
+  subject     String
+  htmlContent String                @db.Text
+  textContent String?               @db.Text
+  variables   Json // Array of variable names that can be used in template
+  category    EmailTemplateCategory
+  module      TemplateModule        @default(GLOBAL) // Which module this template belongs to
+  description String?
+  isActive    Boolean               @default(true)
+  isDefault   Boolean               @default(false) // If true, this is the default template for this category+module
+  isSystem    Boolean               @default(false) // If true, cannot be deleted (only deactivated)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  createdBy   String?
+  lastUsedAt  DateTime?
+
+  @@unique([category, module, templateKey]) // Only one default per category+module
+  @@index([templateKey])
+  @@index([module, category])
+  @@map("email_templates")
+}
+
+model SmsTemplate {
+  id          String              @id @default(cuid())
+  templateKey String              @unique // Immutable unique identifier (e.g., "PHARMACY_ORDER_SHIPPED")
+  name        String // Human-readable name (can be changed)
+  content     String              @db.Text
+  variables   Json // Array of variable names that can be used in template
+  category    SmsTemplateCategory
+  module      TemplateModule      @default(GLOBAL) // Which module this template belongs to
+  description String?
+  isActive    Boolean             @default(true)
+  isDefault   Boolean             @default(false) // If true, this is the default template for this category+module
+  isSystem    Boolean             @default(false) // If true, cannot be deleted (only deactivated)
+  maxLength   Int                 @default(160) // SMS character limit
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  createdBy   String?
+  lastUsedAt  DateTime?
+
+  @@unique([category, module, isDefault]) // Only one default per category+module
+  @@index([templateKey])
+  @@index([module, category])
+  @@map("sms_templates")
+}
+
+model LoyaltyReward {
+  id                 String             @id @default(cuid())
+  title              String
+  description        String?
+  pointsRequired     Int
+  rewardType         RewardType
+  rewardValue        Float?
+  maxRedemptions     Int?
+  currentRedemptions Int                @default(0)
+  isActive           Boolean            @default(true)
+  validFrom          DateTime           @default(now())
+  validUntil         DateTime?
+  modules            Json?
+  terms              String?
+  image              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  redemptions        RewardRedemption[]
+
+  @@map("loyalty_rewards")
+}
+
+model LoyaltyTransaction {
+  id          String                 @id @default(cuid())
+  userId      String
+  type        LoyaltyTransactionType
+  points      Int
+  description String
+  orderId     String?
+  rewardId    String?
+  expiresAt   DateTime?
+  createdAt   DateTime               @default(now())
+  user        User                   @relation("UserLoyaltyTransactions", fields: [userId], references: [id])
+
+  @@map("loyalty_transactions")
+}
+
+model RewardRedemption {
+  id         String           @id @default(cuid())
+  userId     String
+  rewardId   String
+  pointsUsed Int
+  status     RedemptionStatus @default(ACTIVE)
+  orderId    String?
+  usedAt     DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime         @default(now())
+  reward     LoyaltyReward    @relation(fields: [rewardId], references: [id])
+  user       User             @relation("UserRedemptions", fields: [userId], references: [id])
+
+  @@map("reward_redemptions")
+}
+
+model WalletTransaction {
+  id          String                  @id @default(cuid())
+  userId      String
+  type        WalletTransactionType
+  amount      Float
+  balance     Float
+  description String
+  reference   String?
+  orderId     String?
+  status      WalletTransactionStatus @default(COMPLETED)
+  metadata    Json?
+  createdAt   DateTime                @default(now())
+  user        User                    @relation("UserWalletTransactions", fields: [userId], references: [id])
+
+  @@map("wallet_transactions")
+}
+
+model VendorBankAccount {
+  id                 String                 @id @default(cuid())
+  vendorId           String
+  bankName           String
+  accountNumber      String
+  accountName        String
+  routingNumber      String?
+  swiftCode          String?
+  bankCode          String?
+  branchCode         String?
+  accountType        String                 @default("checking")
+  currency           String                 @default("USD")
+  isPrimary          Boolean                @default(false)
+  isVerified         Boolean                @default(false)
+  verificationStatus BankVerificationStatus @default(PENDING)
+  verificationNotes  String?
+  verifiedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  vendor             User                   @relation("VendorBankAccounts", fields: [vendorId], references: [id])
+  withdrawals        VendorWithdrawal[]
+
+  @@map("vendor_bank_accounts")
+}
+
+model VendorWithdrawal {
+  id              String            @id @default(cuid())
+  vendorId        String
+  bankAccountId   String
+  amount          Float
+  currency        String            @default("USD")
+  status          WithdrawalStatus  @default(PENDING)
+  requestDate     DateTime          @default(now())
+  processedDate   DateTime?
+  completedDate   DateTime?
+  rejectedDate    DateTime?
+  rejectionReason String?
+  transactionId   String?
+  fees            Float             @default(0)
+  netAmount       Float?
+  notes           String?
+  processedBy     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  bankAccount     VendorBankAccount @relation(fields: [bankAccountId], references: [id])
+  vendor          User              @relation("VendorWithdrawals", fields: [vendorId], references: [id])
+
+  @@map("vendor_withdrawals")
+}
+
+model Product {
+  id                     String                 @id @default(cuid())
+  vendorId               String
+  type                   ProductType
+  name                   String
+  description            String?
+  price                  Float
+  comparePrice           Float?
+  categoryId             String?
+  subcategoryId          String?
+  brand                  String?
+  sku                    String?
+  returnPolicy           String?
+  warranty               String?
+  barcode                String?
+  weight                 Float?
+  weightUnit             String?
+  stockQuantity          Int                    @default(0)
+  minStockLevel          Int                    @default(5)
+  maxStockLevel          Int?
+  images                 Json?
+  isActive               Boolean                @default(true)
+  isFeatured             Boolean                @default(false)
+  tags                   Json?
+  nutritionInfo          Json?
+  storageInstructions    String?
+  expiryDate             DateTime?
+  manufacturingDate      DateTime?
+  origin                 String?
+  vehicleCompatibilities Json? // Array of { make, model, year, variant? }
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  inventoryTransactions  InventoryTransaction[]
+
+  category    Category?    @relation(fields: [categoryId], references: [id])
+  subcategory Subcategory? @relation(fields: [subcategoryId], references: [id])
+  vendor      User         @relation("VendorProducts", fields: [vendorId], references: [id])
+  reviews     Review[]     @relation("ProductReviews")
+
+  @@map("products")
+}
+
+model Category {
+  id            String        @id @default(cuid())
+  name          String
+  description   String?
+  icon          String?
+  image         String?
+  parentId      String?
+  module        Module
+  sortOrder     Int           @default(0)
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  parent        Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children      Category[]    @relation("CategoryHierarchy")
+  products      Product[]
+  subcategories Subcategory[]
+
+  @@map("categories")
+}
+
+model Subcategory {
+  id          String    @id @default(cuid())
+  categoryId  String
+  name        String
+  description String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+  category    Category  @relation(fields: [categoryId], references: [id])
+
+  @@map("subcategories")
+}
+
+model InventoryTransaction {
+  id        String                   @id @default(cuid())
+  productId String
+  vendorId  String
+  type      InventoryTransactionType
+  quantity  Int
+  reason    String
+  reference String?
+  notes     String?
+  createdAt DateTime                 @default(now())
+  product   Product                  @relation(fields: [productId], references: [id])
+
+  @@map("inventory_transactions")
+}
+
+model Conversation {
+  id         String    @id @default(cuid())
+  customerId String
+  vendorId   String?
+  riderId    String?
+  module     Module
+  orderId    String?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  customer   User      @relation("CustomerConversations", fields: [customerId], references: [id])
+  rider      User?     @relation("RiderConversations", fields: [riderId], references: [id])
+  vendor     User?     @relation("VendorConversations", fields: [vendorId], references: [id])
+  messages   Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  messageType    MessageType  @default(TEXT)
+  attachments    Json?
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+model BankAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  accountHolderName String
+  bankName          String
+  accountNumber     String
+  routingNumber     String?
+  swiftCode         String?
+  accountType       String
+  isDefault         Boolean  @default(false)
+  isVerified        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation("UserBankAccounts", fields: [userId], references: [id])
+
+  @@map("bank_accounts")
+}
+
+model VendorProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  businessName    String
+  businessType    String
+  businessLicense String?
+  taxId           String?
+  description     String?
+  website         String?
+  logo            String?
+  coverImage      String?
+  address         String
+  city            String
+  state           String
+  latitude        Float?
+  longitude       Float?
+  vehicleMakes    Json? // Array of vehicle makes the vendor sells parts for (e.g., ["Toyota", "Honda", "Ford"])
+  categories      Json? // Array of category IDs the vendor specializes in
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation("UserVendorProfile", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_profiles")
+}
+
+model AdminProfile {
+  id               String      @id @default(cuid())
+  userId           String      @unique
+  department       String?
+  permissions      Json?
+  status           AdminStatus @default(ACTIVE)
+  hireDate         DateTime?
+  salary           Float?
+  emergencyContact String?
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  user             User        @relation("AdminProfile", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entityType  String
+  entityId    String
+  details     Json?
+  performedBy String
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  performer   User     @relation("AuditLogs", fields: [performedBy], references: [id])
+
+  @@map("audit_logs")
+}
+
+model KycRejection {
+  id              String    @id @default(cuid())
+  entityType      String // PHARMACY, RIDER, AUTO_PARTS, FOOD, GROCERY
+  entityId        String
+  userId          String
+  rejectionReason String
+  rejectedFields  Json? // Array of field names that have issues
+  rejectedBy      String
+  rejectedAt      DateTime  @default(now())
+  isResolved      Boolean   @default(false)
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  rejectedByUser  User      @relation("KycRejections", fields: [rejectedBy], references: [id])
+  user            User      @relation("UserKycRejections", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([isResolved])
+  @@map("kyc_rejections")
+}
+
+model SystemSettings {
+  id                          Int      @id @default(1)
+  appName                     String   @default("Kilo Super App")
+  appVersion                  String   @default("1.0.0")
+  timezone                    String   @default("Africa/Lagos")
+  language                    String   @default("en")
+  currency                    String   @default("NGN")
+  dateFormat                  String   @default("DD/MM/YYYY")
+  maintenanceMode             Boolean  @default(false)
+  maintenanceMessage          String?
+  passwordMinLength           Int      @default(8)
+  passwordRequireUppercase    Boolean  @default(true)
+  passwordRequireLowercase    Boolean  @default(true)
+  passwordRequireNumbers      Boolean  @default(true)
+  passwordRequireSpecialChars Boolean  @default(true)
+  passwordMaxAge              Int      @default(90)
+  sessionTimeout              Int      @default(480)
+  maxLoginAttempts            Int      @default(5)
+  lockoutDuration             Int      @default(30)
+  twoFactorRequired           Boolean  @default(false)
+  ipWhitelist                 Json?
+  emailEnabled                Boolean  @default(true)
+  smsEnabled                  Boolean  @default(true)
+  pushEnabled                 Boolean  @default(true)
+  emailProvider               String   @default("sendgrid")
+  smsProvider                 String   @default("twilio")
+  defaultSender               String   @default("Kilo Super App")
+  bravoEmail                  String? // BCC email for monitoring/admin copies
+  smtpHost                    String? // SMTP server host
+  smtpPort                    Int? // SMTP server port
+  smtpUser                    String? // SMTP username
+  smtpPass                    String? // SMTP password (encrypted)
+  smtpSecure                  Boolean  @default(true) // Use SSL/TLS
+  smtpFrom                    String? // From email address
+  smtpRejectUnauthorized      Boolean  @default(false) // TLS reject unauthorized
+  brevoApiKey                 String? // Brevo API key
+  sendgridApiKey              String? // SendGrid API key
+  mailgunApiKey               String? // Mailgun API key
+  mailgunDomain               String? // Mailgun domain
+  sesAccessKeyId              String? // AWS SES Access Key ID
+  sesSecretAccessKey          String? // AWS SES Secret Access Key
+  sesRegion                   String? // AWS SES Region (e.g., us-east-1)
+  twilioAccountSid            String? // Twilio Account SID
+  twilioAuthToken             String? // Twilio Auth Token
+  twilioPhoneNumber           String? // Twilio Phone Number
+  nexmoApiKey                 String? // Nexmo/Vonage API key
+  nexmoApiSecret              String? // Nexmo/Vonage API secret
+  nexmoFromNumber             String? // Nexmo From Number
+  africasTalkingApiKey        String? // Africa's Talking API key
+  africasTalkingUsername      String? // Africa's Talking username
+  welcomeTemplate             String?
+  orderConfirmationTemplate   String?
+  passwordResetTemplate       String?
+  defaultCurrency             String   @default("NGN")
+  pharmacyCommission          Float    @default(5.0)
+  autoPartsCommission         Float    @default(3.0)
+  foodCommission              Float    @default(15.0)
+  groceryCommission           Float    @default(8.0)
+  ridingCommission            Float    @default(20.0)
+  paymentMethods              Json?
+  minimumWithdrawal           Float    @default(1000)
+  withdrawalFee               Float    @default(50)
+  processingTime              String   @default("1-3 business days")
+  pharmacyEnabled             Boolean  @default(true)
+  pharmacyAutoApproval        Boolean  @default(false)
+  pharmacyRequirePrescription Boolean  @default(true)
+  pharmacyDeliveryRadius      Float    @default(10)
+  autoPartsEnabled            Boolean  @default(true)
+  autoPartsAutoApproval       Boolean  @default(false)
+  autoPartsWarrantyRequired   Boolean  @default(true)
+  autoPartsReturnPeriod       Int      @default(30)
+  foodEnabled                 Boolean  @default(true)
+  foodAutoApproval            Boolean  @default(false)
+  foodMaxDeliveryTime         Int      @default(60)
+  foodQualityChecks           Boolean  @default(true)
+  groceryEnabled              Boolean  @default(true)
+  groceryAutoApproval         Boolean  @default(false)
+  groceryFreshnessPeriod      Int      @default(7)
+  groceryBulkOrders           Boolean  @default(true)
+  ridingEnabled               Boolean  @default(true)
+  ridingAutoApproval          Boolean  @default(false)
+  ridingBackgroundCheck       Boolean  @default(true)
+  ridingInsuranceRequired     Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  pricePerKm                  Float    @default(100.0)
+  bidExpire                   Int      @default(30)
+  minwithdraw                 Int      @default(10)
+  compnyinfo                  Json?
+
+  @@map("system_settings")
+}
+
+model LoyaltyPointSettings {
+  id                    String   @id @default(cuid())
+  module                Module
+  enabled               Boolean  @default(true)
+  formula               String   @default("orderAmount * 0.01")
+  minimumOrderAmount    Float?
+  maximumPointsPerOrder Int?
+  pointsExpiryDays      Int?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([module])
+  @@map("loyalty_point_settings")
+}
+
+model FoodSettings {
+  id              Int      @id @default(1)
+  spiceLevels     Json // Array of {value, label, description?, icon?, enabled}
+  commonAllergens Json // Array of {id, name, description?, enabled}
+  dietaryOptions  Json // Array of {value, label, icon?, enabled}
+  defaults        Json // {defaultPreparationTime, defaultSpiceLevel, requireCaloriesInfo, requireIngredientsInfo, allowCustomVariants, allowCustomAddOns}
+  validation      Json // {minPrice, maxPrice, minPreparationTime, maxPreparationTime, maxImagesPerItem, maxVariantsPerItem, maxAddOnsPerItem}
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("food_settings")
+}
+
+model FirebaseConfig {
+  id                String   @id @default(cuid())
+  projectId         String   @unique
+  projectName       String
+  apiKey            String
+  authDomain        String
+  storageBucket     String
+  messagingSenderId String
+  appId             String
+  measurementId     String?
+  isActive          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("firebase_config")
+}
+
+model CampaignSegments {
+  A                   String
+  B                   String
+  customer_segments   CustomerSegment   @relation(fields: [A], references: [id], onDelete: Cascade)
+  marketing_campaigns MarketingCampaign @relation(fields: [B], references: [id], onDelete: Cascade)
+
+  @@id([A, B], map: "_CampaignSegments_AB_pkey")
+  @@index([B], map: "_CampaignSegments_B_index")
+  @@map("_CampaignSegments")
+}
+
+enum SegmentType {
+  DEMOGRAPHIC
+  BEHAVIORAL
+  GEOGRAPHIC
+  PSYCHOGRAPHIC
+  TRANSACTIONAL
+  LIFECYCLE
+  VALUE_BASED
+  CUSTOM
+}
+
+enum BehaviorEventType {
+  APP_OPEN
+  APP_CLOSE
+  PAGE_VIEW
+  PRODUCT_VIEW
+  CATEGORY_VIEW
+  SEARCH
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  CHECKOUT_START
+  CHECKOUT_COMPLETE
+  ORDER_PLACED
+  ORDER_CANCELLED
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  REVIEW_SUBMITTED
+  SHARE_PRODUCT
+  WISHLIST_ADD
+  NOTIFICATION_OPENED
+  PUSH_NOTIFICATION_RECEIVED
+  EMAIL_OPENED
+  EMAIL_CLICKED
+  SMS_RECEIVED
+  REFERRAL_SENT
+  REFERRAL_COMPLETED
+  LOYALTY_POINTS_EARNED
+  LOYALTY_POINTS_REDEEMED
+  PROFILE_UPDATED
+  ADDRESS_ADDED
+  PAYMENT_METHOD_ADDED
+  SUPPORT_TICKET_CREATED
+  CHAT_INITIATED
+  CALL_INITIATED
+  LOCATION_SHARED
+  CAMERA_USED
+  VOICE_MESSAGE_SENT
+  FILE_UPLOADED
+  SOCIAL_LOGIN
+  BIOMETRIC_LOGIN
+  PASSWORD_RESET
+  ACCOUNT_DEACTIVATED
+  SUBSCRIPTION_STARTED
+  SUBSCRIPTION_CANCELLED
+  FEATURE_USED
+  ERROR_OCCURRED
+  CRASH_REPORTED
+  FEEDBACK_SUBMITTED
+  SURVEY_COMPLETED
+  PROMOTION_VIEWED
+  COUPON_APPLIED
+  DISCOUNT_USED
+  FREE_TRIAL_STARTED
+  UPGRADE_COMPLETED
+  DOWNGRADE_COMPLETED
+  CUSTOM_EVENT
+}
+
+enum CampaignType {
+  PROMOTIONAL
+  TRANSACTIONAL
+  BEHAVIORAL
+  LIFECYCLE
+  RETENTION
+  ACQUISITION
+  REACTIVATION
+  SEASONAL
+  FLASH_SALE
+  ANNOUNCEMENT
+  EDUCATIONAL
+  SURVEY
+  FEEDBACK
+  WELCOME_SERIES
+  ABANDONED_CART
+  WIN_BACK
+  REFERRAL
+  LOYALTY
+  BIRTHDAY
+  PROMO
+  ANNIVERSARY
+  CUSTOM
+}
+
+enum ABTestStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CommunicationChannel {
+  PUSH_NOTIFICATION
+  EMAIL
+  SMS
+  WHATSAPP
+  IN_APP_MESSAGE
+  PHONE_CALL
+  DIRECT_MAIL
+  SOCIAL_MEDIA
+  WEB_PUSH
+  SLACK
+  TELEGRAM
+  FACEBOOK_MESSENGER
+  CUSTOM
+}
+
+enum CommunicationStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  CONVERTED
+  BOUNCED
+  FAILED
+  UNSUBSCRIBED
+  SPAM_REPORTED
+  BLOCKED
+}
+
+enum CouponType {
+  SINGLE_USE
+  MULTI_USE
+  BULK_GENERATED
+  DYNAMIC
+  PERSONALIZED
+  REFERRAL
+  LOYALTY
+  SEASONAL
+  FLASH
+  WELCOME
+  RETENTION
+  WIN_BACK
+}
+
+enum ReferralType {
+  GENERAL
+  MODULE_SPECIFIC
+  PRODUCT_SPECIFIC
+  SEASONAL
+  VIP
+  INFLUENCER
+  EMPLOYEE
+  PARTNER
+}
+
+enum ReferralRewardStatus {
+  PENDING
+  QUALIFIED
+  REWARDED
+  EXPIRED
+  CANCELLED
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
+enum UserRole {
+  CUSTOMER
+  VENDOR
+  RIDER
+  ADMIN
+  SUPER_ADMIN
+  WHOLESALER
+  MECHANIC
+  AUTOPARTS
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum AddressType {
+  HOME
+  WORK
+  OTHER
+}
+
+enum PaymentType {
+  CREDIT_CARD
+  DEBIT_CARD
+  CARD
+  BANK
+  WALLET
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+}
+
+enum TransactionType {
+  PAYMENT
+  REFUND
+  WALLET_TOPUP
+  WALLET_DEDUCTION
+  COMMISSION
+  EARNING
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum LoyaltyType {
+  EARNED
+  REDEEMED
+  EXPIRED
+  BONUS
+}
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+enum Module {
+  AUTO_PARTS
+  PHARMACY
+  FOOD
+  GROCERY
+  RIDING
+  COURIER
+  WHOLESALER
+  MONEY_TRANSFER
+  ADMIN
+  CUSTOMER
+  WALLET
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  AWAITING_MECHANIC_OFFER
+  RIDER_ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  BIDDING
+  ARRIVED_AT_PICKUP
+  ARRIVED_AT_DROPOFF
+  WITHDRAWN
+  EXPIRED
+  EN_ROUTE_TO_PICKUP
+  EN_ROUTE_TO_DROPOFF
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum DeliveryType {
+  STANDARD
+  EXPRESS
+  SCHEDULED
+  PICKUP
+}
+
+enum PromoType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_DELIVERY
+  BUY_ONE_GET_ONE
+}
+
+enum PartCondition {
+  NEW
+  USED_LIKE_NEW
+  USED_GOOD
+  USED_FAIR
+  REFURBISHED
+  ANY
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RequestStatus {
+  OPEN
+  OFFERS_RECEIVED
+  ACCEPTED
+  CLOSED
+  EXPIRED
+  CANCELLED
+  COMPLETED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum MechanicServiceStatus {
+  PENDING
+  QUOTED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  REJECTED
+}
+
+enum MechanicServiceType {
+  ONLY_SERVICE
+  PICK_DELIVREY_AND_SERVICE
+}
+
+enum MechanicOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum MechanicQuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+  SUBMITTED
+}
+
+enum MedicineForm {
+  TABLET
+  CAPSULE
+  SYRUP
+  INJECTION
+  CREAM
+  OINTMENT
+  DROPS
+  INHALER
+  PATCH
+  SUPPOSITORY
+  POWDER
+  SACHET
+}
+
+enum OrderType {
+  QUOTE
+  CONFIRMED_ORDER
+}
+
+enum SupplierOrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  IMPORTED
+  QUOTE_SENT
+  QUOTE_RECEIVED
+  QUOTE_ACCEPTED
+  QUOTE_REJECTED
+}
+
+enum SupplierProductStatus {
+  PENDING
+  IMPORTED
+  PUBLISH
+  OUT_OF_STOCK
+}
+
+// Mechanic Models
+model MechanicProfile {
+  id                 String                   @id @default(cuid())
+  userId             String                   @unique
+  businessName       String
+  businessType       String // e.g., "Auto Repair Shop", "Mobile Mechanic"
+  businessLicense    String?
+  taxId              String?
+  description        String?
+  website            String?
+  logo               String?
+  coverImage         String?
+  address            String
+  city               String
+  state              String
+  latitude           Float?
+  longitude          Float?
+  phone              String?
+  email              String?
+  isVerified         Boolean                  @default(false)
+  isActive           Boolean                  @default(true)
+  rating             Float                    @default(0)
+  totalReviews       Int                      @default(0)
+  totalJobsCompleted Int                      @default(0)
+  yearsOfExperience  Int?
+  hourlyRate         Float?
+  serviceRadius      Float? // Service radius in km
+  availableFrom      String? // e.g., "09:00"
+  availableTo        String? // e.g., "18:00"
+  workingDays        Json? // Array of days: ["Monday", "Tuesday", ...]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  reviews            Review[]
+  user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expertise          MechanicExpertise[]
+  serviceRequests    MechanicServiceRequest[] @relation("MechanicServiceRequests")
+
+  @@map("mechanic_profiles")
+}
+
+model MechanicExpertise {
+  id                String   @id @default(cuid())
+  mechanicProfileId String
+  expertiseType     String // e.g., "Suspension", "Engine", "Transmission", "Electrical", "Brakes", "AC", "Diagnostics"
+  experienceYears   Int?
+  certification     String? // Certification name if any
+  isPrimary         Boolean  @default(false) // Primary specialization
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  mechanicProfile MechanicProfile @relation(fields: [mechanicProfileId], references: [id], onDelete: Cascade)
+
+  @@index([mechanicProfileId])
+  @@index([expertiseType])
+  @@map("mechanic_expertise")
+}
+
+model MechanicServiceRequest {
+  id                       String                @id @default(cuid())
+  customerId               String
+  mechanicId               String? // Null if not assigned yet
+  vehicleCheckId           String? // Reference to vehicle check/analysis
+  vehicleMake              String
+  vehicleModel             String
+  vehicleYear              String?
+  vehicleVariant           String?
+  metadata                 Json?
+  mileage                  Int?
+  issueDescription         String
+  diagnosedIssues          Json // AI diagnosis results
+  recommendedParts         Json // AI recommended parts list
+  recommendedMechanicTypes Json? // Types of mechanics needed
+  carHealthScore           Float? // 0-100 score from AI
+  images                   Json? // Array of image URLs
+  customerLatitude         Float?
+  customerLongitude        Float?
+  customerAddress          String?
+  customerCity             String?
+  type                     MechanicServiceType   @default(ONLY_SERVICE) // ONLY_SERVICE direct contact or preper by ai report OR PICK_DELIVREY_AND_SERVICE preper by part request 
+  status                   MechanicServiceStatus @default(PENDING)
+  urgency                  UrgencyLevel          @default(MEDIUM)
+  expiresAt                DateTime?
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  customer      User                   @relation("CustomerServiceRequests", fields: [customerId], references: [id], onDelete: Cascade)
+  mechanic      MechanicProfile?       @relation("MechanicServiceRequests", fields: [mechanicId], references: [id], onDelete: SetNull)
+  offers        MechanicOffer[]
+  notifications MechanicNotification[]
+  quote         MechanicQuote?         @relation("QuoteServiceRequests")
+
+  @@index([customerId])
+  @@index([mechanicId])
+  @@index([status])
+  @@index([customerCity])
+  @@map("mechanic_service_requests")
+}
+
+model MechanicOffer {
+  id               String              @id @default(cuid())
+  serviceRequestId String
+  mechanicId       String
+  partsList        Json // Array of parts with quantities and prices
+  serviceCharges   Float // Labor/service charges
+  diagnosticFee    Float? // Diagnostic fee if applicable
+  totalAmount      Float // Total (parts + service + diagnostic)
+  estimatedTime    String? // e.g., "2-3 hours", "1 day"
+  warranty         String? // Warranty information
+  notes            String? // Additional notes from mechanic
+  status           MechanicOfferStatus @default(PENDING)
+  expiresAt        DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  serviceRequest MechanicServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+  mechanic       User                   @relation("MechanicOffers", fields: [mechanicId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+  @@index([mechanicId])
+  @@index([status])
+  @@map("mechanic_offers")
+}
+
+model MechanicNotification {
+  id               String    @id @default(cuid())
+  mechanicId       String
+  serviceRequestId String
+  notificationType String // "NEW_REQUEST", "OFFER_ACCEPTED", "OFFER_REJECTED", etc.
+  title            String
+  message          String
+  isRead           Boolean   @default(false)
+  sentAt           DateTime  @default(now())
+  readAt           DateTime?
+
+  mechanic       User                   @relation("MechanicNotifications", fields: [mechanicId], references: [id], onDelete: Cascade)
+  serviceRequest MechanicServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([mechanicId])
+  @@index([serviceRequestId])
+  @@index([isRead])
+  @@index([sentAt])
+  @@map("mechanic_notifications")
+}
+
+// Mechanic Quote - Separate from service requests and offers
+// Customer requests a quote, mechanic submits quote with pricing, customer accepts → service request created
+model MechanicQuote {
+  id                String       @id @default(cuid())
+  customerId        String
+  mechanicId        String
+  vehicleMake       String
+  vehicleModel      String
+  vehicleYear       String?
+  issueDescription  String
+  customerLatitude  Float?
+  customerLongitude Float?
+  customerAddress   String?
+  customerCity      String?
+  urgency           UrgencyLevel @default(MEDIUM)
+
+  // Quote details from mechanic
+  partsList      Json? // Array of parts with quantities and prices (optional)
+  serviceCharges Float? // Labor/service charges (null until mechanic submits pricing)
+  diagnosticFee  Float? // Diagnostic fee if applicable
+  totalAmount    Float? // Total (parts + service + diagnostic) (null until mechanic submits pricing)
+  estimatedTime  String? // e.g., "2-3 hours", "1 day"
+  warranty       String? // Warranty information
+  notes          String? // Additional notes from mechanic
+
+  status           MechanicQuoteStatus @default(PENDING)
+  expiresAt        DateTime?
+  acceptedAt       DateTime? // When customer accepts the quote
+  serviceRequestId String?             @unique // Created service request ID after quote acceptance
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer       User                    @relation("CustomerQuotes", fields: [customerId], references: [id], onDelete: Cascade)
+  mechanic       User                    @relation("MechanicQuotes", fields: [mechanicId], references: [id], onDelete: Cascade)
+  serviceRequest MechanicServiceRequest? @relation("QuoteServiceRequests", fields: [serviceRequestId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([mechanicId])
+  @@index([status])
+  @@index([serviceRequestId])
+  @@map("mechanic_quotes")
+}
+
+enum PrescriptionStatus {
+  UPLOADED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  DISPENSED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  VOICE
+  PRESCRIPTION
+}
+
+enum PriceRange {
+  BUDGET
+  MODERATE
+  EXPENSIVE
+  LUXURY
+}
+
+enum SpiceLevel {
+  NONE
+  MILD
+  MEDIUM
+  HOT
+  EXTRA_HOT
+}
+
+enum ScheduleFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum VehicleType {
+  BICYCLE
+  MOTORCYCLE
+  SCOOTER
+  CAR
+  VAN
+  TRUCK
+}
+
+enum RideTypeCategory {
+  RIDE
+  COURIER
+}
+
+enum EarningType {
+  DELIVERY_FEE
+  TIP
+  BONUS
+  COMMISSION
+  PENALTY
+}
+
+enum EarningStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum CourierStatus {
+  AWAITING_PREP
+  REQUESTED
+  ACCEPTED
+  RIDER_ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  BIDDING
+  ARRIVED_AT_PICKUP
+  ARRIVED_AT_DROPOFF
+  WITHDRAWN
+  EXPIRED
+  EN_ROUTE_TO_PICKUP
+  EN_ROUTE_TO_DROPOFF
+  COMPLETED
+}
+
+enum ReviewTarget {
+  VENDOR
+  RIDER
+  PRODUCT
+  SERVICE
+  MECHANIC
+  WHOLESALER
+  CUSTOMER
+}
+
+enum NotificationType {
+  ORDER_UPDATE
+  PROMOTION
+  REMINDER
+  SYSTEM
+  CHAT_MESSAGE
+  REVIEW_REQUEST
+  PAYMENT
+  DELIVERY
+  RIDE
+  COURIER_ACCEPTED
+  MEDICINE_REMINDER
+  PRESCRIPTION_REVIEW
+  PRESCRIPTION_UPLOAD
+  PRESCRIPTION_APPROVED
+  PRESCRIPTION_REJECTED
+  PRESCRIPTION_MATCHED_AI
+  ORDER_CONFIRMED
+  DELIVERY_UPDATE
+  BID_ACCEPTED
+  BID_RECEIVED
+  AUTO_PARTS_REQUEST
+  AUTO_PARTS_OFFER
+  AUTO_PARTS_CHAT
+  MECHANIC_SERVICE_REQUEST
+  VENDOR_OFFER_ACCEPTED
+  MECHANIC_QUOTE_REQUEST
+  MECHANIC_QUOTE_RECEIVED
+  MECHANIC_QUOTE_ACCEPT
+  QUOTE_ACCEPTED
+  MECHANIC_OFFER_ACCEPTED
+  VENDOR_HANDOVER_CODE
+  MECHANIC_STATUS_UPDATE
+  SERVICE_COMPLETED
+  ORDER_STATUS_UPDATE
+  MECHANIC_OFFER_RECEIVED
+  MONEY_TRANSFER
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum RideBookingType {
+  EXTERNAL
+  MODULE_DELIVERY
+}
+
+enum RideStatus {
+  REQUESTED
+  ACCEPTED
+  RIDER_ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  BIDDING
+  ARRIVED_AT_PICKUP
+  ARRIVED_AT_DROPOFF
+  WITHDRAWN
+  EXPIRED
+  EN_ROUTE_TO_PICKUP
+  EN_ROUTE_TO_DROPOFF
+  COMPLETED
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum CashoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CommissionType {
+  VENDOR_COMMISSION
+  RIDER_COMMISSION
+  PLATFORM_FEE
+  PAYMENT_PROCESSING
+  WHOLESALE_ORDER
+  MECHANIC_COMMISSION
+  CUSTOMER_TAX
+  MECHANIC_TAX
+}
+
+enum CommissionStatus {
+  PENDING
+  CALCULATED
+  PAID
+  CANCELLED
+}
+
+enum ProductType {
+  AUTO_PART
+  MEDICINE
+  MENU_ITEM
+  GROCERY_PRODUCT
+}
+
+enum InventoryTransactionType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  DAMAGED
+  EXPIRED
+  RETURNED
+}
+
+enum RewardType {
+  DISCOUNT_PERCENTAGE
+  DISCOUNT_FIXED
+  FREE_DELIVERY
+  FREE_ITEM
+  CASHBACK
+}
+
+enum LoyaltyTransactionType {
+  EARNED
+  REDEEMED
+  EXPIRED
+  BONUS
+  REFERRAL
+  ADJUSTMENT
+}
+
+enum RedemptionStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
+}
+
+enum WalletTransactionType {
+  CREDIT
+  DEBIT
+  REFUND
+  BONUS
+  CASHBACK
+  WITHDRAWAL
+  DEPOSIT
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum BankVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  REQUIRES_DOCUMENTS
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum ConsultationStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  RESPONDED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum SenderType {
+  CONSUMER
+  PHARMACIST
+  SYSTEM
+  SUPER_PHARM
+}
+
+enum AdminStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+enum PharmacyStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum RiderStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+  ACTIVE
+  INACTIVE
+}
+
+enum MedicineSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  BUY_ONE_GET_ONE
+  FREE_DELIVERY
+}
+
+enum PrescriptionQueueStatus {
+  PENDING_PHARMACY_REVIEW
+  PHARMACY_APPROVED
+  PHARMACY_REJECTED
+  CUSTOMER_APPROVED
+  CUSTOMER_REJECTED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum ServiceAreaType {
+  DELIVERY_ZONE
+  PICKUP_ZONE
+  RESTRICTED_ZONE
+  PRIORITY_ZONE
+}
+
+// Service Area Models for Geofencing
+model ServiceArea {
+  id        String          @id @default(cuid())
+  name      String
+  type      ServiceAreaType
+  isActive  Boolean         @default(true)
+  priority  Int             @default(1)
+  isGlobal  Boolean         @default(false) // If true, available to all riders
+  riderId   String? // If null, it's a global area; if set, it's rider-specific
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Relations
+  rider     User?                 @relation("RiderServiceAreas", fields: [riderId], references: [id], onDelete: Cascade)
+  polygon   ServiceAreaPolygon?
+  gridCells ServiceAreaGridCell[]
+
+  @@map("service_areas")
+}
+
+model ServiceAreaPolygon {
+  id            String   @id @default(cuid())
+  serviceAreaId String   @unique
+  name          String
+  points        Json // Array of {latitude, longitude} points
+  color         String   @default("#FF6B6B")
+  isActive      Boolean  @default(true)
+  serviceTypes  String[] @default(["courier", "ride", "delivery"])
+  maxDistance   Float? // Maximum service distance in km
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  serviceArea ServiceArea @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
+
+  @@map("service_area_polygons")
+}
+
+model ServiceAreaGridCell {
+  id            String   @id @default(cuid())
+  serviceAreaId String
+  cellId        String // Unique identifier for the cell
+  center        Json // {latitude, longitude}
+  size          Float // Size in kilometers (e.g., 2 for 2km x 2km)
+  bounds        Json // {north, south, east, west}
+  isActive      Boolean  @default(true)
+  serviceTypes  String[] @default(["courier", "ride", "delivery"])
+  maxDistance   Float? // Maximum service distance in km
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  serviceArea ServiceArea @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
+
+  @@map("service_area_grid_cells")
+}
+
+model SOSAlert {
+  id          String    @id @default(cuid())
+  bookingId   String
+  bookingType String    @default("RIDE") // RIDE or COURIER
+  customerId  String
+  riderId     String?
+  latitude    Float
+  longitude   Float
+  message     String?
+  status      String    @default("ACTIVE") // ACTIVE, RESOLVED, CANCELLED
+  timestamp   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  notes       String?
+
+  customer User  @relation("SOSCustomer", fields: [customerId], references: [id])
+  rider    User? @relation("SOSRider", fields: [riderId], references: [id])
+
+  @@map("sos_alerts")
+}
+
+model AppRating {
+  id         String   @id @default(cuid())
+  userId     String
+  rating     Int? // 1-5 stars, null if dismissed
+  feedback   String? // Optional feedback text
+  dismissed  Boolean  @default(false) // True if user clicked "Maybe Later"
+  appVersion String? // App version when rated
+  platform   String? // iOS or Android
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation("UserAppRatings", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId]) // One rating per user
+  @@map("app_ratings")
+}
+
+// ─── Money Transfer Models ────────────────────────────────────────────────────
+
+enum MoneyTransferStatus {
+  PENDING // Payment initiated, waiting for Stripe confirmation
+  PROCESSING // Stripe payment succeeded, processing Paystack payout
+  SENT // Paystack payout initiated successfully
+  COMPLETED // Paystack payout completed
+  FAILED // Payment or payout failed
+  CANCELLED // Transfer cancelled by sender or system
+}
+
+enum MoneyTransferPayoutStatus {
+  PENDING // Payout created, waiting for Paystack processing
+  PROCESSING // Paystack is processing the transfer
+  SUCCESS // Payout completed successfully
+  FAILED // Payout failed
+  REVERSED // Payout was reversed
+}
+
+model MoneyTransfer {
+  id           String              @id @default(cuid())
+  senderId     String
+  receiverId   String
+  amount       Float // Amount in sender's currency
+  currency     String              @default("USD")
+  ngnAmount    Float? // Converted amount in NGN for payout
+  exchangeRate Float? // Exchange rate used for conversion
+  status       MoneyTransferStatus @default(PENDING)
+
+  // Stripe payment details
+  stripePaymentIntentId String? @unique
+  stripeClientSecret    String?
+  stripeAmount          Int? // Amount in cents
+
+  // Receiver bank details (for Paystack payout)
+  receiverBankName      String?
+  receiverAccountNumber String?
+  receiverAccountName   String?
+  receiverBankCode      String? // Paystack bank code
+
+  // Metadata
+  description String?
+  reference   String  @unique @default(cuid())
+  metadata    Json?
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  sentAt      DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+
+  // Relations
+  sender   User                 @relation("MoneyTransferSender", fields: [senderId], references: [id])
+  receiver User                 @relation("MoneyTransferReceiver", fields: [receiverId], references: [id])
+  payout   MoneyTransferPayout?
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+  @@index([reference])
+  @@index([stripePaymentIntentId])
+  @@map("money_transfers")
+}
+
+model MoneyTransferPayout {
+  id         String                    @id @default(cuid())
+  transferId String                    @unique
+  status     MoneyTransferPayoutStatus @default(PENDING)
+
+  // Paystack transfer details
+  paystackTransferCode  String? @unique
+  paystackRecipientCode String? // Paystack recipient code
+  paystackReference     String? @unique
+
+  // Amount details
+  amount   Float // Amount in NGN (kobo)
+  currency String @default("NGN")
+
+  // Bank account details
+  bankName      String
+  accountNumber String
+  accountName   String
+  bankCode      String // Paystack bank code
+
+  // Error handling
+  failureReason String?
+  retryCount    Int       @default(0)
+  lastRetryAt   DateTime?
+
+  // Metadata
+  paystackResponse Json?
+  metadata         Json?
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  processedAt DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+
+  // Relations
+  transfer MoneyTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([paystackTransferCode])
+  @@index([paystackReference])
+  @@map("money_transfer_payouts")
+}
+
+model MoneyTransferConfig {
+  id String @id @default(cuid())
+
+  // Stripe configuration (separate from marketplace)
+  stripeSecretKey      String?
+  stripePublishableKey String?
+  stripeWebhookSecret  String?
+
+  // Paystack configuration (separate from marketplace)
+  paystackSecretKey String?
+  paystackPublicKey String?
+
+  // Module settings
+  isEnabled           Boolean  @default(true)
+  minTransferAmount   Float    @default(1.0)
+  maxTransferAmount   Float    @default(10000.0)
+  defaultCurrency     String   @default("USD")
+  supportedCurrencies String[] @default(["USD", "NGN"])
+
+  // Exchange rate settings
+  exchangeRateProvider String? // e.g., "fixer", "openexchangerates"
+  exchangeRateApiKey   String?
+  exchangeRateMargin   Float   @default(0.02) // 2% margin
+
+  // Fees
+  transferFeePercentage Float @default(0.0)
+  transferFeeFixed      Float @default(0.0)
+
+  // Metadata
+  metadata Json?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("money_transfer_config")
+}
+
+// AI Configuration Models
+model AIModel {
+  id               String          @id @default(cuid())
+  name             String
+  modelId          String // OpenRouter model ID (e.g., "anthropic/claude-sonnet-4.6")
+  provider         String // Provider name (e.g., "Anthropic", "OpenAI")
+  description      String?
+  category         AIModelCategory // TEXT_TO_TEXT or IMAGE_TO_TEXT
+  contextLength    Int?
+  modality         String? // e.g., "text->text", "text+image->text"
+  inputModalities  Json? // Array of input types
+  outputModalities Json? // Array of output types
+  pricing          Json? // { prompt: string, completion: string }
+
+  // Configuration
+  apiKey      String // OpenRouter API key
+  isActive    Boolean @default(true)
+  priority    Int     @default(0) // Lower number = higher priority
+  maxTokens   Int?    @default(4096)
+  temperature Float?  @default(0.7)
+  topP        Float?  @default(1.0)
+
+  // Status tracking
+  status          AIModelStatus @default(ONLINE)
+  lastHealthCheck DateTime?
+  quotaUsage      Float         @default(0) // Percentage
+  latency         Int? // in milliseconds
+
+  // Usage limits
+  hourlyQuotaLimit   Int? // Requests per hour
+  dailyQuotaLimit    Int? // Requests per day
+  currentHourlyUsage Int      @default(0)
+  currentDailyUsage  Int      @default(0)
+  lastQuotaReset     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usageLogs      AIUsageLog[]
+  configurations AIConfiguration[]
+
+  @@index([category, isActive, priority])
+  @@index([status])
+  @@map("ai_models")
+}
+
+model AIConfiguration {
+  id          String    @id @default(cuid())
+  name        String // Configuration name (e.g., "Order Analysis", "AI Doctor", "AI Mechanic")
+  description String?
+  useCase     AIUseCase // ORDER_HISTORY, REPORTING, AI_DOCTOR, AI_MECHANIC, etc.
+
+  // Model assignment
+  modelId String?
+  model   AIModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  // System prompt/architecture
+  systemPrompt String @default("")
+
+  // Tools & Functions
+  enabledTools    Json? // Array of enabled tools: ["web_search", "code_interpreter", ...]
+  customFunctions Json? // Custom function definitions
+
+  // Hyperparameters
+  temperature Float? @default(0.7)
+  maxTokens   Int?   @default(4096)
+  topP        Float? @default(1.0)
+
+  // Settings
+  isActive Boolean @default(true)
+  version  Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([useCase, isActive])
+  @@map("ai_configurations")
+}
+
+model AIUsageLog {
+  id      String  @id @default(cuid())
+  modelId String
+  model   AIModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  // Request details
+  category     AIModelCategory
+  useCase      AIUseCase?
+  inputTokens  Int?
+  outputTokens Int?
+  totalTokens  Int?
+  latency      Int? // in milliseconds
+
+  // Status
+  status       AIRequestStatus @default(SUCCESS)
+  errorMessage String?
+
+  // Cost tracking
+  estimatedCost Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([modelId, createdAt])
+  @@index([useCase, createdAt])
+  @@map("ai_usage_logs")
+}
+
+enum AIModelCategory {
+  TEXT_TO_TEXT
+  IMAGE_TO_TEXT
+}
+
+enum AIModelStatus {
+  ONLINE
+  OFFLINE
+  ISSUES
+  RATE_LIMITED
+}
+
+enum AIUseCase {
+  ORDER_HISTORY
+  REPORTING
+  AI_DOCTOR
+  AI_MECHANIC
+  GENERAL_ANALYSIS
+  SMART_SHOP
+  USER_ANALYTICS
+  PRESCRIPTION_ANALYSIS
+  HEALTH_SUMMARY
+  CUSTOM
+}
+
+enum AIRequestStatus {
+  SUCCESS
+  FAILED
+  RATE_LIMITED
+  TIMEOUT
+}
+
+model UserActivity {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("UserActivities", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Activity Type
+  activityType UserActivityType
+
+  // Module Context
+  module Module? // PHARMACY, GROCERY, FOOD, AUTO_PARTS
+
+  // Search Activity
+  searchQuery        String?
+  searchFilters      Json? // Applied filters, categories, etc.
+  searchResultsCount Int?
+  searchImageUrl     String? // For image-based searches (auto parts)
+
+  // View/Browse Activity
+  viewedItemId   String?
+  viewedItemType String? // product, medicine, restaurant, etc.
+  viewedItemName String?
+  viewDuration   Int? // Time spent viewing in seconds
+
+  // Purchase Activity
+  orderId        String?
+  orderTotal     Float?
+  itemsPurchased Json? // Array of purchased items
+  purchaseModule Module?
+
+  // Time Tracking
+  sessionStartTime DateTime?
+  sessionEndTime   DateTime?
+  timeSpentSeconds Int? // Total time spent in this activity
+
+  // Location Context
+  latitude     Float?
+  longitude    Float?
+  locationName String?
+
+  // Device & Session Info
+  deviceInfo Json?
+  sessionId  String?
+
+  // Additional Metadata
+  metadata Json? // Any additional context data
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, activityType])
+  @@index([userId, module])
+  @@index([userId, createdAt])
+  @@index([module, activityType])
+  @@map("user_activities")
+}
+
+enum UserActivityType {
+  SEARCH
+  VIEW_ITEM
+  ADD_TO_CART
+  PURCHASE
+  SESSION_START
+  SESSION_END
+  SCREEN_VIEW
+  BUTTON_CLICK
+  IMAGE_SEARCH
+  PRESCRIPTION_UPLOAD
+  AI_CONSULTATION
+  MEAL_PLANNER
+  SMART_CART_AI
+  REORDER_LAST
+  FLASH_DEAL_VIEW
+  SPECIAL_OFFER_VIEW
+  VEHICLE_ASSIST
+  VENDOR_PRODUCT_AI
+}
+
+// ── Health Records ──────────────────────────────────────────────────
+
+model HealthVital {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  name              String?
+  age               Int?
+  gender            String?
+  weight            Float?
+  height            Float?
+  chronicConditions Json?     // ["diabetes","hypertension","asthma",...]
+  allergies         Json?     // ["penicillin","peanuts",...]
+  currentMedications Json?    // snapshot from pill reminders or manual
+  bloodType         String?
+  emergencyContact  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_vitals")
+}
+
+model HealthLog {
+  id          String         @id @default(cuid())
+  userId      String
+  logType     HealthLogType
+  value       Json           // flexible: { systolic:120, diastolic:80 } or { level:98, mealType:'fasting' } etc.
+  notes       String?
+  recordedAt  DateTime       @default(now())
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  user        User           @relation("UserHealthLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, logType])
+  @@index([userId, recordedAt])
+  @@map("health_logs")
+}
+
+enum HealthLogType {
+  BLOOD_PRESSURE
+  BLOOD_SUGAR
+  BODY_TEMPERATURE
+  WEIGHT
+  STEPS
+  SYMPTOMS
+  MOOD
+  SLEEP
+  WATER_INTAKE
+  CUSTOM
+}
+
+model HealthLabResult {
+  id         String   @id @default(cuid())
+  userId     String
+  testName   String
+  value      String
+  unit       String?
+  normalRange String?
+  notes      String?
+  testedAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation("UserHealthLabResults", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, testedAt])
+  @@map("health_lab_results")
+}
+
+model DoctorVisit {
+  id        String   @id @default(cuid())
+  userId    String
+  doctorName String?
+  reason    String
+  diagnosis String?
+  notes     String?
+  visitedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation("UserDoctorVisits", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, visitedAt])
+  @@map("doctor_visits")
+}
+
+model HealthSummary {
+  id         String            @id @default(cuid())
+  userId     String
+  period     HealthSummaryPeriod
+  startDate  DateTime
+  endDate    DateTime
+  summary    Json              // AI-generated summary with averages, trends, recommendations
+  createdAt  DateTime          @default(now())
+  user       User              @relation("UserHealthSummaries", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, period])
+  @@index([userId, startDate])
+  @@map("health_summaries")
+}
+
+enum HealthSummaryPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
