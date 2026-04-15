@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateRequest } from "@/lib/auth"
+import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,22 +52,16 @@ export async function POST(request: NextRequest) {
         isValidCoordinates(origin.latitude, origin.longitude) &&
         isValidCoordinates(dest.latitude, dest.longitude)
       ) {
-        
-        const distanceResult = await getDrivingDistanceKm(
+        const distanceResult = await getDrivingDistanceKmSmart(
           origin.latitude,
           origin.longitude,
           dest.latitude,
           dest.longitude,
           googleApiKey
         )
-        
-        if (distanceResult) {
-          distance = distanceResult.distance
-          duration = distanceResult.duration
-          console.log('Google Distance Matrix result:', { distance, duration })
-        } else {
-          throw new Error('Distance Matrix API returned no result')
-        }
+        distance = distanceResult.distance
+        duration = distanceResult.durationMinutes
+        console.log('Distance result (Haversine ≤5km else Matrix):', { distance, duration })
       } else {
         console.log('Invalid coordinates, using haversine distance calculation')
         distance = haversineDistance(origin.latitude, origin.longitude, dest.latitude, dest.longitude)
@@ -140,69 +135,6 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
             Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
-}
-
-async function getDrivingDistanceKm(
-  originLat: number,
-  originLng: number,
-  destLat: number,
-  destLng: number,
-  apiKey: string
-): Promise<{ distance: number; duration: number } | null> {
-  try {
-    console.log('Calling Google Distance Matrix API with coordinates:', {
-      origin: { lat: originLat, lng: originLng },
-      destination: { lat: destLat, lng: destLng }
-    })
-    
-    const params = new URLSearchParams({
-      origins: `${originLat},${originLng}`,
-      destinations: `${destLat},${destLng}`,
-      key: apiKey,
-      mode: 'driving',
-      units: 'metric'
-    })
-    
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?${params.toString()}`
-    console.log('Distance Matrix API URL:', url)
-    
-    const res = await fetch(url)
-    if (!res.ok) {
-      console.error('Distance Matrix API request failed:', res.status, res.statusText)
-      return null
-    }
-    
-    const data = await res.json()
-    console.log('Distance Matrix API response status:', data.status)
-    
-    if (data.status === 'OK' && data.rows?.length > 0 && data.rows[0].elements?.length > 0) {
-      const element = data.rows[0].elements[0]
-      
-      if (element.status === 'OK') {
-        const distanceKm = element.distance?.value ? element.distance.value / 1000 : 0
-        const durationMinutes = element.duration?.value ? element.duration.value / 60 : 0
-        
-        console.log('Distance Matrix calculation successful:', {
-          distance: distanceKm,
-          duration: durationMinutes
-        })
-        
-        return {
-          distance: distanceKm,
-          duration: durationMinutes
-        }
-      } else {
-        console.error('Distance Matrix element status not OK:', element.status)
-        return null
-      }
-    } else {
-      console.error('Distance Matrix API returned invalid response structure')
-      return null
-    }
-  } catch (error) {
-    console.error('Error calling Distance Matrix API:', error)
-    return null
-  }
 }
 
 async function resolveCoordinates(

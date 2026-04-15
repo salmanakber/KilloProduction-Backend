@@ -91,6 +91,10 @@ interface SystemSettings {
       orderConfirmation: string
       passwordReset: string
     }
+    /** BullMQ worker: marketing / rider bonus AI (also in DB columns on system_settings). */
+    marketingAutomationAiEnabled: boolean
+    marketingAutomationAiMaxCandidates: number
+    riderBonusAiEnabled: boolean
   }
   payments: {
     defaultCurrency: string
@@ -644,6 +648,56 @@ export default function SystemSettings() {
                       <ToggleSwitch label="SMS Notifications" description="Send critical SMS updates" checked={settings.notifications.smsEnabled} onChange={(c) => updateSettings("notifications", "smsEnabled", c)} />
                       <div className="h-px bg-gray-100 w-full" />
                       <ToggleSwitch label="Push Notifications" description="Send mobile push notifications" checked={settings.notifications.pushEnabled} onChange={(c) => updateSettings("notifications", "pushEnabled", c)} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="p-6 md:p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-100"><Server className="h-5 w-5 text-amber-700" /></div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">Worker automation &amp; AI</h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Used by the Redis/BullMQ worker (<code className="rounded bg-gray-100 px-1">food-rider-dispatch-worker</code>). Requires an active{" "}
+                          <strong>GENERAL_ANALYSIS</strong> AI config when a toggle is on. Env vars{" "}
+                          <code className="rounded bg-gray-100 px-1">MARKETING_AI_*</code> / <code className="rounded bg-gray-100 px-1">RIDER_BONUS_AI_ENABLED</code> override these if set.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1 border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+                      <ToggleSwitch
+                        label="Marketing automation uses AI"
+                        description="Refine abandoned-cart nudges with a tiny prompt (heuristics always run first)."
+                        checked={settings.notifications.marketingAutomationAiEnabled ?? true}
+                        onChange={(c) => updateSettings("notifications", "marketingAutomationAiEnabled", c)}
+                      />
+                      <div className="h-px bg-gray-100 w-full my-2" />
+                      <InputGroup
+                        label="Max AI candidate rows per tick"
+                        subtext="How many scored users to send to the model (1–20). Lower = fewer tokens."
+                      >
+                        <TextInput
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={settings.notifications.marketingAutomationAiMaxCandidates ?? 12}
+                          onChange={(e) =>
+                            updateSettings(
+                              "notifications",
+                              "marketingAutomationAiMaxCandidates",
+                              Math.min(20, Math.max(1, Number(e.target.value) || 12))
+                            )
+                          }
+                        />
+                      </InputGroup>
+                      <div className="h-px bg-gray-100 w-full my-2" />
+                      <ToggleSwitch
+                        label="Rider peak bonus uses AI tuning"
+                        description="Optional: adjust target rides / commission discount from a small numeric prompt. Default off to save credits."
+                        checked={settings.notifications.riderBonusAiEnabled ?? false}
+                        onChange={(c) => updateSettings("notifications", "riderBonusAiEnabled", c)}
+                      />
                     </div>
                   </div>
                 </div>

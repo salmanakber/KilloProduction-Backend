@@ -316,7 +316,13 @@ export async function PUT(
         },
       })
     }
-    
+
+    if (status === "CANCELLED") {
+      await prisma.riderProfile.updateMany({
+        where: { userId: session.id },
+        data: { riderAssignedCancellationCount: { increment: 1 } },
+      })
+    }
 
     // Update rider location if provided
     if (latitude && longitude) {

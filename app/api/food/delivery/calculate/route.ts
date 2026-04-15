@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,54 +38,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate distance using Google Maps Distance Matrix API
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Google Maps API key not configured" },
-        { status: 500 }
-      )
-    }
-
-    const params = new URLSearchParams({
-      origins: `${restaurantLatitude},${restaurantLongitude}`,
-      destinations: `${customerLatitude},${customerLongitude}`,
-      key: apiKey,
-      mode: 'driving',
-      units: 'metric'
-    })
-
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?${params.toString()}`
-    const response = await fetch(url)
-    
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: "Distance calculation service unavailable" },
-        { status: 503 }
-      )
-    }
-
-    const data = await response.json()
-
-    if (data.status !== 'OK' || !data.rows?.[0]?.elements?.[0]) {
-      console.log("Could not calculate distance")
-      return NextResponse.json(
-        { error: "Could not calculate distance" },
-        { status: 400 }
-      )
-    }
-
-    const element = data.rows[0].elements[0]
-    if (element.status !== 'OK') {
-      console.log("Route not found")
-      return NextResponse.json(
-        { error: "Route not found" },
-        { status: 400 }
-      )
-    }
-
-    const distanceKm = element.distance.value / 1000 // Convert meters to km
-    const durationSeconds = element.duration.value
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY ?? ""
+    const leg = await getDrivingDistanceKmSmart(
+      Number(restaurantLatitude),
+      Number(restaurantLongitude),
+      Number(customerLatitude),
+      Number(customerLongitude),
+      apiKey
+    )
+    const distanceKm = leg.distance
+    const durationSeconds = leg.durationMinutes * 60
 
     // Calculate fare using ride type pricing
     const fare = calculateFare(rideType, distanceKm, durationSeconds)

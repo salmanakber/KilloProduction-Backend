@@ -1,4 +1,8 @@
 import { prisma } from '@/lib/prisma'
+import {
+  HAVERSINE_ONLY_MAX_KM,
+  haversineKm,
+} from '@/lib/delivery-distance-policy'
 
 export interface FareCalculationParams {
   originLatitude: number
@@ -38,11 +42,6 @@ export interface FareCalculationResult {
  * Uses Directions API for optimized routes with waypoints
  */
 export async function calculateFare(params: FareCalculationParams): Promise<FareCalculationResult> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  if (!apiKey) {
-    throw new Error('Google Maps API key not configured')
-  }
-
   // Get or find ride type
   let rideType
   if (params.rideTypeId) {
@@ -63,34 +62,83 @@ export async function calculateFare(params: FareCalculationParams): Promise<Fare
     throw new Error('Ride type not found or not configured')
   }
 
-  // Use Directions API if waypoints are provided or optimized route is requested
-  const useDirectionsAPI = params.useOptimizedRoute || (params.waypoints && params.waypoints.length > 0)
+  const straightKm = straightLineKmForRide(params)
+  const useDirectionsAPI =
+    !!(params.useOptimizedRoute || (params.waypoints && params.waypoints.length > 0))
+
+  if (straightKm <= HAVERSINE_ONLY_MAX_KM) {
+    if (params.waypoints && params.waypoints.length > 0) {
+      return calculateFareMultiLegHaversine(params, rideType)
+    }
+    return calculateFareWithHaversine(params, rideType)
+  }
+
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY
+  if (!apiKey) {
+    console.warn('Google Maps API key not configured; using Haversine for fare')
+    if (params.waypoints && params.waypoints.length > 0) {
+      return calculateFareMultiLegHaversine(params, rideType)
+    }
+    return calculateFareWithHaversine(params, rideType)
+  }
 
   if (useDirectionsAPI) {
     return calculateFareWithDirections(params, rideType, apiKey)
-  } else {
-    return calculateFareWithDistanceMatrix(params, rideType, apiKey)
   }
+  return calculateFareWithDistanceMatrix(params, rideType, apiKey)
 }
 
-/**
- * Calculate distance using Haversine formula (fallback when API fails)
- */
-function calculateHaversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371 // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
+function straightLineKmForRide(params: FareCalculationParams): number {
+  if (params.waypoints && params.waypoints.length > 0) {
+    let lat = params.originLatitude
+    let lon = params.originLongitude
+    let total = 0
+    for (const wp of params.waypoints) {
+      total += haversineKm(lat, lon, wp.latitude, wp.longitude)
+      lat = wp.latitude
+      lon = wp.longitude
+    }
+    total += haversineKm(lat, lon, params.destinationLatitude, params.destinationLongitude)
+    return total
+  }
+  return haversineKm(
+    params.originLatitude,
+    params.originLongitude,
+    params.destinationLatitude,
+    params.destinationLongitude
+  )
+}
+
+function calculateFareMultiLegHaversine(
+  params: FareCalculationParams,
+  rideType: any
+): FareCalculationResult {
+  let lat = params.originLatitude
+  let lon = params.originLongitude
+  let totalDist = 0
+  let totalDur = 0
+  const wps = params.waypoints ?? []
+  const points = [...wps, { latitude: params.destinationLatitude, longitude: params.destinationLongitude }]
+  for (const p of points) {
+    const d = haversineKm(lat, lon, p.latitude, p.longitude)
+    totalDist += d
+    totalDur += (d / 30) * 3600
+    lat = p.latitude
+    lon = p.longitude
+  }
+  const fare = calculateFareAmount(rideType, totalDist, totalDur)
+  return {
+    distance: totalDist,
+    duration: totalDur,
+    fare,
+    rideType: {
+      id: rideType.id,
+      name: rideType.name,
+      basePrice: rideType.basePrice,
+      pricePerKm: rideType.pricePerKm,
+      pricePerMinute: rideType.pricePerMinute,
+    },
+  }
 }
 
 /**
@@ -167,7 +215,7 @@ function calculateFareWithHaversine(
   params: FareCalculationParams,
   rideType: any
 ): FareCalculationResult {
-  const distanceKm = calculateHaversineDistance(
+  const distanceKm = haversineKm(
     params.originLatitude,
     params.originLongitude,
     params.destinationLatitude,

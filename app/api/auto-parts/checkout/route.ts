@@ -11,6 +11,7 @@ import {
   ensureVendorCommissionRecordsForOrderTree,
   splitAmountByWeights,
 } from "@/lib/order-vendor-platform-fee-record"
+import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 function generateOrderNumber(): string {
   return `AP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -27,28 +28,14 @@ async function resolveCoordinates(address: string, apiKey: string): Promise<{ la
   return { latitude: loc.lat, longitude: loc.lng }
 }
 
-// Helper to calculate driving distance
 async function getDrivingDistance(
   oLat: number, oLng: number,
   dLat: number, dLng: number,
   apiKey: string
 ): Promise<{ distance: number; duration: number } | null> {
   try {
-    const params = new URLSearchParams({
-      origins: `${oLat},${oLng}`,
-      destinations: `${dLat},${dLng}`,
-      key: apiKey,
-      mode: 'driving',
-      units: 'metric',
-    })
-    const res = await fetch(`https://maps.googleapis.com/maps/api/distancematrix/json?${params}`)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (data.status === 'OK' && data.rows?.[0]?.elements?.[0]?.status === 'OK') {
-      const el = data.rows[0].elements[0]
-      return { distance: el.distance.value / 1000, duration: el.duration.value / 60 }
-    }
-    return null
+    const r = await getDrivingDistanceKmSmart(oLat, oLng, dLat, dLng, apiKey)
+    return { distance: r.distance, duration: r.durationMinutes }
   } catch {
     return null
   }

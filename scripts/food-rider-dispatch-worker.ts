@@ -5,6 +5,8 @@ import { FOOD_RIDER_DISPATCH_QUEUE_NAME } from "@/lib/food-rider-dispatch-queue"
 import { MEAL_PLAN_RECURRING_QUEUE_NAME } from "@/lib/meal-plan-recurring-queue";
 import { processFoodRiderDispatchJob } from "@/lib/process-food-rider-dispatch-job";
 import { processMealPlanRecurringJob } from "@/lib/process-meal-plan-recurring-job";
+import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
+import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 
 const url = process.env.REDIS_URL;
 
@@ -72,6 +74,19 @@ void mealPlanWorker;
 console.log(
   `[bullmq-workers] "${FOOD_RIDER_DISPATCH_QUEUE_NAME}" + "${MEAL_PLAN_RECURRING_QUEUE_NAME}"`
 );
+
+const BONUS_MS = Number(process.env.RIDER_BONUS_TICK_MS || 10 * 60 * 1000);
+const MARKETING_MS = Number(process.env.MARKETING_AUTOMATION_MS || 6 * 60 * 60 * 1000);
+
+setInterval(() => {
+  processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
+}, BONUS_MS);
+
+setInterval(() => {
+  runMarketingAutomationTick().catch((e) => console.error("[marketing-automation]", e));
+}, MARKETING_MS);
+
+void processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick] boot", e));
 
 // Graceful shutdown (IMPORTANT)
 process.on("SIGINT", async () => {

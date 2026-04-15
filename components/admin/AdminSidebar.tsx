@@ -11,7 +11,8 @@ import {
   Handshake, ClipboardCheck, ScrollText, Globe, HelpCircle, Tag, Wrench,
   ChevronDown, ChevronLeft, ChevronRight, LogOut, FolderTree, Dot, Circle,
   Key,
-  User
+  User,
+  Code2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -56,7 +57,7 @@ const MenuItem = ({
   onExpand: () => void,
   counts?: Record<string, number>,
 }) => {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ""
   const [isOpen, setIsOpen] = useState(false)
   const hasSubItems = item.subItems && item.subItems.length > 0
   const isActive = isItemActive(item, pathname)
@@ -377,7 +378,20 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         { name: "FAQs", href: "/admin/faqs", icon: HelpCircle },
       ]
     },
+    
     { name: "Reports", href: "/admin/reports", icon: BarChart },
+    {
+      name: "Developer",
+      href: "#",
+      icon: Code2,
+      subItems: [
+        {
+          name: "POS & Partner APIs",
+          href: "/admin/developer/pos",
+          icon: Key,
+        },
+      ],
+    },
     {
         name: "Settings",
         href: "/admin/settings",

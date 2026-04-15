@@ -1,16 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { verifyToken } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get("authorization")?.replace("Bearer ", "")
-    if (!token) {
+    const user = await authenticateRequest(request)
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    const decoded = verifyToken(token)
-    const vendorId = decoded.userId
+    const vendorId = user.id
 
     const { searchParams } = new URL(request.url)
     const tier = searchParams.get("tier")
@@ -28,9 +26,9 @@ export async function GET(request: NextRequest) {
       },
       include: {
         customer: true,
-        items: {
+        orderItems: {
           include: {
-            product: {
+            item: {
               include: {
                 category: true,
               },
@@ -45,22 +43,19 @@ export async function GET(request: NextRequest) {
 
     orders.forEach((order) => {
       const customerId = order.customerId
-      const customer = order.customer
 
       if (!customerMetrics.has(customerId)) {
         customerMetrics.set(customerId, {
           id: customerId,
-          name: customer.name,
-          email: customer.email,
-          phone: customer.phone,
-          avatar: customer.avatar,
-          joinedDate: customer.createdAt,
+          name: order.customer.name,
+          email: order.customer.email,
+          phone: order.customer.phone,
+          avatar: order.customer.avatar,
+          joinedDate: order.customer.createdAt,
           totalOrders: 0,
           totalSpent: 0,
-          loyaltyPoints: customer.loyaltyPoints || 0,
           lastOrderDate: order.createdAt,
           orders: [],
-          categoryPurchases: new Map(),
         })
       }
 

@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import {
   Dialog,
@@ -16,13 +15,25 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format } from "date-fns"
-import { CalendarIcon, Loader2 } from "lucide-react"
+import { 
+  CalendarIcon, 
+  Loader2, 
+  Megaphone, 
+  Rocket, 
+  Mail, 
+  Smartphone, 
+  MessageSquare,
+  Type,
+  AlignLeft,
+  MousePointerClick,
+  Link as LinkIcon,
+  AlertCircle
+} from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Campaign } from "@/types/campaign" // Import Campaign type
+import type { Campaign } from "@/types/campaign" 
 
 interface CreateCampaignFormProps {
   isOpen: boolean
@@ -49,7 +60,7 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
     setError(null)
 
     if (!name || !type || !message || channels.length === 0 || !startDate) {
-      setError("Please fill in all required fields.")
+      setError("Please fill in all required fields and select at least one channel.")
       setLoading(false)
       return
     }
@@ -69,15 +80,15 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
             startDate: startDate.toISOString(),
             endDate: endDate?.toISOString(),
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            frequency: "ONCE", // Simplified for now
+            frequency: "ONCE", 
           },
           targetAudience: {
-            userType: ["CUSTOMER"], // Simplified: target all customers
+            userType: ["CUSTOMER"], 
             modules: [],
             segments: [],
-            totalUsers: 0, // Will be calculated on backend or dynamically
+            totalUsers: 0, 
           },
-          createdBy: "admin_user_id", // Placeholder
+          createdBy: "admin_user_id", 
         }),
       })
 
@@ -115,208 +126,261 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (open ? null : onClose())}>
-      <DialogContent className="sm:max-w-[1000px] bg-white">
-        <DialogHeader>
-          <DialogTitle>Create New Campaign</DialogTitle>
-          <DialogDescription>
-            Fill in the details to create a new marketing campaign.
+      <DialogContent className="sm:max-w-[850px] bg-white border-emerald-100 shadow-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
+        {/* Premium Header */}
+        <DialogHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 p-6 border-b border-emerald-100">
+          <DialogTitle className="text-2xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-teal-500 flex items-center gap-2">
+            <Megaphone className="h-6 w-6 text-emerald-500 fill-emerald-100" />
+            Create Marketing Campaign
+          </DialogTitle>
+          <DialogDescription className="text-emerald-700/80 font-medium mt-1">
+            Design, schedule, and launch multi-channel campaigns to engage your audience.
           </DialogDescription>
         </DialogHeader>
-  
-        <form onSubmit={handleSubmit} className="grid gap-6 py-4 display-flex">
-          {/* Name */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="name" className="sm:col-span-3 text-right">
-              Name
-            </Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="sm:col-span-9" required />
-          </div>
 
-          {/* Type */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="type" className="sm:col-span-3 text-right">
-              Type
-            </Label>
-            <div className="sm:col-span-9">
-              <Select value={type} onValueChange={(value) => setType(value as Campaign["type"])}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select campaign type" />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
- <SelectItem value="PROMOTIONAL">PROMOTIONAL</SelectItem>
- <SelectItem value="TRANSACTIONAL">TRANSACTIONAL</SelectItem>
- <SelectItem value="BEHAVIORAL">BEHAVIORAL</SelectItem>
- <SelectItem value="LIFECYCLE">LIFECYCLE</SelectItem>
- <SelectItem value="RETENTION">RETENTION</SelectItem>
- <SelectItem value="ACQUISITION">ACQUISITION</SelectItem>
- <SelectItem value="REACTIVATION">REACTIVATION</SelectItem>
- <SelectItem value="SEASONAL">SEASONAL</SelectItem>
- <SelectItem value="FLASH_SALE">FLASH_SALE</SelectItem>
- <SelectItem value="ANNOUNCEMENT">ANNOUNCEMENT</SelectItem>
- <SelectItem value="EDUCATIONAL">EDUCATIONAL</SelectItem>
- <SelectItem value="SURVEY">SURVEY</SelectItem>
- <SelectItem value="FEEDBACK">FEEDBACK</SelectItem>
- <SelectItem value="WELCOME_SERIES">WELCOME_SERIES</SelectItem>
- <SelectItem value="ABANDONED_CART">ABANDONED_CART</SelectItem>
- <SelectItem value="WIN_BACK">WIN_BACK</SelectItem>
- <SelectItem value="REFERRAL">REFERRAL</SelectItem>
- <SelectItem value="LOYALTY">LOYALTY</SelectItem>
- <SelectItem value="BIRTHDAY">BIRTHDAY</SelectItem>
- <SelectItem value="PROMO">PROMO</SelectItem>
- <SelectItem value="ANNIVERSARY">ANNIVERSARY</SelectItem>
- <SelectItem value="CUSTOM">CUSTOM</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-  
-          {/* Title */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="title" className="sm:col-span-3 text-right">
-              Title
-            </Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="sm:col-span-9"
-              placeholder="e.g., Limited Time Offer!"
-            />
-          </div>
-  
-          {/* Message */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-start gap-4">
-            <Label htmlFor="message" className="sm:col-span-3 text-right pt-2">
-              Message
-            </Label>
-            <Textarea
-              id="message"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="sm:col-span-9"
-              placeholder="Your campaign message here..."
-              required
-            />
-          </div>
-  
-          {/* CTA Text */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="ctaText" className="sm:col-span-3 text-right">
-              CTA Text
-            </Label>
-            <Input
-              id="ctaText"
-              value={ctaText}
-              onChange={(e) => setCtaText(e.target.value)}
-              className="sm:col-span-9"
-              placeholder="e.g., Shop Now"
-            />
-          </div>
-          
-  
-          {/* Action URL */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="actionUrl" className="sm:col-span-3 text-right">
-              Action URL
-            </Label>
-            <Input
-              id="actionUrl"
-              value={actionUrl}
-              onChange={(e) => setActionUrl(e.target.value)}
-              className="sm:col-span-9"
-              type="url"
-              placeholder="https://your-app.com/offer"
-            />
-          </div>
-
-  
-          {/* Channels */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-start gap-4">
-            <Label className="sm:col-span-3 text-right pt-2">Channels</Label>
-            <div className="sm:col-span-9 flex flex-wrap gap-4">
-              {["PUSH", "EMAIL", "SMS"].map((channel) => (
-                <div key={channel} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`channel-${channel.toLowerCase()}`}
-                    checked={channels.includes(channel as any)}
-                    onCheckedChange={() => handleChannelChange(channel as any)}
-                  />
-                  <Label htmlFor={`channel-${channel.toLowerCase()}`}>
-                    {channel === "PUSH" && "Push Notification"}
-                    {channel === "EMAIL" && "Email"}
-                    {channel === "SMS" && "SMS"}
+        {/* Scrollable Form Body */}
+        <div className="overflow-y-auto px-6 py-6 flex-1 custom-scrollbar">
+          <form id="campaign-form" onSubmit={handleSubmit} className="space-y-8">
+            
+            {/* Section 1: Campaign Details */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+                1. Campaign Details
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-slate-700 font-semibold flex items-center gap-2">
+                    <Rocket className="h-4 w-4 text-emerald-500" /> Campaign Name
                   </Label>
+                  <Input 
+                    id="name" 
+                    value={name} 
+                    onChange={(e) => setName(e.target.value)} 
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-slate-50/50" 
+                    placeholder="e.g., Summer Flash Sale 2024"
+                    required 
+                  />
                 </div>
-              ))}
+                <div className="space-y-2">
+                  <Label htmlFor="type" className="text-slate-700 font-semibold">Campaign Type</Label>
+                  <Select value={type} onValueChange={(value) => setType(value as Campaign["type"])}>
+                    <SelectTrigger className="border-slate-200 focus:ring-emerald-500 bg-white">
+                      <SelectValue placeholder="Select campaign type" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-slate-200 max-h-[300px]">
+                      {[
+                        "PROMOTIONAL", "TRANSACTIONAL", "BEHAVIORAL", "LIFECYCLE", 
+                        "RETENTION", "ACQUISITION", "REACTIVATION", "SEASONAL", 
+                        "FLASH_SALE", "ANNOUNCEMENT", "EDUCATIONAL", "SURVEY", 
+                        "FEEDBACK", "WELCOME_SERIES", "ABANDONED_CART", "WIN_BACK", 
+                        "REFERRAL", "LOYALTY", "BIRTHDAY", "PROMO", "ANNIVERSARY", "CUSTOM"
+                      ].map((t) => (
+                        <SelectItem key={t} value={t} className="cursor-pointer focus:bg-emerald-50 focus:text-emerald-900">
+                          {t.replace(/_/g, ' ')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
-          </div>
-  
-          {/* Start Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="startDate" className="sm:col-span-3 text-right">
-              Start Date
-            </Label>
-            <div className="sm:col-span-9">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn("justify-start text-left font-normal w-full", !startDate && "text-muted-foreground")}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-                </PopoverContent>
-              </Popover>
+
+            {/* Section 2: Content */}
+            <div className="space-y-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">
+                2. Message Content
+              </h4>
+              
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="title" className="text-slate-700 font-semibold flex items-center gap-2">
+                    <Type className="h-4 w-4 text-slate-400" /> Subject / Title
+                  </Label>
+                  <Input
+                    id="title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white font-medium"
+                    placeholder="Grab attention (e.g., Limited Time Offer!)"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="message" className="text-slate-700 font-semibold flex items-center gap-2">
+                    <AlignLeft className="h-4 w-4 text-slate-400" /> Main Message
+                  </Label>
+                  <Textarea
+                    id="message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white min-h-[100px] resize-none"
+                    placeholder="Write your compelling campaign message here..."
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="ctaText" className="text-slate-700 font-semibold flex items-center gap-2">
+                      <MousePointerClick className="h-4 w-4 text-slate-400" /> Call to Action (CTA)
+                    </Label>
+                    <Input
+                      id="ctaText"
+                      value={ctaText}
+                      onChange={(e) => setCtaText(e.target.value)}
+                      className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                      placeholder="e.g., Shop Now, Claim Offer"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="actionUrl" className="text-slate-700 font-semibold flex items-center gap-2">
+                      <LinkIcon className="h-4 w-4 text-slate-400" /> Action URL
+                    </Label>
+                    <Input
+                      id="actionUrl"
+                      value={actionUrl}
+                      onChange={(e) => setActionUrl(e.target.value)}
+                      className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                      type="url"
+                      placeholder="https://your-app.com/offer"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-  
-          {/* End Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-            <Label htmlFor="endDate" className="sm:col-span-3 text-right">
-              End Date (Optional)
-            </Label>
-            <div className="sm:col-span-9">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn("justify-start text-left font-normal w-full", !endDate && "text-muted-foreground")}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {endDate ? format(endDate, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-                </PopoverContent>
-              </Popover>
+
+            {/* Section 3: Channels */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+                3. Distribution Channels
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Push Notification Card */}
+                <div 
+                  onClick={() => handleChannelChange("PUSH")}
+                  className={cn(
+                    "relative flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200",
+                    channels.includes("PUSH") 
+                      ? "border-blue-500 bg-blue-50 text-blue-900 shadow-sm" 
+                      : "border-slate-200 hover:border-blue-200 bg-white text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <Smartphone className={cn("h-8 w-8 mb-2", channels.includes("PUSH") ? "text-blue-500" : "text-slate-400")} />
+                  <span className="font-semibold text-sm">Push Notification</span>
+                </div>
+
+                {/* Email Card */}
+                <div 
+                  onClick={() => handleChannelChange("EMAIL")}
+                  className={cn(
+                    "relative flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200",
+                    channels.includes("EMAIL") 
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-900 shadow-sm" 
+                      : "border-slate-200 hover:border-emerald-200 bg-white text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <Mail className={cn("h-8 w-8 mb-2", channels.includes("EMAIL") ? "text-emerald-500" : "text-slate-400")} />
+                  <span className="font-semibold text-sm">Email Delivery</span>
+                </div>
+
+                {/* SMS Card */}
+                <div 
+                  onClick={() => handleChannelChange("SMS")}
+                  className={cn(
+                    "relative flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-200",
+                    channels.includes("SMS") 
+                      ? "border-purple-500 bg-purple-50 text-purple-900 shadow-sm" 
+                      : "border-slate-200 hover:border-purple-200 bg-white text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <MessageSquare className={cn("h-8 w-8 mb-2", channels.includes("SMS") ? "text-purple-500" : "text-slate-400")} />
+                  <span className="font-semibold text-sm">SMS Text</span>
+                </div>
+              </div>
             </div>
-          </div>
-  
-          {/* Error */}
-          {error && (
-            <p className="text-center text-red-500 col-span-full">
-              {error}
-            </p>
-          )}
-  
-          {/* Actions */}
-          <DialogFooter className="col-span-full">
-            <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Campaign
-            </Button>
-          </DialogFooter>
-        </form>
+
+            {/* Section 4: Scheduling */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">
+                4. Schedule
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <Label htmlFor="startDate" className="text-slate-700 font-semibold">Start Date & Time</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-medium border-slate-200 hover:bg-slate-50 focus:ring-emerald-500",
+                          !startDate && "text-slate-500"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4 text-emerald-500" />
+                        {startDate ? format(startDate, "PPP") : <span>Pick a start date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 border-slate-200">
+                      <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate" className="text-slate-700 font-semibold">End Date <span className="text-slate-400 font-normal">(Optional)</span></Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-medium border-slate-200 hover:bg-slate-50 focus:ring-emerald-500",
+                          !endDate && "text-slate-500"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />
+                        {endDate ? format(endDate, "PPP") : <span>Pick an end date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 border-slate-200">
+                      <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-lg flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <p className="text-sm font-medium">{error}</p>
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* Sticky Footer */}
+        <DialogFooter className="bg-slate-50 px-6 py-4 border-t border-slate-100 sm:justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={loading} className="border-slate-200 hover:bg-slate-100">
+            Cancel
+          </Button>
+          <Button 
+            form="campaign-form" 
+            type="submit" 
+            disabled={loading}
+            className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-md shadow-emerald-200 border-0"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Launching...
+              </>
+            ) : (
+              "Create Campaign"
+            )}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
-  
 }

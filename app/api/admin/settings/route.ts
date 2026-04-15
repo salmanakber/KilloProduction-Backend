@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getPrimaryAndFallbackGateways } from "@/lib/payment-gateway"
+import { invalidateAutomationAiSettingsCache } from "@/lib/automation-ai-settings"
 
 export async function GET(request: NextRequest) {
   try {
@@ -150,6 +151,12 @@ export async function GET(request: NextRequest) {
           orderConfirmation: systemSettings?.orderConfirmationTemplate || "Your order has been confirmed.",
           passwordReset: systemSettings?.passwordResetTemplate || "Reset your password using this link.",
         },
+        marketingAutomationAiEnabled: systemSettings?.marketingAutomationAiEnabled ?? true,
+        marketingAutomationAiMaxCandidates: Math.min(
+          20,
+          Math.max(1, systemSettings?.marketingAutomationAiMaxCandidates ?? 12)
+        ),
+        riderBonusAiEnabled: systemSettings?.riderBonusAiEnabled ?? false,
       },
       payments: {
         defaultCurrency: systemSettings?.defaultCurrency || "NGN",
@@ -301,6 +308,16 @@ export async function PUT(request: NextRequest) {
         nexmoFromNumber: settings.notifications.nexmoFromNumber || null,
         africasTalkingApiKey: settings.notifications.africasTalkingApiKey || null,
         africasTalkingUsername: settings.notifications.africasTalkingUsername || null,
+        marketingAutomationAiEnabled:
+          settings.notifications?.marketingAutomationAiEnabled ?? true,
+        marketingAutomationAiMaxCandidates: Math.min(
+          20,
+          Math.max(
+            1,
+            Number(settings.notifications?.marketingAutomationAiMaxCandidates) || 12
+          )
+        ),
+        riderBonusAiEnabled: settings.notifications?.riderBonusAiEnabled ?? false,
 
         // Payment settings
         defaultCurrency: settings.payments.defaultCurrency,
@@ -412,6 +429,8 @@ export async function PUT(request: NextRequest) {
         })
       }
     }
+
+    invalidateAutomationAiSettingsCache()
 
     // Create audit log
     await prisma.auditLog.create({

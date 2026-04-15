@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 export async function POST(request: NextRequest) {
   try {
@@ -108,36 +109,34 @@ export async function POST(request: NextRequest) {
     const avgPricePerKm = eligibleRideTypes.reduce((sum, rt) => sum + rt.pricePerKm, 0) / eligibleRideTypes.length
     const avgPricePerMinute = eligibleRideTypes.reduce((sum, rt) => sum + (rt.pricePerMinute || 0), 0) / eligibleRideTypes.length
 
-    // Calculate distance and duration
-    const distanceData = await getDrivingDistance(
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY ?? ""
+    const distanceData = await getDrivingDistanceKmSmart(
       finalPickupLatitude,
       finalPickupLongitude,
       finalDropLatitude,
-      finalDropLongitude
+      finalDropLongitude,
+      apiKey
     )
 
-    if (!distanceData) {
-      return NextResponse.json({ error: "Unable to calculate distance" }, { status: 500 })
-    }
-
     const distanceKm = distanceData.distance
-    const durationMinutes = Math.ceil(distanceData.duration / 60)
+    const durationSeconds = distanceData.durationMinutes * 60
+    const durationMinutes = Math.ceil(durationSeconds / 60)
 
     // Calculate estimated fare using average pricing
     const estimatedFare = calculateFare({
       basePrice: avgBasePrice,
       pricePerKm: avgPricePerKm,
       pricePerMinute: avgPricePerMinute
-    }, distanceKm, distanceData.duration)
+    }, distanceKm, durationSeconds)
 
     // Get best price (cheapest option)
     const bestRideType = eligibleRideTypes.reduce((best, current) => {
-      const bestPrice = calculateFare(best, distanceKm, distanceData.duration)
-      const currentPrice = calculateFare(current, distanceKm, distanceData.duration)
+      const bestPrice = calculateFare(best, distanceKm, durationSeconds)
+      const currentPrice = calculateFare(current, distanceKm, durationSeconds)
       return currentPrice < bestPrice ? current : best
     })
 
-    const bestPrice = calculateFare(bestRideType, distanceKm, distanceData.duration)
+    const bestPrice = calculateFare(bestRideType, distanceKm, durationSeconds)
 
     return NextResponse.json({
       success: true,
@@ -170,47 +169,6 @@ export async function POST(request: NextRequest) {
       { error: "Failed to calculate delivery estimate", details: error.message },
       { status: 500 }
     )
-  }
-}
-
-async function getDrivingDistance(
-  originLat: number,
-  originLng: number,
-  destLat: number,
-  destLng: number
-): Promise<{ distance: number; duration: number } | null> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  if (!apiKey) {
-    console.error("Google Maps API key not configured")
-    return null
-  }
-
-  try {
-    const origin = `${originLat},${originLng}`
-    const destination = `${destLat},${destLng}`
-    
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&units=metric&key=${apiKey}`
-    
-    const response = await fetch(url)
-    if (!response.ok) {
-      console.error("Distance Matrix API error:", response.status)
-      return null
-    }
-
-    const data = await response.json()
-    
-    if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
-      const element = data.rows[0].elements[0]
-      return {
-        distance: element.distance.value / 1000, // Convert meters to kilometers
-        duration: element.duration.value // Duration in seconds
-      }
-    }
-    
-    return null
-  } catch (error) {
-    console.error("Error calling Distance Matrix API:", error)
-    return null
   }
 }
 

@@ -2,6 +2,10 @@ import { CommissionType, type Module } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { createWalletTransaction } from "@/lib/wallet-transaction-service"
 import { calculateCommission } from "@/lib/commission-service"
+import {
+  bumpRiderBonusOnDeliveryEarning,
+  getActivePeakBonusCommissionMultiplier,
+} from "@/lib/rider-bonus-engine"
 
 interface CreateRiderEarningParams {
   riderId: string
@@ -112,8 +116,8 @@ export async function createRiderEarning({
         netAmount,
         status: "PENDING",
         description:
-          description ||
-          `Earning from ${rideBookingId ? "ride" : "courier"} booking`,
+          (description ||
+            `Earning from ${rideBookingId ? "ride" : "courier"} booking`) + peakBonusTag,
       },
     })
 
@@ -130,6 +134,8 @@ export async function createRiderEarning({
         status: "PENDING",
       },
     })
+
+    void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
 
     return {
       ...riderEarning,

@@ -2014,6 +2014,7 @@ model Restaurant {
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   reviews              Review[]
   multiplePickups      MultiplePickup[]
+  posIntegrations      PosIntegration[]
 
   @@map("restaurants")
 }
@@ -2195,8 +2196,54 @@ model GroceryStore {
   favoriteGroceryStores FavoriteGroceryStore[]
   groceryOffers         GroceryOffer[]
   multiplePickups       MultiplePickup[]
+  posIntegrations       PosIntegration[]
 
   @@map("grocery_stores")
+}
+
+/// External POS / ERP connectors (food & grocery) — API keys + scoped access.
+model PosIntegration {
+  id             String               @id @default(cuid())
+  module         PosIntegrationModule
+  restaurantId   String?
+  groceryStoreId String?
+  restaurant     Restaurant?          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  groceryStore   GroceryStore?        @relation(fields: [groceryStoreId], references: [id], onDelete: Cascade)
+  name           String
+  providerSlug   String               @default("custom")
+  isActive       Boolean              @default(true)
+  settings       Json?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  credentials    PosApiCredential[]
+
+  @@index([restaurantId])
+  @@index([groceryStoreId])
+  @@map("pos_integrations")
+}
+
+enum PosIntegrationModule {
+  FOOD
+  GROCERY
+}
+
+model PosApiCredential {
+  id               String         @id @default(cuid())
+  integrationId    String
+  integration      PosIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  /// SHA-256 hex of full API secret (never store plaintext).
+  tokenFingerprint String         @unique
+  /// First chars of token for dashboards, e.g. pos_sk_a1b2****
+  tokenPrefix      String
+  label            String?
+  scopes           Json           @default("[]")
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  expiresAt        DateTime?
+  createdAt        DateTime       @default(now())
+
+  @@index([integrationId])
+  @@map("pos_api_credentials")
 }
 
 model GroceryProduct {
@@ -2368,6 +2415,8 @@ model RiderProfile {
   totalEarnings       Float                @default(0)
   completionRate      Float                @default(0)
   cancellationRate    Float                @default(0)
+  /// Bookings this rider cancelled after assignment (algorithm / bonus targeting).
+  riderAssignedCancellationCount Int       @default(0)
   averageRating       Float                @default(0)
   isVerified          Boolean              @default(false)
   isApproved          Boolean              @default(false)
@@ -2398,6 +2447,53 @@ model RiderOnlineSession {
   endTime   DateTime?
   rider     RiderProfile @relation(fields: [riderId], references: [id], onDelete: Cascade)
   createdAt DateTime     @default(now())
+}
+
+/// System-generated peak bonus window (demand vs supply).
+model RiderPeakBonusChallenge {
+  id                    String    @id @default(cuid())
+  windowStart           DateTime
+  windowEnd             DateTime
+  peakScore             Float
+  peakThreshold         Float     @default(1.2)
+  activeRidersSnapshot  Int       @default(0)
+  openRequestsSnapshot  Int     @default(0)
+  targetRides           Int
+  bonusCapAmount        Float
+  commissionDiscountPct Float     @default(0)
+  baselineRidesExpected Float
+  incrementalRidesCap Float
+  profitPerRideSnapshot Float
+  status                RiderBonusChallengeStatus @default(ACTIVE)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  participations        RiderBonusParticipation[]
+
+  @@index([status, windowEnd])
+  @@map("rider_peak_bonus_challenges")
+}
+
+enum RiderBonusChallengeStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model RiderBonusParticipation {
+  id            String   @id @default(cuid())
+  challengeId   String
+  challenge     RiderPeakBonusChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  riderUserId   String
+  acceptedAt    DateTime?
+  ridesCompleted Int     @default(0)
+  bonusPaid     Float    @default(0)
+  status        String   @default("INVITED") // INVITED, ACCEPTED, COMPLETED, EXPIRED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([challengeId, riderUserId])
+  @@index([riderUserId, status])
+  @@map("rider_bonus_participations")
 }
 
 model CourierBooking {
@@ -3347,6 +3443,13 @@ model SystemSettings {
   bidExpire                   Int      @default(30)
   minwithdraw                 Int      @default(10)
   compnyinfo                  Json?
+
+  /// BullMQ worker: use AI to refine abandoned-cart recipient list (still needs active GENERAL_ANALYSIS config).
+  marketingAutomationAiEnabled       Boolean @default(true)
+  /// Max compact rows sent to the model per tick (1–20).
+  marketingAutomationAiMaxCandidates Int     @default(12)
+  /// Optional AI tuning for peak rider bonus parameters (tiny prompt; needs GENERAL_ANALYSIS).
+  riderBonusAiEnabled                Boolean @default(false)
 
   @@map("system_settings")
 }

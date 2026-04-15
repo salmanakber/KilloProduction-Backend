@@ -1,3 +1,9 @@
+import {
+  HAVERSINE_ONLY_MAX_KM,
+  haversineKm,
+  haversineChainInputOrderKm,
+} from "@/lib/delivery-distance-policy"
+
 /**
  * Multi-Pickup Route Service
  * 
@@ -64,19 +70,6 @@ export interface RouteCalculationResult {
   error?: string
 }
 
-// Helper function for Haversine distance (used in multiple places)
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371 // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
-}
-
 /**
  * Calculate optimized route for multiple pickup points
  * Uses Google Maps Directions API with waypoint optimization
@@ -96,6 +89,11 @@ export async function calculateOptimizedRoute(
   try {
     if (pickupPoints.length === 0) {
       throw new Error('At least one pickup point is required')
+    }
+
+    const chainKm = haversineChainInputOrderKm(pickupPoints, dropoffPoint)
+    if (chainKm <= HAVERSINE_ONLY_MAX_KM) {
+      return calculateFallbackRoute(pickupPoints, dropoffPoint)
     }
 
     const optimizePickupOrder = options?.optimizePickupOrder !== false
@@ -234,7 +232,7 @@ async function calculateMultiPickupRoute(
   const filteredWaypoints: PickupPoint[] = []
   
   for (const waypoint of waypointPoints) {
-    const distToOrigin = haversineDistance(
+    const distToOrigin = haversineKm(
       pickups[0].latitude, pickups[0].longitude,
       waypoint.latitude, waypoint.longitude
     )
@@ -294,7 +292,7 @@ async function calculateMultiPickupRoute(
   // Handle various error statuses with fallback
   if (data.status === 'ZERO_RESULTS' || data.status === 'NOT_FOUND') {
     // Check if this is likely an international/impossible route
-    const originToDestDistance = haversineDistance(
+    const originToDestDistance = haversineKm(
       pickups[0].latitude, pickups[0].longitude,
       dropoff.latitude, dropoff.longitude
     )
@@ -461,7 +459,7 @@ export function calculateFallbackRoute(
   pickupPoints: PickupPoint[],
   dropoffPoint: DropoffPoint
 ): OptimizedRoute {
-  // Use the shared haversineDistance function (defined above)
+  // Use the shared haversineKm function (defined above)
 
   // For fallback, use nearest neighbor algorithm to optimize order
   // Start from first pickup, then find nearest unvisited pickup, finally go to dropoff
@@ -477,13 +475,13 @@ export function calculateFallbackRoute(
   while (remaining.length > 0) {
     const current = orderedPickups[orderedPickups.length - 1]
     let nearestIndex = 0
-    let nearestDistance = haversineDistance(
+    let nearestDistance = haversineKm(
       current.latitude, current.longitude,
       remaining[0].latitude, remaining[0].longitude
     )
     
     for (let i = 1; i < remaining.length; i++) {
-      const dist = haversineDistance(
+      const dist = haversineKm(
         current.latitude, current.longitude,
         remaining[i].latitude, remaining[i].longitude
       )
@@ -506,7 +504,7 @@ export function calculateFallbackRoute(
     const from = orderedPickups[i]
     const to = orderedPickups[i + 1]
     
-    const distance = haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude)
+    const distance = haversineKm(from.latitude, from.longitude, to.latitude, to.longitude)
     // Estimate duration: assume average speed of 30 km/h in city
     const duration = (distance / 30) * 3600 // Convert to seconds
     
@@ -520,7 +518,7 @@ export function calculateFallbackRoute(
     const from = orderedPickups[orderedPickups.length - 1]
     const to = dropoffPoint
     
-    const distance = haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude)
+    const distance = haversineKm(from.latitude, from.longitude, to.latitude, to.longitude)
     
     // Smart speed estimation based on distance
     // For very long distances (likely international/cross-ocean), this is unrealistic for delivery

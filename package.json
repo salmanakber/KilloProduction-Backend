@@ -22,8 +22,9 @@
     "db:seed:food-grocery": "tsx prisma/seeds/food-grocery-seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
-    "db:migrate": "prisma migrate dev",
-    "worker:food-dispatch": "tsx scripts/food-rider-dispatch-worker.ts",
+    "db:migrate": "prisma migrate dev", 
+    "worker:food-dispatch": "tsx scripts/food-rider-dispatch-worker.ts",   
+    "worker:bullmq": "tsx scripts/bullmq-worker.ts", 
     "test": "jest",
     "test:watch": "jest --watch",
     "type-check": "tsc --noEmit"

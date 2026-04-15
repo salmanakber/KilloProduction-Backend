@@ -110,6 +110,8 @@ export async function GET(request: NextRequest) {
     const averageCommissionRate =
       totalAmount > 0 ? (totalCommission / totalAmount) * 100 : 0
 
+      
+
     // Get last month for comparison
     const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
     const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)

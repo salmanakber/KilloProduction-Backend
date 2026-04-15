@@ -17,7 +17,7 @@ export async function processFoodRiderDispatchJob(data: {
   })
 
   if (!booking || booking.module !== "FOOD") return
-  if (booking.status !== "AWAITING_PREP") return
+  if ((booking.status as any) !== "AWAITING_PREP") return
 
   const order = await prisma.order.findUnique({ where: { id: orderId } })
   if (!order) return
@@ -62,8 +62,8 @@ export async function processFoodRiderDispatchJob(data: {
     )
     return
   }
-
-  const url = `${base.replace(/\/$/, "")}/internal/food-courier-broadcast`
+  const baseNoApi = base.replace(/\/api\/?$/, "").replace(/\/$/, "")
+  const url = `${baseNoApi}/api/internal/food-courier-broadcast`
   const res = await fetch(url, {
     method: "POST",
     headers: {

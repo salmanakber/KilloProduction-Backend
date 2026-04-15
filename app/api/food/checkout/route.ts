@@ -21,6 +21,7 @@ import {
 } from "@/lib/food-prep-time"
 import { scheduleFoodRiderDispatchJob } from "@/lib/food-rider-dispatch-queue"
 import { getGlobalSocketServer } from "@/lib/socket-server"
+import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 // Helper function to generate order number
 function generateOrderNumber(): string {
@@ -54,7 +55,6 @@ async function resolveCoordinates(
   }
 }
 
-// Helper to calculate distance using Google Distance Matrix
 async function getDrivingDistance(
   originLat: number,
   originLng: number,
@@ -63,25 +63,8 @@ async function getDrivingDistance(
   apiKey: string
 ): Promise<{ distance: number; duration: number } | null> {
   try {
-    const params = new URLSearchParams({
-      origins: `${originLat},${originLng}`,
-      destinations: `${destLat},${destLng}`,
-      key: apiKey,
-      mode: 'driving',
-      units: 'metric'
-    })
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?${params.toString()}`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const data = await res.json()
-    if (data.status === 'OK' && data.rows?.[0]?.elements?.[0]?.status === 'OK') {
-      const element = data.rows[0].elements[0]
-      return {
-        distance: element.distance.value / 1000, // km
-        duration: element.duration.value / 60 // minutes
-      }
-    }
-    return null
+    const r = await getDrivingDistanceKmSmart(originLat, originLng, destLat, destLng, apiKey)
+    return { distance: r.distance, duration: r.durationMinutes }
   } catch (error) {
     console.error('Distance calculation error:', error)
     return null
@@ -210,14 +193,21 @@ export async function POST(request: NextRequest) {
     }
 
     const sortedRestaurantIds = isMultiRestaurant
-      ? [...restaurantIds].sort((a, b) => (prepByRestaurant[a] ?? 15) - (prepByRestaurant[b] ?? 15))
+      ? [...restaurantIds].sort((a, b) => (prepByRestaurant[a] ?? 0) - (prepByRestaurant[b] ?? 0))
       : [...restaurantIds]
 
     const firstPickupPrepMinutes =
-      sortedRestaurantIds.length > 0 ? prepByRestaurant[sortedRestaurantIds[0]] ?? 15 : 15
+      sortedRestaurantIds.length > 0 ? prepByRestaurant[sortedRestaurantIds[0]] ?? 0 : 0
 
     const riderDispatchDelayMs = foodRiderDispatchDelayMs(firstPickupPrepMinutes)
     const dispatchScheduledAt = new Date(Date.now() + riderDispatchDelayMs)
+    const foodPrepMeta = {
+      prepByRestaurant,
+      sortedRestaurantIds,
+      firstPickupPrepMinutes,
+      riderDispatchDelayMs,
+      dispatchScheduledAt: dispatchScheduledAt.toISOString(),
+    }
 
     // Calculate subtotal
     let subtotal = 0
@@ -445,6 +435,7 @@ export async function POST(request: NextRequest) {
             paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
             paymentMethod: paymentMethod || 'CARD',
             notes,
+            metadata: { food: foodPrepMeta } as any,
             foodId: restaurant.id,
             isChildOrder: true as any,
             orderItems: {
@@ -496,6 +487,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes: notes || `Multi-restaurant order from ${restaurantIds.length} restaurants`,
+          metadata: { food: foodPrepMeta } as any,
           foodId: null,
           isChildOrder: false as any,
           childId: null as any,
@@ -555,6 +547,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes,
+          metadata: { food: foodPrepMeta } as any,
           foodId: restaurantIds[0],
           isChildOrder: false as any,
           childId: null as any,
@@ -640,7 +633,7 @@ export async function POST(request: NextRequest) {
         distance,
         estimatedTime,
         fare: deliveryFee,
-        status: "AWAITING_PREP",
+        status: "AWAITING_PREP" as any,
         scheduledAt: dispatchScheduledAt,
         paymentStatus: paymentData?.status === "succeeded" ? "PAID" : "PENDING",
         paymentMethod: paymentMethod || "CARD",
@@ -700,7 +693,7 @@ export async function POST(request: NextRequest) {
     await prisma.courierTracking.create({
       data: {
         bookingId: courierBooking.id,
-        status: courierStatus,
+        status: courierStatus as any,
         notes: trackingNotes,
       },
     })
