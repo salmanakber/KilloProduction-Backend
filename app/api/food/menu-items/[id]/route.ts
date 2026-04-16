@@ -28,7 +28,8 @@ export async function GET(
       },
     })
 
-    if (!menuItem) {
+    // Customer marketplace: disabled items should disappear.
+    if (!menuItem || menuItem.isAvailable === false) {
       return NextResponse.json({ error: "Menu item not found" }, { status: 404 })
     }
 

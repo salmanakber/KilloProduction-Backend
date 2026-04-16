@@ -148,6 +148,10 @@ interface SystemSettings {
       workingHours: string | object
     }
   }
+  customerOAuth?: {
+    google?: { enabled?: boolean; webClientId?: string; iosClientId?: string; androidClientId?: string }
+    facebook?: { enabled?: boolean; appId?: string; appSecret?: string }
+  }
 }
 
 type ModuleSettings = SystemSettings["modules"]
@@ -627,6 +631,73 @@ export default function SystemSettings() {
                     </div>
                     <div className="border-t border-gray-100 mt-8 pt-4">
                       <ToggleSwitch label="Two-Factor Authentication" description="Require 2FA for all administrative accounts" checked={settings.security.twoFactorRequired} onChange={(c) => updateSettings("security", "twoFactorRequired", c)} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="p-6 md:p-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2.5 bg-green-50 rounded-lg border border-green-100">
+                        <Smartphone className="h-5 w-5 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">Customer OAuth (Google / Facebook)</h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Mobile customer login on the role screen. Use OAuth client IDs from Google Cloud Console and Meta Developer Console. Facebook
+                          server verification can use the App Secret below or <code className="rounded bg-gray-100 px-1">FACEBOOK_APP_SECRET</code>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <ToggleSwitch
+                        label="Enable Google sign-in"
+                        checked={settings.customerOAuth?.google?.enabled !== false}
+                        onChange={(c) => updateNestedSettings("customerOAuth", "google", "enabled", c)}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <InputGroup label="Google Web client ID" subtext="Required for Expo Auth / web redirect">
+                          <TextInput
+                            value={settings.customerOAuth?.google?.webClientId || ""}
+                            onChange={(e) => updateNestedSettings("customerOAuth", "google", "webClientId", e.target.value)}
+                            placeholder="xxx.apps.googleusercontent.com"
+                          />
+                        </InputGroup>
+                        <InputGroup label="Google iOS client ID">
+                          <TextInput
+                            value={settings.customerOAuth?.google?.iosClientId || ""}
+                            onChange={(e) => updateNestedSettings("customerOAuth", "google", "iosClientId", e.target.value)}
+                          />
+                        </InputGroup>
+                        <InputGroup label="Google Android client ID">
+                          <TextInput
+                            value={settings.customerOAuth?.google?.androidClientId || ""}
+                            onChange={(e) => updateNestedSettings("customerOAuth", "google", "androidClientId", e.target.value)}
+                          />
+                        </InputGroup>
+                      </div>
+                      <div className="border-t border-gray-100 pt-4" />
+                      <ToggleSwitch
+                        label="Enable Facebook sign-in"
+                        checked={settings.customerOAuth?.facebook?.enabled !== false}
+                        onChange={(c) => updateNestedSettings("customerOAuth", "facebook", "enabled", c)}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <InputGroup label="Facebook App ID">
+                          <TextInput
+                            value={settings.customerOAuth?.facebook?.appId || ""}
+                            onChange={(e) => updateNestedSettings("customerOAuth", "facebook", "appId", e.target.value)}
+                          />
+                        </InputGroup>
+                        <InputGroup label="Facebook App Secret" subtext="Stored encrypted in DB; prefer env in production">
+                          <TextInput
+                            type="password"
+                            value={settings.customerOAuth?.facebook?.appSecret || ""}
+                            onChange={(e) => updateNestedSettings("customerOAuth", "facebook", "appSecret", e.target.value)}
+                            placeholder="••••••••"
+                          />
+                        </InputGroup>
+                      </div>
                     </div>
                   </div>
                 </div>

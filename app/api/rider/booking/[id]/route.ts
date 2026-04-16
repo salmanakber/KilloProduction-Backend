@@ -4,6 +4,7 @@ import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { socketIOServer } from "@/lib/socket-server"
+import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
 
 export async function GET(
   request: NextRequest,
@@ -291,16 +292,7 @@ export async function PUT(
           ...(status === 'PICKED_UP' && { pickedUpAt: new Date() }),
           ...(status === 'DELIVERED' && { deliveredAt: new Date() }),
           ...(status === 'CANCELLED' && { cancelledAt: new Date() }),
-          supplierOrders: {
-            updateMany: {
-              where: {
-                courierBookingId: bookingId,
-              },
-              data: {
-                status: 'CONFIRMED',
-              },
-            },
-          },
+          ...(status === 'COMPLETED' && { deliveredAt: new Date() }),
         },
         include: {
           supplierOrders: true,
@@ -375,6 +367,15 @@ export async function PUT(
       } catch (earningError) {
         console.error("Error updating rider earning status:", earningError)
         // Don't fail the request if earning update fails
+      }
+    }
+
+    // Wholesaler/pharmacy courier bookings: release pending vendor wallet + commissions (same as food checkout completion)
+    if (courierBooking && (status === 'COMPLETED' || status === 'DELIVERED')) {
+      try {
+        await runCourierCompletionSideEffects(bookingId)
+      } catch (completionErr) {
+        console.error("runCourierCompletionSideEffects:", completionErr)
       }
     }
 

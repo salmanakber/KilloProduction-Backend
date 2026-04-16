@@ -4,6 +4,7 @@ import { sendOTP, generateOTP } from "@/lib/twilio"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { generateToken } from "@/lib/auth"
 import bcrypt from "bcryptjs"
+import { getUserModules } from "@/lib/auth-user-modules"
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
         mechanicProfile: true,
         groceryStore: true,
         riderProfile: true,
+        wholesaler: true,
       },
     })
     
@@ -47,6 +49,20 @@ export async function POST(request: NextRequest) {
     
 
     // Check if account is deactivated - generate temporary token for verification center
+    const sys = await prisma.systemSettings.findFirst()
+    const maxAttempts = sys?.maxLoginAttempts ?? 5
+    const lockMinutes = sys?.lockoutDuration ?? 30
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      return NextResponse.json(
+        {
+          error: "Account temporarily locked after too many failed attempts. Try again later.",
+          lockedUntil: user.lockedUntil.toISOString(),
+        },
+        { status: 423 }
+      )
+    }
+
     if (!user.isActive ) {
       // Generate temporary token (valid for 1 hour) to access verification center
       const tempToken = await generateToken({
@@ -74,9 +90,45 @@ export async function POST(request: NextRequest) {
         }
       }, { status: 403 })
     }
-    if (user.password && !bcrypt.compareSync(password, user.password)) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 401 })
+    if (!user.password) {
+      return NextResponse.json(
+        {
+          error:
+            "This account uses social sign-in. Please use Google or Facebook, or reset your password if available.",
+        },
+        { status: 400 }
+      )
     }
+
+    if (!bcrypt.compareSync(password, user.password)) {
+      const fails = (user.loginFailedAttempts ?? 0) + 1
+      const lockedUntil =
+        fails >= maxAttempts ? new Date(Date.now() + lockMinutes * 60 * 1000) : null
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          loginFailedAttempts: fails,
+          lockedUntil,
+        },
+      })
+      return NextResponse.json(
+        {
+          error: "Invalid password",
+          attemptsRemaining: Math.max(0, maxAttempts - fails),
+          locked: Boolean(lockedUntil),
+        },
+        { status: 401 }
+      )
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        loginFailedAttempts: 0,
+        lockedUntil: null,
+        lastLoginAt: new Date(),
+      },
+    })
 
     // Check if OTP verification should be skipped
     // If otp parameter is false, skip OTP. Otherwise check environment variable
@@ -147,15 +199,4 @@ export async function POST(request: NextRequest) {
     console.error("Login error:", error)
     return NextResponse.json({ error: "Login failed" }, { status: 500 })
   }
-}
-
-function getUserModules(user: any): string[] {
-  const modules: string[] = []
-  if (user.autoPartsStore) modules.push("AUTO_PARTS")
-  if (user.pharmacy) modules.push("PHARMACY")
-  if (user.restaurant) modules.push("FOOD")
-  if (user.groceryStore) modules.push("GROCERY")
-  if (user.riderProfile) modules.push("RIDING")
-  if (user.mechanicProfile) modules.push("MECHANIC")
-  return modules
 }

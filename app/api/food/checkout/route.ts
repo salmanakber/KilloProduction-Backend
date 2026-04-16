@@ -439,16 +439,21 @@ export async function POST(request: NextRequest) {
             foodId: restaurant.id,
             isChildOrder: true as any,
             orderItems: {
-              create: restaurantItems.map((item: any) => ({
-                productId: item.productId || item.id,
-                productType: "MENU_ITEM",
-                productName: item.name,
-                quantity: item.quantity,
-                unitPrice: item.price,
-                totalPrice: item.price * item.quantity,
-                notes: item.notes,
-                customizations: item.customizations,
-              }))
+              create: restaurantItems.map((item: any) => {
+                const c = (item.customizations as any) || undefined
+                const hasOffer = !!(c && String(c.kiloOfferId || "").trim())
+                const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+                return {
+                  productId: item.productId || item.id,
+                  productType: "MENU_ITEM",
+                  productName: item.name,
+                  quantity: item.quantity,
+                  unitPrice: item.price,
+                  totalPrice: item.price * item.quantity,
+                  notes: item.notes,
+                  customizations: merged,
+                }
+              })
             },
             orderTracking: {
               create: {
@@ -492,16 +497,21 @@ export async function POST(request: NextRequest) {
           isChildOrder: false as any,
           childId: null as any,
           orderItems: {
-            create: items.map((item: any) => ({
-              productId: item.productId || item.id,
-              productType: "MENU_ITEM",
-              productName: item.name,
-              quantity: item.quantity,
-              unitPrice: item.price,
-              totalPrice: item.price * item.quantity,
-              notes: item.notes,
-              customizations: item.customizations,
-            }))
+            create: items.map((item: any) => {
+              const c = (item.customizations as any) || undefined
+              const hasOffer = !!(c && String(c.kiloOfferId || "").trim())
+              const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+              return {
+                productId: item.productId || item.id,
+                productType: "MENU_ITEM",
+                productName: item.name,
+                quantity: item.quantity,
+                unitPrice: item.price,
+                totalPrice: item.price * item.quantity,
+                notes: item.notes,
+                customizations: merged,
+              }
+            })
           },
           orderTracking: {
             create: {
@@ -552,16 +562,21 @@ export async function POST(request: NextRequest) {
           isChildOrder: false as any,
           childId: null as any,
           orderItems: {
-            create: items.map((item: any) => ({
-              productId: item.productId || item.id,
-              productType: "MENU_ITEM",
-              productName: item.name,
-              quantity: item.quantity,
-              unitPrice: item.price,
-              totalPrice: item.price * item.quantity,
-              notes: item.notes,
-              customizations: item.customizations,
-            }))
+            create: items.map((item: any) => {
+              const c = (item.customizations as any) || undefined
+              const hasOffer = !!(c && String(c.kiloOfferId || "").trim())
+              const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+              return {
+                productId: item.productId || item.id,
+                productType: "MENU_ITEM",
+                productName: item.name,
+                quantity: item.quantity,
+                unitPrice: item.price,
+                totalPrice: item.price * item.quantity,
+                notes: item.notes,
+                customizations: merged,
+              }
+            })
           },
           orderTracking: {
             create: {
@@ -764,7 +779,24 @@ export async function POST(request: NextRequest) {
           const co = isMultiRestaurant
             ? childOrders.find((c) => c.id === vendorPayment.orderId)
             : order
-          const net = Math.max(0, (co?.subtotal ?? 0) - (co?.discount ?? 0))
+
+          // Special offers: if PLATFORM funded, vendor should not lose that discount.
+          const lineItems = (co?.orderItems || []) as any[]
+          let platformDiscount = 0
+          for (const li of lineItems) {
+            const cust = li?.customizations as any
+            const offerId = String(cust?.kiloOfferId || "").trim()
+            if (!offerId) continue
+            const fundedBy = String(cust?.kiloOfferDiscountFundedBy || "").toUpperCase()
+            if (fundedBy !== "PLATFORM") continue
+            const originalUnit = Number(cust?.kiloOfferOriginalUnitPrice || 0)
+            const unit = Number(li?.unitPrice || 0)
+            const qty = Number(li?.quantity || 0)
+            if (!Number.isFinite(originalUnit) || !Number.isFinite(unit) || !Number.isFinite(qty)) continue
+            platformDiscount += Math.max(0, (originalUnit - unit) * qty)
+          }
+
+          const net = Math.max(0, (co?.subtotal ?? 0) - (co?.discount ?? 0) + platformDiscount)
           const vendorAmount = Math.max(0, net - (co?.vendorCommission ?? 0))
           await createOrderCompletionWalletTransactions({
             vendorId: vendorPayment.vendorId,

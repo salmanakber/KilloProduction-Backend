@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
         mechanicProfile: true,
         groceryStore: true,
         riderProfile: true,
+        wholesaler: true,
       },
     })
 
@@ -134,6 +135,7 @@ function getUserModules(user: any): string[] {
     [user.riderProfile, "RIDING"],
     [user.mechanicProfile, "MECHANIC"],
     [user.userProfile, "CUSTOMER"],
+    [user.wholesaler, "SUPPLIER"],
   ]
 
   fieldModuleMap.forEach(([field, moduleName]) => {

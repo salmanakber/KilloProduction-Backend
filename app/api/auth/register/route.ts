@@ -1,10 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { sendOTP, generateOTP } from "@/lib/twilio"
+import bcrypt from "bcryptjs"
+import {
+  getPasswordPolicyFromSettings,
+  validatePasswordAgainstPolicy,
+} from "@/lib/password-policy"
 
 export async function POST(request: NextRequest) {
   try {
-    const { phone, email, name, role = "CUSTOMER", modules = [] } = await request.json()
+    const body = await request.json()
+    const {
+      phone,
+      email,
+      name: nameRaw,
+      firstName,
+      lastName,
+      password,
+      role = "CUSTOMER",
+      modules = [],
+    } = body
+
+    const name =
+      typeof nameRaw === "string" && nameRaw.trim()
+        ? nameRaw.trim()
+        : [firstName, lastName].filter(Boolean).join(" ").trim()
 
     // Validate required fields
     if (!phone && !email) {
@@ -13,6 +33,15 @@ export async function POST(request: NextRequest) {
 
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 })
+    }
+
+    if (password && typeof password === "string") {
+      const sys = await prisma.systemSettings.findFirst()
+      const rules = getPasswordPolicyFromSettings(sys)
+      const v = validatePasswordAgainstPolicy(password, rules)
+      if (!v.ok) {
+        return NextResponse.json({ error: v.message }, { status: 400 })
+      }
     }
 
     // Check if user already exists
@@ -36,10 +65,13 @@ export async function POST(request: NextRequest) {
       email,
       name,
       role,
+      ...(password && typeof password === "string"
+        ? { password: await bcrypt.hash(password, 12) }
+        : {}),
       userProfile: {
         create: {
-          firstName: name?.split(" ")[0],
-          lastName: name?.split(" ").slice(1).join(" "),
+          firstName: firstName || name?.split(" ")[0],
+          lastName: lastName || name?.split(" ").slice(1).join(" "),
         },
       },
       userSettings: {
@@ -153,6 +185,7 @@ export async function POST(request: NextRequest) {
       message: "Registration successful. OTP sent to your phone.",
       userId: user.id,
       requiresVerification: true,
+      requiresOTP: true,
       role: user.role,
       modules: getUserModules(user),
     })

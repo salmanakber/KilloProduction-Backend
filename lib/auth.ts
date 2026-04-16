@@ -26,18 +26,22 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 
 // ─── JWT Creation ─────────────────────────────────────────────────────────────
 
+/** Resolves JWT `exp` from explicit override or SystemSettings.sessionTimeout (minutes). */
+export async function resolveJwtExpiresIn(explicit?: string): Promise<string> {
+  if (explicit) return explicit
+  const row = await prisma.systemSettings.findFirst()
+  const minsRaw = row?.sessionTimeout ?? 480
+  const mins = Math.max(5, Math.min(60 * 24 * 30, Number(minsRaw) || 480))
+  return `${mins}m`
+}
+
 export async function generateToken(payload: JWTPayload, expiresIn?: string): Promise<string> {
+  const exp = await resolveJwtExpiresIn(expiresIn)
   const jwt = new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-  
-  // Use custom expiration if provided, otherwise default to 7 days
-  if (expiresIn) {
-    jwt.setExpirationTime(expiresIn)
-  } else {
-    jwt.setExpirationTime("7d")
-  }
-  
+    .setExpirationTime(exp)
+
   return await jwt.sign(getSecretKey())
 }
 

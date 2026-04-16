@@ -71,6 +71,7 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           name,
           type,
@@ -88,7 +89,6 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
             segments: [],
             totalUsers: 0, 
           },
-          createdBy: "admin_user_id", 
         }),
       })
 

@@ -11,6 +11,11 @@ export type OfferTerms = {
   discountFundedBy: string | null
 }
 
+function asNum(x: unknown): number | null {
+  const n = typeof x === "number" ? x : typeof x === "string" ? Number(x) : NaN
+  return Number.isFinite(n) ? n : null
+}
+
 export function metricsForOfferLine(
   offer: OfferTerms,
   item: { quantity: number; unitPrice: number; customizations?: unknown },
@@ -22,6 +27,17 @@ export function metricsForOfferLine(
   const tagged = String(cust?.kiloOfferId || "").trim() === String(offer.id).trim()
 
   if (tagged) {
+    const originalUnit = asNum(cust?.kiloOfferOriginalUnitPrice)
+    const fundedBy = String(cust?.kiloOfferDiscountFundedBy || offer.discountFundedBy || "").toUpperCase()
+    if (originalUnit != null && originalUnit > 0) {
+      const discount = Math.max(0, (originalUnit - Number(item.unitPrice || 0)) * qty)
+      return {
+        grossSales: lineTotal,
+        discountPlatform: fundedBy === "PLATFORM" ? discount : 0,
+        discountVendor: fundedBy === "VENDOR" ? discount : 0,
+        netVendorMerchandise: Math.max(0, lineTotal - (fundedBy === "VENDOR" ? discount : 0)),
+      }
+    }
     return {
       grossSales: lineTotal,
       discountPlatform: 0,

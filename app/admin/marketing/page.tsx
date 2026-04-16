@@ -6,6 +6,15 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   BarChart,
@@ -113,7 +122,10 @@ interface Campaign {
   id: string
   name: string
   type: "PROMO" | "INFORMATIONAL" | "RE_ENGAGEMENT" | "WELCOME" | "ABANDONED_CART"
-  status: "DRAFT" | "SCHEDULED" | "ACTIVE" | "COMPLETED" | "PAUSED"
+  status: "DRAFT" | "SCHEDULED" | "ACTIVE" | "RUNNING" | "COMPLETED" | "PAUSED" | "CANCELLED"
+  startDate?: string | null
+  endDate?: string | null
+  timezone?: string
   targetAudience: {
     userType: string[]
     modules: string[]
@@ -224,6 +236,14 @@ export default function MarketingDashboard() {
   const [showCreateAutomation, setShowCreateAutomation] = useState(false)
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [scheduleEditorOpen, setScheduleEditorOpen] = useState(false)
+  const [scheduleDraft, setScheduleDraft] = useState<{
+    id: string
+    start: string
+    end: string
+    timezone: string
+  }>({ id: "", start: "", end: "", timezone: "UTC" })
+  const [savingSchedule, setSavingSchedule] = useState(false)
 
   // Search and filter states
   const [campaignSearch, setCampaignSearch] = useState("")
@@ -248,7 +268,9 @@ export default function MarketingDashboard() {
 
   const fetchMarketingStats = async () => {
     try {
-      const response = await fetch(`/api/marketing/analytics/dashboard?period=${period}`)
+      const response = await fetch(`/api/marketing/analytics/dashboard?period=${period}`, {
+        credentials: "include",
+      })
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -260,7 +282,7 @@ export default function MarketingDashboard() {
 
   const fetchCampaigns = async () => {
     try {
-      const response = await fetch("/api/marketing/campaigns")
+      const response = await fetch("/api/marketing/campaigns", { credentials: "include" })
       if (response.ok) {
         const data = await response.json()
         setCampaigns(data.campaigns || [])
@@ -272,7 +294,7 @@ export default function MarketingDashboard() {
 
   const fetchSegments = async () => {
     try {
-      const response = await fetch("/api/marketing/segments")
+      const response = await fetch("/api/marketing/segments", { credentials: "include" })
       if (response.ok) {
         const data = await response.json()
         setSegments(data.segments || [])
@@ -284,7 +306,7 @@ export default function MarketingDashboard() {
 
   const fetchAutomationRules = async () => {
     try {
-      const response = await fetch("/api/marketing/automation/rules")
+      const response = await fetch("/api/marketing/automation/rules", { credentials: "include" })
       if (response.ok) {
         const data = await response.json()
         setAutomationRules(data.rules || [])
@@ -304,6 +326,7 @@ export default function MarketingDashboard() {
     try {
       const response = await fetch(`/api/marketing/campaigns/${campaignId}/${action}`, {
         method: "POST",
+        credentials: "include",
       })
       if (response.ok) {
         await fetchCampaigns()
@@ -318,6 +341,7 @@ export default function MarketingDashboard() {
     try {
       const response = await fetch(`/api/marketing/campaigns/${campaignId}/launch`, {
         method: "POST",
+        credentials: "include",
       })
       if (response.ok) {
         await fetchCampaigns()
@@ -328,9 +352,41 @@ export default function MarketingDashboard() {
     }
   }
 
+  const saveSchedule = async () => {
+    if (!scheduleDraft.id) return
+    setSavingSchedule(true)
+    try {
+      const res = await fetch(`/api/marketing/campaigns/${scheduleDraft.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: scheduleDraft.start ? new Date(scheduleDraft.start).toISOString() : null,
+          endDate: scheduleDraft.end ? new Date(scheduleDraft.end).toISOString() : null,
+          timezone: scheduleDraft.timezone || "UTC",
+          schedule: {
+            startDate: scheduleDraft.start ? new Date(scheduleDraft.start).toISOString() : null,
+            endDate: scheduleDraft.end ? new Date(scheduleDraft.end).toISOString() : null,
+            timezone: scheduleDraft.timezone || "UTC",
+            frequency: "ONCE",
+          },
+        }),
+      })
+      if (res.ok) {
+        setScheduleEditorOpen(false)
+        await fetchCampaigns()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "ACTIVE":
+      case "RUNNING":
         return "bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-none shadow-sm shadow-emerald-200"
       case "SCHEDULED":
         return "bg-blue-100 text-blue-800 border-blue-200"
@@ -364,7 +420,10 @@ export default function MarketingDashboard() {
 
   const filteredCampaigns = campaigns.filter((campaign) => {
     const matchesSearch = campaign.name.toLowerCase().includes(campaignSearch.toLowerCase())
-    const matchesFilter = campaignFilter === "all" || campaign.status === campaignFilter
+    const matchesFilter =
+      campaignFilter === "all" ||
+      campaign.status === campaignFilter ||
+      (campaignFilter === "ACTIVE" && campaign.status === "RUNNING")
     return matchesSearch && matchesFilter
   })
 
@@ -624,7 +683,8 @@ export default function MarketingDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="ACTIVE">Active / Running</SelectItem>
+                  <SelectItem value="RUNNING">Running</SelectItem>
                   <SelectItem value="SCHEDULED">Scheduled</SelectItem>
                   <SelectItem value="DRAFT">Draft</SelectItem>
                   <SelectItem value="PAUSED">Paused</SelectItem>
@@ -652,7 +712,9 @@ export default function MarketingDashboard() {
                         {campaign.abTest?.enabled && <Badge variant="secondary" className="bg-indigo-50 text-indigo-700">A/B Test</Badge>}
                       </div>
 
-                      <p className="text-slate-600 mb-5 text-sm leading-relaxed max-w-3xl">{campaign.content.message}</p>
+                      <p className="text-slate-600 mb-5 text-sm leading-relaxed max-w-3xl">
+                        {campaign.content?.message || "—"}
+                      </p>
 
                       <div className="flex flex-wrap gap-6 mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <div className="flex items-center text-sm font-medium text-slate-700">
@@ -661,7 +723,11 @@ export default function MarketingDashboard() {
                         </div>
                         <div className="flex items-center text-sm font-medium text-slate-700">
                           <Calendar className="h-4 w-4 mr-2 text-blue-500" />
-                          {new Date(campaign.schedule.startDate).toLocaleDateString()}
+                          {campaign.schedule?.startDate
+                            ? new Date(campaign.schedule.startDate).toLocaleDateString()
+                            : campaign.startDate
+                              ? new Date(campaign.startDate).toLocaleDateString()
+                              : "—"}
                         </div>
                         <div className="flex items-center space-x-2">
                           <span className="text-sm font-medium text-slate-500 mr-1">Channels:</span>
@@ -711,7 +777,30 @@ export default function MarketingDashboard() {
                       <Button variant="ghost" size="icon" className="hover:text-emerald-600 hover:bg-emerald-50" onClick={() => setSelectedCampaign(campaign)} title="View">
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="hover:text-blue-600 hover:bg-blue-50" title="Edit">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hover:text-blue-600 hover:bg-blue-50"
+                        title="Edit schedule"
+                        onClick={() => {
+                          const startRaw = campaign.schedule?.startDate || campaign.startDate
+                          const endRaw = campaign.schedule?.endDate || campaign.endDate
+                          const toLocalInput = (iso: string | undefined | null) => {
+                            if (!iso) return ""
+                            const d = new Date(iso)
+                            if (Number.isNaN(d.getTime())) return ""
+                            const pad = (n: number) => String(n).padStart(2, "0")
+                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                          }
+                          setScheduleDraft({
+                            id: campaign.id,
+                            start: toLocalInput(typeof startRaw === "string" ? startRaw : startRaw ?? undefined),
+                            end: toLocalInput(typeof endRaw === "string" ? endRaw : endRaw ?? undefined),
+                            timezone: campaign.schedule?.timezone || campaign.timezone || "UTC",
+                          })
+                          setScheduleEditorOpen(true)
+                        }}
+                      >
                         <Edit className="h-4 w-4" />
                       </Button>
                       {campaign.status === "DRAFT" && (
@@ -719,7 +808,7 @@ export default function MarketingDashboard() {
                           <Send className="h-4 w-4" />
                         </Button>
                       )}
-                      {campaign.status === "ACTIVE" ? (
+                      {campaign.status === "ACTIVE" || campaign.status === "RUNNING" ? (
                         <Button variant="ghost" size="icon" className="hover:text-amber-600 hover:bg-amber-50" onClick={() => handleCampaignAction(campaign.id, "pause")} title="Pause">
                           <Pause className="h-4 w-4" />
                         </Button>
@@ -1031,7 +1120,7 @@ export default function MarketingDashboard() {
                       outerRadius={110}
                       paddingAngle={5}
                       dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                     >
                       {eventsData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -1117,6 +1206,51 @@ export default function MarketingDashboard() {
         onClose={() => setShowCreateAutomation(false)}
         onSuccess={fetchAllData}
       />
+
+      <Dialog open={scheduleEditorOpen} onOpenChange={setScheduleEditorOpen}>
+        <DialogContent className="sm:max-w-md bg-white">
+          <DialogHeader>
+            <DialogTitle>Campaign schedule</DialogTitle>
+            <DialogDescription>
+              Updates start/end dates and timezone on the campaign (and schedule JSON) for workers and the customer inbox.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label>Start</Label>
+              <Input
+                type="datetime-local"
+                value={scheduleDraft.start}
+                onChange={(e) => setScheduleDraft((s) => ({ ...s, start: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>End (optional)</Label>
+              <Input
+                type="datetime-local"
+                value={scheduleDraft.end}
+                onChange={(e) => setScheduleDraft((s) => ({ ...s, end: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Timezone</Label>
+              <Input
+                value={scheduleDraft.timezone}
+                onChange={(e) => setScheduleDraft((s) => ({ ...s, timezone: e.target.value }))}
+                placeholder="e.g. Africa/Lagos"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setScheduleEditorOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void saveSchedule()} disabled={savingSchedule}>
+              {savingSchedule ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -26,7 +26,10 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
     },
   })
 
-  if (!updatedBooking || updatedBooking.status !== "COMPLETED" || !updatedBooking.riderId) {
+  const done =
+    updatedBooking.status === "COMPLETED" ||
+    updatedBooking.status === "DELIVERED"
+  if (!updatedBooking || !done || !updatedBooking.riderId) {
     return
   }
 

@@ -27,6 +27,7 @@ const COURIER_MODULE_MAP: Record<string, Module> = {
   COURIER: "COURIER",
   RIDING: "RIDING",
   RIDE: "RIDING",
+  WHOLESALER: "PHARMACY",
 }
 
 export async function resolveRiderCommissionModule(params: {

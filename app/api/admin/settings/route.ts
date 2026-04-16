@@ -208,6 +208,10 @@ export async function GET(request: NextRequest) {
         },
       },
       loyaltyPoints: loyaltyPointsMap,
+      customerOAuth: (systemSettings?.customerOAuth as Record<string, unknown>) || {
+        google: { webClientId: "", iosClientId: "", androidClientId: "" },
+        facebook: { appId: "", appSecret: "" },
+      },
     }
 
     
@@ -319,6 +323,8 @@ export async function PUT(request: NextRequest) {
         ),
         riderBonusAiEnabled: settings.notifications?.riderBonusAiEnabled ?? false,
 
+        customerOAuth: settings.customerOAuth ?? undefined,
+
         // Payment settings
         defaultCurrency: settings.payments.defaultCurrency,
         pricePerKm: settings.payments.pricePerKm,
@@ -378,6 +384,7 @@ export async function PUT(request: NextRequest) {
             voice: settings.tts?.voice || process.env.TTS_VOICE || "en-GB-RyanNeural",
           },
         },
+        customerOAuth: settings.customerOAuth ?? undefined,
       },
     })
 

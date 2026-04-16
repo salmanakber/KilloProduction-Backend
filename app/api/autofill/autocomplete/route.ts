@@ -5,6 +5,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const input = searchParams.get('input') || ''
     const sessiontoken = searchParams.get('sessiontoken') || undefined
+    /** e.g. `geocode` (default) or `(cities)` for city/locality results */
+    const types = searchParams.get('types') || 'geocode'
+    /** `lat,lng` — when set with `radius`, biases results toward the user */
+    const location = searchParams.get('location') || undefined
+    /** meters — Google requires this when `location` is set for autocomplete bias */
+    const radius = searchParams.get('radius') || undefined
 
     if (!input || input.length < 3) {
       return NextResponse.json({ predictions: [] })
@@ -21,8 +27,10 @@ export async function GET(request: NextRequest) {
     const params = new URLSearchParams({
       input,
       key: apiKey,
-      types: 'geocode',
+      types,
     })
+    if (location) params.set('location', location)
+    if (radius) params.set('radius', radius)
     console.log("params", params)
     
     if (sessiontoken) {

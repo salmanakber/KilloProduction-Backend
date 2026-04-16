@@ -1,6 +1,7 @@
 import { jwtVerify, SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
+import { resolveJwtExpiresIn } from "./auth";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const getSecretKey = () => new TextEncoder().encode(JWT_SECRET);
@@ -17,11 +18,12 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 
 // ─── JWT Creation ─────────────────────────────────────────────────────────────
 
-export async function generateToken(payload: any): Promise<string> {
+export async function generateToken(payload: any, expiresIn?: string): Promise<string> {
+  const exp = await resolveJwtExpiresIn(expiresIn)
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    .setExpirationTime(exp)
     .sign(getSecretKey());
 }
 

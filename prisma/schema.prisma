@@ -40,6 +40,8 @@ model User {
   password                String?
   lastLoginAt             DateTime?
   deletedAt               DateTime?
+  loginFailedAttempts     Int       @default(0)
+  lockedUntil             DateTime?
   abTestParticipations    ABTestParticipant[]       @relation("UserABTestParticipations")
   createdABTests          ABTest[]                  @relation("ABTestCreator")
   addresses               Address[]
@@ -3450,6 +3452,8 @@ model SystemSettings {
   marketingAutomationAiMaxCandidates Int     @default(12)
   /// Optional AI tuning for peak rider bonus parameters (tiny prompt; needs GENERAL_ANALYSIS).
   riderBonusAiEnabled                Boolean @default(false)
+  /// Customer app OAuth (Google / Facebook). Shape: { google?: { webClientId, iosClientId, androidClientId }, facebook?: { appId, appSecret } }
+  customerOAuth                      Json?
 
   @@map("system_settings")
 }

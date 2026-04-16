@@ -24,7 +24,13 @@ export async function POST(request: NextRequest) {
     const dataUri = `data:${mime};base64,${buf.toString("base64")}`
 
     const folder =
-      module === "AUTO_PARTS" ? "vendor-products/auto-parts" : module === "FOOD" ? "vendor-products/food" : "vendor-products/grocery"
+      module === "AUTO_PARTS"
+        ? "vendor-products/auto-parts"
+        : module === "FOOD"
+          ? "vendor-products/food"
+          : module === "PHARMACY"
+            ? "vendor-products/pharmacy"
+            : "vendor-products/grocery"
 
     const uploaded = await cloudinary.uploader.upload(dataUri, {
       folder,
@@ -48,6 +54,19 @@ export async function POST(request: NextRequest) {
         include: { menuCategories: { where: { isActive: true }, select: { id: true, name: true } } },
       })
       categoryList = (rest?.menuCategories || []).map((c) => ({ id: c.id, name: c.name }))
+    } else if (module === "PHARMACY") {
+      // For pharmacies, we use existing CentralMedicine categories as hints (best effort).
+      const cats = await prisma.centralMedicine.findMany({
+        where: { isActive: true },
+        distinct: ["category"],
+        select: { category: true },
+        take: 80,
+        orderBy: { category: "asc" },
+      })
+      categoryList = cats
+        .map((c) => String(c.category || "").trim())
+        .filter(Boolean)
+        .map((name, i) => ({ id: `cat_${i}`, name }))
     } else {
       const store = await prisma.groceryStore.findUnique({ where: { userId: user.id }, select: { productCategories: true } })
       const pc = store?.productCategories
