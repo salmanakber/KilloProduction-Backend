@@ -13,6 +13,11 @@ import {
   splitAmountByWeights,
 } from "@/lib/order-vendor-platform-fee-record"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { NotificationBridge } from "@/lib/notification-bridge"
+import { linkPharmacyCartPaymentToOrder } from "@/lib/link-pharmacy-cart-payment"
+import { settlementMerchandiseFromCartLines } from "@/lib/pharmacy-vendor-settlement"
+import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
+import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
 
 // Generate 6-digit OTP
 function generateOrderNumber(): string {
@@ -39,6 +44,32 @@ function calculateFare(rideType: { basePrice?: number; pricePerKm?: number; pric
   return Math.round((base + perKm * distanceKm + perMin * durationMin) * 100) / 100
 }
 
+function pharmacySpecialOfferCustomizations(item: any): Record<string, unknown> | undefined {
+  const so = item.specialOffer as
+    | {
+        offerId?: string
+        discountFundedBy?: string
+        originalPrice?: number
+        discountType?: string
+        discountValue?: number
+      }
+    | undefined
+  if (!so?.offerId) return undefined
+  const c: Record<string, unknown> = {
+    kiloOfferId: String(so.offerId),
+    kiloSaleSource: "SPECIAL_OFFER",
+  }
+  if (so.discountFundedBy) c.kiloOfferDiscountFundedBy = String(so.discountFundedBy)
+  if (so.originalPrice != null && Number.isFinite(Number(so.originalPrice))) {
+    c.kiloOfferOriginalUnitPrice = Number(so.originalPrice)
+  }
+  if (so.discountType) c.kiloOfferDiscountType = String(so.discountType)
+  if (so.discountValue != null && Number.isFinite(Number(so.discountValue))) {
+    c.kiloOfferDiscountValue = Number(so.discountValue)
+  }
+  return c
+}
+
 async function buildPharmacyOrderItemCreateInput(item: any) {
   const pharmacyMedicine = await prisma.pharmacyMedicine.findFirst({
     where: {
@@ -49,6 +80,7 @@ async function buildPharmacyOrderItemCreateInput(item: any) {
       centralMedicine: true,
     },
   })
+  const customizations = pharmacySpecialOfferCustomizations(item)
   return {
     productId: pharmacyMedicine?.centralMedicine?.id || "",
     productType: "MEDICINE",
@@ -57,6 +89,9 @@ async function buildPharmacyOrderItemCreateInput(item: any) {
     unitPrice: item.price,
     totalPrice: item.price * item.quantity,
     notes: item.notes,
+    ...(customizations && Object.keys(customizations).length > 0
+      ? { customizations: customizations as object }
+      : {}),
   }
 }
 
@@ -98,7 +133,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid delivery address" }, { status: 404 })
     }
 
-    console.log('items', items)
+    
 
     // Filter to only include pharmacy items (items with valid pharmacyId)
     // This endpoint is for pharmacy checkout, so we ignore non-pharmacy items
@@ -176,6 +211,27 @@ export async function POST(request: NextRequest) {
 
     // Calculate totals (only for pharmacy items)
     const subtotal = pharmacyItems.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0)
+
+    // --- Special offer: usage limits (distinct offers in cart) ---
+    const _offerIdsFromItems = pharmacyItems
+      .map((it: any) => it.specialOffer?.offerId)
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
+    const specialOfferIdsInCart: string[] = Array.from(new Set(_offerIdsFromItems))
+    if (specialOfferIdsInCart.length > 0) {
+      const offerRows = await prisma.specialOffer.findMany({
+        where: { id: { in: specialOfferIdsInCart } },
+        select: { id: true, maxUses: true, usedCount: true, title: true },
+      })
+      for (const o of offerRows) {
+        if (o.maxUses != null && o.usedCount >= o.maxUses) {
+          return NextResponse.json(
+            { error: `This offer has reached its usage limit: ${o.title || o.id}` },
+            { status: 400 },
+          )
+        }
+      }
+    }
+
     // --- Promo code (optional) ---
     let promoDiscount = 0
     let validatedPromo: { id: string } | null = null
@@ -207,8 +263,14 @@ export async function POST(request: NextRequest) {
 
     const discountedSubtotal = Math.max(0, subtotal - promoDiscount)
 
+    const vendorCommissionSubtotal = settlementMerchandiseFromCartLines(
+      pharmacyItems,
+      subtotal,
+      promoDiscount,
+    )
+
     const platformCommission = await checkoutPlatformFeeAmount("PHARMACY", discountedSubtotal)
-    const vendorCommissionTotal = await checkoutVendorCommissionAmount("PHARMACY", discountedSubtotal)
+    const vendorCommissionTotal = await checkoutVendorCommissionAmount("PHARMACY", vendorCommissionSubtotal)
 
     // Ensure customer address has coordinates
     let dropLatitude = address.latitude
@@ -352,6 +414,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
+
     const finalOrderTotal = discountedSubtotal + deliveryFee + platformCommission
 
     const allItemsWithPayloads = await Promise.all(
@@ -406,6 +470,13 @@ export async function POST(request: NextRequest) {
           .filter((x) => x.pharmacyId === pharmacyId)
           .map((x) => x.payload)
 
+
+        
+
+        const childOfferMeta = buildOrderSpecialOffersMetadata(pItems as Record<string, unknown>[])
+        
+        console.log("478 childOfferMeta", childOfferMeta)
+
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -427,6 +498,7 @@ export async function POST(request: NextRequest) {
             notes,
             pharmacyId: pharmacy.id,
             isChildOrder: true as any,
+            ...(childOfferMeta ? { metadata: { specialOffers: childOfferMeta } as object } : {}),
             orderItems: {
               create: childPayloads,
             },
@@ -446,6 +518,8 @@ export async function POST(request: NextRequest) {
       }
 
       const parentOrderNumber = generateOrderNumber()
+      const parentOfferMeta = buildOrderSpecialOffersMetadata(pharmacyItems as Record<string, unknown>[])
+      console.log("522 parentOfferMeta", parentOfferMeta)
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -468,6 +542,7 @@ export async function POST(request: NextRequest) {
           pharmacyId: null,
           isChildOrder: false as any,
           childId: null as any,
+          ...(parentOfferMeta ? { metadata: { specialOffers: parentOfferMeta } as object } : {}),
           orderItems: {
             create: allItemsWithPayloads.map((x) => x.payload),
           },
@@ -493,6 +568,8 @@ export async function POST(request: NextRequest) {
       const pharmacy = pharmacyMap[pid]
       const orderNumber = generateOrderNumber()
       const singlePayloads = allItemsWithPayloads.map((x) => x.payload)
+      const singleOfferMeta = buildOrderSpecialOffersMetadata(pharmacyItems as Record<string, unknown>[])
+      console.log("572 singleOfferMeta", singleOfferMeta)
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -515,6 +592,7 @@ export async function POST(request: NextRequest) {
           pharmacyId: pid,
           isChildOrder: false as any,
           childId: null as any,
+          ...(singleOfferMeta ? { metadata: { specialOffers: singleOfferMeta } as object } : {}),
           orderItems: {
             create: singlePayloads,
           },
@@ -544,6 +622,22 @@ export async function POST(request: NextRequest) {
         ])
       } catch (e) {
         console.error("Promo code usage record failed:", e)
+      }
+    }
+
+    if (order?.id && paymentData && typeof paymentData === "object") {
+      try {
+        await linkPharmacyCartPaymentToOrder({
+          userId: user.id,
+          order: {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            total: Number(finalOrderTotal),
+          },
+          paymentData: paymentData as Record<string, unknown>,
+        })
+      } catch (linkErr) {
+        console.error("Pharmacy checkout payment link:", linkErr)
       }
     }
 
@@ -756,6 +850,24 @@ export async function POST(request: NextRequest) {
         },
         actionUrl: `/pharmacy/orders/${targetOrder?.id ?? order.id}`
       })
+      try {
+        const oid = targetOrder?.id ?? order.id
+        await NotificationBridge.sendNotification({
+          userId: pharmacy.userId,
+          title: "New Order Received",
+          message: `New order #${displayNumber} with ${pharmacyItemsList.length} items`,
+          type: "ORDER",
+          module: "PHARMACY",
+          data: {
+            actionType: "navigate",
+            screen: "OrderDetails",
+            params: [{ name: "orderId", value: oid }],
+          },
+          actionUrl: `/pharmacy/orders/${oid}`,
+        })
+      } catch (pushErr) {
+        console.error("Pharmacy vendor NotificationBridge:", pushErr)
+      }
     }
 
     const customerRow = await prisma.user.findUnique({
@@ -797,6 +909,21 @@ export async function POST(request: NextRequest) {
         }
       } catch (emailErr) {
         console.error("Pharmacy order confirmation email:", emailErr)
+      }
+    }
+
+    if (specialOfferIdsInCart.length > 0) {
+      try {
+        await prisma.$transaction(
+          specialOfferIdsInCart.map((oid) =>
+            prisma.specialOffer.update({
+              where: { id: oid },
+              data: { usedCount: { increment: 1 } },
+            }),
+          ),
+        )
+      } catch (e) {
+        console.error("special offer usedCount increment:", e)
       }
     }
 

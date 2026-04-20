@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { roundMoney2 } from "@/lib/money-round"
 
 export async function GET(
   request: NextRequest,
@@ -16,6 +17,9 @@ export async function GET(
     const { userType } = params
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') || '30d'
+     
+
+
 
     // Validate user type
     const validUserTypes = ['pharmacy', 'wholesaler', 'mechanic', 'vendor' , 'food', 'grocery', 'auto_parts']
@@ -423,8 +427,11 @@ export async function GET(
       }
     }
 
-    // Chart data (daily earnings for the period from wallet transactions)
+    // Chart data (daily settled net + daily pending credits for the period)
     const periodTransactions = verifiedTransactions.filter(
+      (wt) => new Date(wt.createdAt) >= periodStart
+    )
+    const periodPendingTx = verifiedPendingTransactions.filter(
       (wt) => new Date(wt.createdAt) >= periodStart
     )
     const dailyEarningsMap = new Map<string, number>()
@@ -432,15 +439,51 @@ export async function GET(
       const dateKey = new Date(wt.createdAt).toISOString().split('T')[0] // YYYY-MM-DD
       dailyEarningsMap.set(dateKey, (dailyEarningsMap.get(dateKey) || 0) + (wt.amount || 0))
     })
+    const dailyPendingMap = new Map<string, number>()
+    periodPendingTx.forEach((wt) => {
+      const dateKey = new Date(wt.createdAt).toISOString().split('T')[0]
+      dailyPendingMap.set(dateKey, (dailyPendingMap.get(dateKey) || 0) + (wt.amount || 0))
+    })
 
     const chartLabels: string[] = []
     const chartDataPoints: number[] = []
+    const chartPendingPoints: number[] = []
     let currentDate = new Date(periodStart)
-    while (currentDate <= today) {
+    const chartEnd = new Date(today)
+    chartEnd.setHours(23, 59, 59, 999)
+    while (currentDate <= chartEnd) {
       const dateKey = currentDate.toISOString().split('T')[0]
       chartLabels.push(currentDate.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }))
-      chartDataPoints.push(dailyEarningsMap.get(dateKey) || 0)
+      chartDataPoints.push(roundMoney2(dailyEarningsMap.get(dateKey) || 0))
+      chartPendingPoints.push(roundMoney2(dailyPendingMap.get(dateKey) || 0))
       currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    const totalWithdrawnAgg = await prisma.vendorWithdrawal.aggregate({
+      where: { vendorId: session.id, status: "COMPLETED" },
+      _sum: { amount: true },
+    })
+    const totalWithdrawn = roundMoney2(totalWithdrawnAgg._sum.amount ?? 0)
+
+    const [vcPendingSum, vcCalculatedSum, vcPaidSum] = await Promise.all([
+      prisma.vendorCommission.aggregate({
+        where: { vendorId: session.id, status: "PENDING" },
+        _sum: { commissionAmount: true },
+      }),
+      prisma.vendorCommission.aggregate({
+        where: { vendorId: session.id, status: "CALCULATED" },
+        _sum: { commissionAmount: true },
+      }),
+      prisma.vendorCommission.aggregate({
+        where: { vendorId: session.id, status: "PAID" },
+        _sum: { commissionAmount: true },
+      }),
+    ])
+    const vendorCommissionSummary = {
+      pending: roundMoney2(
+        (vcPendingSum._sum.commissionAmount ?? 0) + (vcCalculatedSum._sum.commissionAmount ?? 0),
+      ),
+      paid: roundMoney2(vcPaidSum._sum.commissionAmount ?? 0),
     }
 
     /** Lines tagged at checkout with kiloSaleSource (mystery box / special offer) for vendor reporting */
@@ -487,28 +530,40 @@ export async function GET(
     }
 
     return NextResponse.json({
-      totalEarnings, // Total from COMPLETED and verified transactions
-      pendingEarnings: totalPendingEarnings, // Total from PENDING transactions
-      thisMonth: monthEarnings,
-      thisMonthPending: monthPendingEarnings,
-      lastMonth: lastMonthEarnings,
-      thisWeek: weekEarnings,
-      thisWeekPending: weekPendingEarnings,
-      today: todayEarnings,
-      todayPending: todayPendingEarnings,
-      pendingPayouts, // Available wallet balance (verified from wallet model)
-      walletBalance, // Actual wallet balance
-      calculatedBalance: calculatedWalletBalance, // Sum of completed transactions (for verification)
+      totalEarnings: roundMoney2(totalEarnings), // Total from COMPLETED and verified transactions
+      pendingEarnings: roundMoney2(totalPendingEarnings), // Total from PENDING transactions
+      thisMonth: roundMoney2(monthEarnings),
+      thisMonthPending: roundMoney2(monthPendingEarnings),
+      lastMonth: roundMoney2(lastMonthEarnings),
+      thisWeek: roundMoney2(weekEarnings),
+      thisWeekPending: roundMoney2(weekPendingEarnings),
+      today: roundMoney2(todayEarnings),
+      todayPending: roundMoney2(todayPendingEarnings),
+      pendingPayouts: roundMoney2(pendingPayouts), // Available wallet balance (verified from wallet model)
+      walletBalance: roundMoney2(walletBalance), // Actual wallet balance
+      calculatedBalance: roundMoney2(calculatedWalletBalance), // Sum of completed transactions (for verification)
       totalOrders,
       periodOrders: periodOrdersCount,
-      averageOrderValue,
+      averageOrderValue: roundMoney2(averageOrderValue),
       commissionRate: averageCommissionRate,
-      platformFees: totalCommission,
-      periodTotal,
+      platformFees: roundMoney2(totalCommission),
+      periodTotal: roundMoney2(periodTotal),
       growthPercentage,
+      totalWithdrawn,
+      vendorCommissionSummary,
+      lifetimeBreakdown: {
+        netSettled: roundMoney2(totalEarnings),
+        pendingWallet: roundMoney2(totalPendingEarnings),
+        orderCountAllTime: totalOrders,
+        orderCountPeriod: periodOrdersCount,
+      },
       chartData: {
         labels: chartLabels,
-        datasets: [{ data: chartDataPoints }],
+        datasets: [
+          { data: chartDataPoints, color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, strokeWidth: 2 },
+          { data: chartPendingPoints, color: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, strokeWidth: 2 },
+        ],
+        legend: ["Net settled (period)", "Pending credits (period)"],
       },
       promotionalAttribution,
     })

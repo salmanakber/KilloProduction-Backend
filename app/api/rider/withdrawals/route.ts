@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
 import { authenticateRequest } from "@/lib/auth"
+import { getRiderWithdrawableBalance } from "@/lib/rider-available-balance"
 
 
 
@@ -72,36 +73,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Calculate available balance from rider earnings
-    const allEarnings = await prisma.riderEarning.findMany({
-      where: {
-        riderId: session.id,
-        status: "PAID",
-      },
-    })
-
-    const paidEarnings = allEarnings.reduce((sum, e) => sum + e.netAmount, 0)
-
-    const totalWithdrawn = await prisma.vendorWithdrawal.aggregate({
-      where: {
-        vendorId: session.id,
-        status: "COMPLETED",
-      },
-      _sum: { amount: true },
-    })
-
-    const pendingWithdrawals = await prisma.vendorWithdrawal.aggregate({
-      where: {
-        vendorId: session.id,
-        status: { in: ["PENDING", "APPROVED"] },
-      },
-      _sum: { amount: true },
-    })
-
-    const availableBalance =
-      paidEarnings -
-      (totalWithdrawn._sum.amount || 0) -
-      (pendingWithdrawals._sum.amount || 0)
+    const availableBalance = await getRiderWithdrawableBalance(session.id)
 
     if (amount > availableBalance) {
       return NextResponse.json(

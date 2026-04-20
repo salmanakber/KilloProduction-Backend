@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -67,6 +67,15 @@ interface Pharmacy {
 
 type CategoryNode = { id: string; name: string; children?: Array<{ id: string; name: string }> }
 const USER_TYPES = ["customer", "vendor", "premium_member", "new_user"]
+
+type FundingOfferMetrics = {
+  offerId: string
+  totalOrders: number
+  grossSales: number
+  discountPlatform: number
+  discountVendor: number
+  netVendorMerchandise: number
+}
 
 const mockChartData = [
   { name: 'Jan', redemptions: 120 }, { name: 'Feb', redemptions: 250 }, { name: 'Mar', redemptions: 180 },
@@ -239,6 +248,46 @@ export default function SpecialOffersPage() {
   const [offerReportLoading, setOfferReportLoading] = useState(false)
   const [offerReportLive, setOfferReportLive] = useState(false)
 
+  const [fundingRange, setFundingRange] = useState(() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000)
+    return { from: format(from, "yyyy-MM-dd"), to: format(to, "yyyy-MM-dd") }
+  })
+  const [fundingSummary, setFundingSummary] = useState<{
+    totals?: { totalOrders: number; discountPlatform: number; discountVendor: number; grossSales: number; totalUnits: number }
+    byOffer?: FundingOfferMetrics[]
+  } | null>(null)
+  const [fundingLoading, setFundingLoading] = useState(false)
+
+  const fundingByOfferId = useMemo(() => {
+    const m = new Map<string, FundingOfferMetrics>()
+    for (const row of fundingSummary?.byOffer || []) {
+      m.set(row.offerId, row)
+    }
+    return m
+  }, [fundingSummary])
+
+  const fetchFundingSummary = async () => {
+    try {
+      setFundingLoading(true)
+      const qp = new URLSearchParams({
+        from: new Date(fundingRange.from + "T00:00:00").toISOString(),
+        to: new Date(fundingRange.to + "T23:59:59.999").toISOString(),
+      })
+      const res = await fetch(`/api/admin/special-offers/funding-summary?${qp.toString()}`)
+      if (!res.ok) {
+        setFundingSummary(null)
+        return
+      }
+      const data = await res.json().catch(() => ({}))
+      setFundingSummary(data?.success ? data : null)
+    } catch {
+      setFundingSummary(null)
+    } finally {
+      setFundingLoading(false)
+    }
+  }
+
   useEffect(() => {
     systemSettings().then(settings => setCurrency(settings.currency))
   }, [])
@@ -354,6 +403,10 @@ export default function SpecialOffersPage() {
   }, [formData.locationLatitude, formData.locationLongitude, formData.locationRadiusKm])
 
   useEffect(() => { fetchOffers(); fetchPharmacies(); }, [])
+  useEffect(() => {
+    fetchFundingSummary()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when date range changes
+  }, [fundingRange.from, fundingRange.to])
   useEffect(() => { fetchCategoriesByModule(formData.module).catch(() => {}) }, [formData.module])
 
   useEffect(() => {
@@ -1384,6 +1437,64 @@ export default function SpecialOffersPage() {
           </Sheet>
         </div>
 
+        {/* ── Discount absorption (live delivered orders in range) ───────── */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3 flex-wrap">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-500">Range start</Label>
+              <Input
+                type="date"
+                className="h-9 w-[160px] bg-white border-slate-200"
+                value={fundingRange.from}
+                onChange={(e) => setFundingRange((r) => ({ ...r, from: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-500">Range end</Label>
+              <Input
+                type="date"
+                className="h-9 w-[160px] bg-white border-slate-200"
+                value={fundingRange.to}
+                onChange={(e) => setFundingRange((r) => ({ ...r, to: e.target.value }))}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 border-slate-200"
+              disabled={fundingLoading}
+              onClick={() => fetchFundingSummary()}
+            >
+              {fundingLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Refresh
+            </Button>
+            <p className="text-[11px] text-slate-400 sm:ml-auto max-w-md">
+              Totals use delivered orders whose lines match each campaign product, clipped to both the selected range and each offer&apos;s validity window (same rules as per-offer &quot;Live&quot; report).
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white shadow-sm overflow-hidden">
+              <CardContent className="p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700/90">Platform-funded discount</p>
+                <p className="text-2xl font-bold text-emerald-800 tabular-nums mt-1">
+                  {fundingLoading ? "…" : `${currency} ${(fundingSummary?.totals?.discountPlatform ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                </p>
+                <p className="text-xs text-slate-500 mt-2">Absorbed by platform (campaigns overlapping the date range)</p>
+              </CardContent>
+            </Card>
+            <Card className="border-amber-100 bg-gradient-to-br from-amber-50/80 to-white shadow-sm overflow-hidden">
+              <CardContent className="p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800/90">Vendor-funded discount</p>
+                <p className="text-2xl font-bold text-amber-900 tabular-nums mt-1">
+                  {fundingLoading ? "…" : `${currency} ${(fundingSummary?.totals?.discountVendor ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                </p>
+                <p className="text-xs text-slate-500 mt-2">Absorbed by vendors (same calculation scope as platform panel)</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
         {/* ── KPI Cards ───────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Active Campaigns" value={totalActive} icon={Activity} colorClass="bg-emerald-100 text-emerald-600" />
@@ -1456,13 +1567,9 @@ export default function SpecialOffersPage() {
                   <TableHead className="text-xs font-semibold text-slate-500 py-3 pl-6 uppercase tracking-wide">Campaign</TableHead>
                   <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Discount</TableHead>
                   <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Period</TableHead>
-                  <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wi
-                  
-                  
-                  
-                  
-                  
-                  de text-center">Uses</TableHead>
+                  <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-center">Live orders</TableHead>
+                  <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Live gross</TableHead>
+                  <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-center">Uses</TableHead>
                   <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</TableHead>
                   <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wide text-right pr-6">Actions</TableHead>
                 </TableRow>
@@ -1470,7 +1577,7 @@ export default function SpecialOffersPage() {
               <TableBody>
                 {filteredOffers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-52 text-center">
+                    <TableCell colSpan={8} className="h-52 text-center">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
                           <Ticket className="w-6 h-6 text-slate-300" />
@@ -1510,6 +1617,19 @@ export default function SpecialOffersPage() {
                         <p className="font-semibold text-slate-700">{format(new Date(offer.validFrom), "MMM d, yyyy")}</p>
                         <p className="text-slate-400">→ {format(new Date(offer.validUntil), "MMM d, yyyy")}</p>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-center text-xs tabular-nums text-slate-700 font-semibold">
+                      {fundingLoading ? "…" : (fundingByOfferId.get(offer.id)?.totalOrders ?? "—")}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums text-slate-800 font-semibold">
+                      {fundingLoading
+                        ? "…"
+                        : (() => {
+                            const live = fundingByOfferId.get(offer.id)
+                            return live
+                              ? `${currency} ${(live.grossSales || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                              : "—"
+                          })()}
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg tabular-nums">

@@ -31,7 +31,12 @@ export async function GET(
         pharmacy: {
           select: {
             userId: true,
-          }
+          },
+        },
+        wholesaler: {
+          select: {
+            userId: true,
+          },
         },
         status: true,
       },
@@ -41,13 +46,17 @@ export async function GET(
       return NextResponse.json({ error: "Supplier order not found" }, { status: 404 })
     }
 
-    // Verify user has access (pharmacy vendor only)
     const isPharmacyVendor = supplierOrder.pharmacy.userId === user.id
-    
-    if (!isPharmacyVendor) {
-      return NextResponse.json({ 
-        error: "Not authorized. Only the pharmacy vendor can generate QR codes for their orders" 
-      }, { status: 403 })
+    const isWholesalerSupplier = supplierOrder.wholesaler.userId === user.id
+
+    if (!isPharmacyVendor && !isWholesalerSupplier) {
+      return NextResponse.json(
+        {
+          error:
+            "Not authorized. Only the pharmacy or supplier (wholesaler) for this order can load the pickup QR.",
+        },
+        { status: 403 }
+      )
     }
 
     // Generate QR code data

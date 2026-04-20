@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 
@@ -8,7 +9,7 @@ export async function POST(
 ) {
   try {
     const user = await authenticateRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -62,14 +63,14 @@ export async function POST(
           purpose: suggestion.purpose,
           dosageInfo: suggestion.dosageInfo,
           warnings: suggestion.warnings,
-          sideEffects: suggestion.sideEffects,
+          sideEffects: suggestion.sideEffects as Prisma.InputJsonValue | undefined,
           category: suggestion.category,
-          illnessTypes: suggestion.illnessTypes,
-          activeIngredients: suggestion.activeIngredients,
+          illnessTypes: suggestion.illnessTypes as Prisma.InputJsonValue | undefined,
+          activeIngredients: suggestion.activeIngredients as Prisma.InputJsonValue | undefined,
           form: suggestion.form,
           strength: suggestion.strength,
           manufacturer: suggestion.manufacturer,
-          images: suggestion.images,
+          images: suggestion.images as Prisma.InputJsonValue | undefined,
           isActive: true,
         },
       })

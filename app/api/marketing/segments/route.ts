@@ -4,9 +4,9 @@ import { authenticateRequest } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await authenticateRequest()
+    const user = await authenticateRequest(request)
     if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role)) {
-      return NextResponse.json({ error: "Unauthorized" + user }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
@@ -33,8 +33,20 @@ export async function GET(request: NextRequest) {
 
     const total = await prisma.customerSegment.count({ where })
 
+    const mapped = segments.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? "",
+      type: s.segmentType,
+      criteria: (s.conditions as Record<string, unknown>) || {},
+      memberCount: s._count?.members ?? 0,
+      isActive: s.isActive,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+    }))
+
     return NextResponse.json({
-      segments,
+      segments: mapped,
       pagination: {
         page,
         limit,
@@ -50,9 +62,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await authenticateRequest()
+    const user = await authenticateRequest(request)
     if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role)) {
-      return NextResponse.json({ error: "Unauthorized" + user }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()

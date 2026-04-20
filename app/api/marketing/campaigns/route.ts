@@ -11,6 +11,11 @@ function normalizeChannels(ch: unknown): string[] {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await authenticateRequest(request)
+    if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const campaigns = await prisma.marketingCampaign.findMany({
       orderBy: {
         createdAt: "desc",

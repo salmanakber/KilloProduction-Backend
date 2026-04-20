@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import {
+  settlementMerchandiseFromOrderItems,
+  summarizeOfferFundingFromItems,
+  usesOfferSettlementModule,
+} from "@/lib/pharmacy-vendor-settlement"
 
 export async function GET(request: NextRequest) {
   try {
@@ -79,6 +84,7 @@ export async function GET(request: NextRequest) {
               quantity: true,
               unitPrice: true,
               totalPrice: true,
+              customizations: true,
             },
           },
           address: true,
@@ -117,6 +123,16 @@ export async function GET(request: NextRequest) {
     // Format orders for frontend
     const formattedOrders = orders.map((order) => {
       const cb = courierByOrderId.get(order.id)
+      const orderMeta = order.metadata as { specialOffers?: unknown } | null | undefined
+      const customerMerchandiseSubtotal = order.subtotal
+      let vendorMerchandiseTotal = customerMerchandiseSubtotal
+      if (usesOfferSettlementModule(order.module)) {
+        vendorMerchandiseTotal = settlementMerchandiseFromOrderItems(
+          order.orderItems,
+          Number(order.subtotal || 0),
+          Number(order.discount || 0),
+        )
+      }
       return {
         id: order.id,
         orderNumber: order.orderNumber,
@@ -137,7 +153,15 @@ export async function GET(request: NextRequest) {
           totalPrice: item.totalPrice,
         })),
         status: order.status.toLowerCase(),
-        totalAmount: order.total,
+        /** Customer-paid merchandise (after line discounts); unchanged for reporting. */
+        customerMerchandiseSubtotal,
+        /** Marketplace modules with special offers: book-value merchandise (platform-funded uses list price); wallet settlement base before commission. */
+        totalAmount: usesOfferSettlementModule(order.module) ? vendorMerchandiseTotal : order.subtotal,
+        specialOfferDiscountFunding: usesOfferSettlementModule(order.module)
+          ? summarizeOfferFundingFromItems(order.orderItems)
+          : undefined,
+        /** From `Order.metadata.specialOffers` at checkout (cart `specialOffer` + line customizations). */
+        specialOffers: orderMeta?.specialOffers ?? null,
         courierBookingId: cb?.id ?? null,
         deliveryRiderAssigned: Boolean(cb?.riderId),
         createdAt: order.createdAt,

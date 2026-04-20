@@ -175,7 +175,8 @@ export async function createPaymentIntent(data: PaymentIntentData): Promise<Paym
         currency,
         description,
         customerEmail,
-        metadata: { orderId, ...metadata }
+        // Prisma Payment id — must not be overwritten by client metadata keys
+        metadata: { ...metadata, orderId },
       })
 
     case "PAYSTACK":
@@ -184,7 +185,7 @@ export async function createPaymentIntent(data: PaymentIntentData): Promise<Paym
         currency,
         email: customerEmail,
         reference: `PAYSTACK_${orderId}_${Date.now()}`,
-        metadata: { orderId, ...metadata }
+        metadata: { ...metadata, orderId },
       })
 
     // case "FIRSTMONIE":

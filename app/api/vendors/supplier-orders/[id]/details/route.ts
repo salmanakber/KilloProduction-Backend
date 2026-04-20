@@ -200,6 +200,8 @@ export async function GET(
         notes: supplierOrder.notes,
         expectedDeliveryDate: supplierOrder.expectedDeliveryDate,
         createdAt: supplierOrder.createdAt,
+        supplierResponse: supplierOrder.supplierResponse,
+        orderSlip: (supplierOrder as { orderSlip?: unknown }).orderSlip ?? null,
         wholesaler: supplierOrder.wholesaler,
         courierBooking: supplierOrder.courierBooking ? {
           id: supplierOrder.courierBooking.id,

@@ -18,6 +18,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const targetId = searchParams.get("targetId")
     const targetType = searchParams.get("targetType") as "VENDOR" | "RIDER" | "MECHANIC" | "PRODUCT" | "SERVICE" | "CUSTOMER" | null
+    const moduleParam = searchParams.get("module")
+    const limitRaw = searchParams.get("limit")
+    const take =
+      limitRaw != null && limitRaw !== ""
+        ? Math.min(50, Math.max(1, Number(limitRaw) || 8))
+        : undefined
 
     if (!targetId || !targetType) {
       return NextResponse.json(
@@ -57,10 +63,26 @@ export async function GET(request: NextRequest) {
       where.targetId = targetId
     }
 
+    /** When set for VENDOR, restrict to storefront reviews for that module (order module or entity id on review). */
+    if (targetType === "VENDOR" && moduleParam) {
+      const m = moduleParam.toUpperCase()
+      const allowed = ["PHARMACY", "FOOD", "GROCERY", "AUTO_PARTS"] as const
+      if ((allowed as readonly string[]).includes(m)) {
+        const orClause: object[] = [{ order: { module: m } }]
+        if (m === "PHARMACY") orClause.push({ pharmacyId: { not: null } })
+        if (m === "FOOD") orClause.push({ foodId: { not: null } })
+        if (m === "GROCERY") orClause.push({ groceryId: { not: null } })
+        if (m === "AUTO_PARTS") orClause.push({ autoPartId: { not: null } })
+        const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []
+        where.AND = [...existingAnd, { OR: orClause }]
+      }
+    }
+
     // Fetch reviews with user information
     const [reviews, stats] = await Promise.all([
       prisma.review.findMany({
         where,
+        take,
         include: {
           user: {
             select: {

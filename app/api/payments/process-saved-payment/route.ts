@@ -5,6 +5,7 @@ import Stripe from 'stripe'
 import { CommissionType, type Module } from '@prisma/client'
 import { calculateCommission, tryCalculateCommissionAmount } from '@/lib/commission-service'
 import { recordPaymentProcessingLedgerIfApplicable } from '@/lib/payment-processing-ledger'
+import { resolvePendingCheckoutPayment } from '@/lib/pending-checkout-payment'
 
 export async function POST(request: NextRequest) {
   try {
@@ -76,18 +77,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create payment record
-    const payment = await prisma.payment.create({
+    const paymentShell = await resolvePendingCheckoutPayment({
+      userId: session.id,
+      clientRef: String(orderId),
+      amount: Number(amount),
+      currency: String(currency),
+      gateway: String(gateway),
+      description: description ?? null,
+      baseMetadata: {
+        loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+        module: module ?? undefined,
+        commissionBaseAmount: commissionBaseAmount ?? undefined,
+        paymentProcessingFee: processingFee,
+        paymentProcessingRate: processingRate,
+      },
+    })
+
+    const payment = await prisma.payment.update({
+      where: { id: paymentShell.id },
       data: {
-        userId: session.id,
-        amount,
-        currency,
-        status: 'PENDING',
-        gateway,
         paymentMethodId: paymentMethod.id,
-        orderId,
         description,
         metadata: {
+          ...((paymentShell.metadata as Record<string, unknown>) || {}),
           gatewayPaymentMethodId: paymentMethod.gatewayPaymentMethodId,
           last4: paymentMethod.last4,
           brand: paymentMethod.brand,
@@ -96,8 +108,8 @@ export async function POST(request: NextRequest) {
           commissionBaseAmount: commissionBaseAmount ?? undefined,
           paymentProcessingFee: processingFee,
           paymentProcessingRate: processingRate,
-        }
-      }
+        } as object,
+      },
     })
 
     // Process payment based on gateway

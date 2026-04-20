@@ -13,6 +13,7 @@ import {
   Key,
   User,
   Code2,
+  Trophy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -297,6 +298,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       subItems: [
         { name: "All Riders", href: "/admin/modules/rider/all", icon: Car },
         { name: "Pending Approval", href: "/admin/modules/rider/pending", icon: ClipboardCheck },
+        { name: "Peak bonus analytics", href: "/admin/modules/rider/bonus-analytics", icon: Trophy },
         { name: "Ride Settings", href: "/admin/ride-types", icon: Settings },
       ],
     },
@@ -321,6 +323,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       icon: Pill,
       subItems: [
         { name: "All Medicines", href: "/admin/medicines", icon: Pill },
+        { name: "Catalog suggestions", href: "/admin/medicines/wholesaler-suggestions", icon: ClipboardCheck },
         { name: "Illness Categories", href: "/admin/illness-categories", icon: FolderTree },
         { name: "Medicine Origins", href: "/admin/medicine-origins", icon: Globe },
       ]

@@ -70,6 +70,41 @@ export class NotificationBridge {
   }
 
   /**
+   * Review / feedback prompt with a consistent app deep link (`/riderfeedback?...`) for mobile
+   * `navigateFromNotification` + Notification list.
+   */
+  static async sendReviewRequestWithDeepLink(params: {
+    userId: string
+    title: string
+    message: string
+    bookingId: string
+    perspective?: string
+    module?: string
+  }) {
+    const q = new URLSearchParams({ bookingId: params.bookingId })
+    if (params.perspective) q.set("perspective", params.perspective)
+    const actionUrl = `/riderfeedback?${q.toString()}`
+    return this.sendNotification({
+      userId: params.userId,
+      title: params.title,
+      message: params.message,
+      type: "REVIEW_REQUEST",
+      module: (params.module as any) || "GENERAL",
+      actionUrl,
+      data: {
+        actionType: "navigate",
+        screen: "riderfeedback",
+        bookingId: params.bookingId,
+        perspective: params.perspective,
+        params: [
+          { name: "bookingId", value: params.bookingId },
+          ...(params.perspective ? [{ name: "perspective", value: params.perspective }] : []),
+        ],
+      },
+    })
+  }
+
+  /**
    * Send push notification
    */
   static async sendPushNotification(data: PushNotificationData) {

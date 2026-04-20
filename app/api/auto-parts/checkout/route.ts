@@ -12,6 +12,10 @@ import {
   splitAmountByWeights,
 } from "@/lib/order-vendor-platform-fee-record"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { NotificationBridge } from "@/lib/notification-bridge"
+import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
+import { settlementMerchandiseFromCartLines } from "@/lib/pharmacy-vendor-settlement"
+import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
 
 function generateOrderNumber(): string {
   return `AP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -46,6 +50,41 @@ function calculateFare(rideType: { basePrice?: number; pricePerKm?: number; pric
   const perKm = rideType.pricePerKm ?? 0
   const perMin = rideType.pricePerMinute ?? 0
   return Math.round((base + perKm * distanceKm + perMin * durationMin) * 100) / 100
+}
+
+function autoPartsSpecialOfferCustomizations(item: any): Record<string, unknown> | undefined {
+  const so = item.specialOffer as
+    | {
+        offerId?: string
+        discountFundedBy?: string
+        originalPrice?: number
+        discountType?: string
+        discountValue?: number
+      }
+    | undefined
+  if (!so?.offerId) return undefined
+  const c: Record<string, unknown> = {
+    kiloOfferId: String(so.offerId),
+    kiloSaleSource: "SPECIAL_OFFER",
+  }
+  if (so.discountFundedBy) c.kiloOfferDiscountFundedBy = String(so.discountFundedBy)
+  if (so.originalPrice != null && Number.isFinite(Number(so.originalPrice))) {
+    c.kiloOfferOriginalUnitPrice = Number(so.originalPrice)
+  }
+  if (so.discountType) c.kiloOfferDiscountType = String(so.discountType)
+  if (so.discountValue != null && Number.isFinite(Number(so.discountValue))) {
+    c.kiloOfferDiscountValue = Number(so.discountValue)
+  }
+  return c
+}
+
+function mergeAutoPartsItemCustomizations(item: any): Record<string, unknown> | undefined {
+  const fromOffer = autoPartsSpecialOfferCustomizations(item)
+  const existing = item.customizations as Record<string, unknown> | undefined
+  if (fromOffer && existing && typeof existing === "object") {
+    return { ...existing, ...fromOffer }
+  }
+  return fromOffer ?? existing
 }
 
 export async function POST(request: NextRequest) {
@@ -220,7 +259,15 @@ export async function POST(request: NextRequest) {
     const discountedSubtotalAuto = Math.max(0, subtotal - promoDiscount)
 
     const platformCommission = await checkoutPlatformFeeAmount("AUTO_PARTS", discountedSubtotalAuto)
-    const vendorCommission = await checkoutVendorCommissionAmount("AUTO_PARTS", discountedSubtotalAuto)
+    const vendorCommissionSubtotalAuto = settlementMerchandiseFromCartLines(
+      items,
+      subtotal,
+      promoDiscount,
+    )
+    const vendorCommission = await checkoutVendorCommissionAmount(
+      "AUTO_PARTS",
+      vendorCommissionSubtotalAuto,
+    )
 
     // Get ride type for COURIER with MOTORCYCLE
     const rideType = await prisma.rideType.findFirst({
@@ -297,9 +344,11 @@ export async function POST(request: NextRequest) {
           deliveryFee = calculateFare(rideType, distance, estimatedTime)
         }
       } else {
-        deliveryFee = calculatedAmounts?.deliveryCharge || calculateFare(rideType, distance, estimatedTime)
+        deliveryFee = calculateFare(rideType, distance, estimatedTime)
       }
     }
+
+    deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
 
     // Customer total: items (after promo) + delivery + platform fee
     const total = discountedSubtotalAuto + deliveryFee + platformCommission
@@ -371,6 +420,7 @@ export async function POST(request: NextRequest) {
         const storeTotal = Math.max(0, storeSubtotal - storeDiscount) + storeDeliveryFee + storePlatformCommission
 
         const childOrderNumber = generateOrderNumber()
+        const apChildOfferMeta = buildOrderSpecialOffersMetadata(storeItems as Record<string, unknown>[])
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -391,16 +441,23 @@ export async function POST(request: NextRequest) {
             paymentMethod: paymentMethod || 'CARD',
             notes: notes ?? null,
             isChildOrder: true as any,
+            ...(apChildOfferMeta ? { metadata: { specialOffers: apChildOfferMeta } as object } : {}),
             orderItems: {
-              create: storeItems.map((it: any) => ({
-                productId: it.productId || it.partId || '',
-                productType: "AUTO_PART",
-                productName: it.name,
-                quantity: it.quantity ?? 1,
-                unitPrice: it.price,
-                totalPrice: (it.price ?? 0) * (it.quantity ?? 1),
-                notes: it.notes ?? '',
-              })),
+              create: storeItems.map((it: any) => {
+                const c = mergeAutoPartsItemCustomizations(it)
+                const hasOffer = c && String(c.kiloOfferId || "").trim()
+                const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+                return {
+                  productId: it.productId || it.partId || '',
+                  productType: "AUTO_PART",
+                  productName: it.name,
+                  quantity: it.quantity ?? 1,
+                  unitPrice: it.price,
+                  totalPrice: (it.price ?? 0) * (it.quantity ?? 1),
+                  notes: it.notes ?? '',
+                  ...(merged ? { customizations: merged as object } : {}),
+                }
+              }),
             },
             orderTracking: {
               create: { status: "PENDING", notes: "Order placed successfully" },
@@ -414,6 +471,7 @@ export async function POST(request: NextRequest) {
 
       // Create parent order
       const parentOrderNumber = generateOrderNumber()
+      const apParentOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -435,16 +493,23 @@ export async function POST(request: NextRequest) {
           notes: notes ?? `Multi-store order from ${stores.length} stores`,
           isChildOrder: false as any,
           childId: null as any,
+          ...(apParentOfferMeta ? { metadata: { specialOffers: apParentOfferMeta } as object } : {}),
           orderItems: {
-            create: items.map((it: any) => ({
-              productId: it.productId || it.partId || '',
-              productType: "AUTO_PART",
-              productName: it.name,
-              quantity: it.quantity ?? 1,
-              unitPrice: it.price,
-              totalPrice: (it.price ?? 0) * (it.quantity ?? 1),
-              notes: it.notes ?? '',
-            })),
+            create: items.map((it: any) => {
+              const c = mergeAutoPartsItemCustomizations(it)
+              const hasOffer = c && String(c.kiloOfferId || "").trim()
+              const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+              return {
+                productId: it.productId || it.partId || '',
+                productType: "AUTO_PART",
+                productName: it.name,
+                quantity: it.quantity ?? 1,
+                unitPrice: it.price,
+                totalPrice: (it.price ?? 0) * (it.quantity ?? 1),
+                notes: it.notes ?? '',
+                ...(merged ? { customizations: merged as object } : {}),
+              }
+            }),
           },
           orderTracking: {
             create: { status: "PENDING", notes: "Order placed successfully" },
@@ -461,6 +526,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Single store: Create regular order
       const orderNumber = generateOrderNumber()
+      const apSingleOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -483,16 +549,23 @@ export async function POST(request: NextRequest) {
           autoPartId: null as string | null,
           isChildOrder: false as any,
           childId: null as any,
+          ...(apSingleOfferMeta ? { metadata: { specialOffers: apSingleOfferMeta } as object } : {}),
           orderItems: {
-            create: items.map((item: any) => ({
-              productId: item.productId || item.partId || '',
-              productType: "AUTO_PART",
-              productName: item.name,
-              quantity: item.quantity,
-              unitPrice: item.price,
-              totalPrice: item.price * item.quantity,
-              notes: item.notes || '',
-            }))
+            create: items.map((item: any) => {
+              const c = mergeAutoPartsItemCustomizations(item)
+              const hasOffer = c && String(c.kiloOfferId || "").trim()
+              const merged = hasOffer ? { ...c, kiloSaleSource: "SPECIAL_OFFER" } : c
+              return {
+                productId: item.productId || item.partId || '',
+                productType: "AUTO_PART",
+                productName: item.name,
+                quantity: item.quantity,
+                unitPrice: item.price,
+                totalPrice: item.price * item.quantity,
+                notes: item.notes || '',
+                ...(merged ? { customizations: merged as object } : {}),
+              }
+            }),
           },
           orderTracking: {
             create: {
@@ -640,6 +713,23 @@ export async function POST(request: NextRequest) {
         orderId: order.id,
         orderNumber: order.orderNumber as string
       })
+      try {
+        await NotificationBridge.sendNotification({
+          userId: vendorId,
+          title: "New Auto Parts Order",
+          message: `You have a new order #${order.orderNumber}`,
+          type: "ORDER_UPDATE",
+          module: "AUTO_PARTS",
+          data: {
+            actionType: "navigate",
+            screen: "OrderDetails",
+            params: [{ name: "orderId", value: order.id }],
+          },
+          actionUrl: `/auto-parts/orders/${order.id}`,
+        })
+      } catch (ne) {
+        console.error("Auto-parts vendor NotificationBridge:", ne)
+      }
     }
 
     return NextResponse.json({

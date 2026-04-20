@@ -36,6 +36,8 @@ export async function GET(
             phone: true,
             email: true,
             address: true,
+            lat: true,
+            lon: true,
             description: true,
             website: true,
             is24Hours: true,

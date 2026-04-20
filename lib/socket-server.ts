@@ -1057,19 +1057,51 @@ class SocketIOServer {
    * Used when promoting FOOD courier bookings from AWAITING_PREP (worker / internal API).
    */
   async broadcastCourierNewRequestToRiders(data: Record<string, unknown>) {
+    console.log("🔔 broadcastCourierNewRequestToRiders called with data:", data)
     try {
-      const pickupLat = data.pickupLatitude || data.pickupLat
-      const pickupLng = data.pickupLongitude || data.pickupLng
+      /** Clients sometimes wrap the payload in `data` (e.g. pharmacy quote accept) or nest `pickup: { lat, lng }`. */
+      const nested =
+        data.data != null &&
+        typeof data.data === "object" &&
+        !Array.isArray(data.data)
+          ? (data.data as Record<string, unknown>)
+          : null
+      const merged: Record<string, unknown> = nested ? { ...nested, ...data } : { ...data }
 
-      if (!pickupLat || !pickupLng) {
+      const pickObj =
+        merged.pickup != null &&
+        typeof merged.pickup === "object" &&
+        !Array.isArray(merged.pickup)
+          ? (merged.pickup as Record<string, unknown>)
+          : null
+
+      const rawLat =
+        merged.pickupLatitude ??
+        merged.pickupLat ??
+        pickObj?.lat ??
+        pickObj?.latitude
+      const rawLng =
+        merged.pickupLongitude ??
+        merged.pickupLng ??
+        pickObj?.lng ??
+        pickObj?.longitude
+
+      const pickupLat = typeof rawLat === "number" ? rawLat : Number(rawLat)
+      const pickupLng = typeof rawLng === "number" ? rawLng : Number(rawLng)
+
+      console.log("🔔 data 123:", merged)
+      console.log("🔔 pickupLat:", pickupLat)
+      console.log("🔔 pickupLng:", pickupLng)
+
+      if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
         console.error("❌ Missing pickup coordinates in new_request")
         return
       }
 
       const radiusKm = 5
       const nearbyRiders = await this.findNearbyRiders(
-        Number(pickupLat),
-        Number(pickupLng),
+        pickupLat,
+        pickupLng,
         radiusKm
       )
 
@@ -1081,25 +1113,25 @@ class SocketIOServer {
           await NotificationBridge.sendNotification({
             userId: rider.userId,
             title: "New Ride Request",
-            message: `New ride request from ${data.customerName || "Customer"}`,
+            message: `New ride request from ${(merged.customerName as string) || (data.customerName as string) || "Customer"}`,
             type: "RIDE",
             module: "RIDING",
             data: {
               actionType: "navigate",
               screen: "AvailableRides",
-              params: [{ name: "requestId", value: data.requestId }],
+              params: [{ name: "requestId", value: merged.requestId ?? data.requestId }],
             },
-            actionUrl: `/rider/requests/${data.requestId}`,
+            actionUrl: `/rider/requests/${merged.requestId ?? data.requestId}`,
           })
           riderSocket.emit("new_requests", {
-            ...data,
+            ...merged,
             distance: rider.distance,
             riderId: rider.userId,
           })
         }
       }
 
-      this.io?.emit("new_requests", data)
+      this.io?.emit("new_requests", merged)
     } catch (error) {
       console.error("❌ Error processing new_request:", error)
     }

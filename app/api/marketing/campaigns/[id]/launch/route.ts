@@ -21,9 +21,11 @@ export async function POST(
         return NextResponse.json({ error: "Campaign not found" }, { status: 404 })
       }
       if (result.reason === "bad_status") {
+        
         return NextResponse.json({ error: "Campaign cannot be launched from this status" }, { status: 400 })
       }
       if (result.reason === "no_audience") {
+          
         return NextResponse.json(
           {
             error:

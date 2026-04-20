@@ -5,6 +5,7 @@ import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
+import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
 
 export async function PUT(
   request: NextRequest,
@@ -173,8 +174,11 @@ export async function PUT(
       }
     }
 
-    // Process commissions and wallet transactions when order is completed
-    if (updatedBooking.status === 'COMPLETED' && updatedBooking.riderId) {
+    // Process commissions, wallet, rider earning PAID, and peak bonus (same paths as rider/booking PUT).
+    if (
+      (updatedBooking.status === "COMPLETED" || updatedBooking.status === "DELIVERED") &&
+      updatedBooking.riderId
+    ) {
       try {
         await runCourierCompletionSideEffects(courierBookingId)
       } catch (commissionError) {
@@ -208,74 +212,39 @@ export async function PUT(
     }
     
 
-    // Send WebSocket notification to all riders who have bids on this booking
-    if (updatedBooking.bids && updatedBooking.bids.length > 0) {
-      const bidUpdateMessage = {
-        type: 'booking_status_update',
-        payload: {
-          bookingId: updatedBooking.id,
-          bookingType: 'courier',
-          status: updatedBooking.status,
-          bookingNumber: updatedBooking.bookingNumber,
-          isBookedByAnother: status === 'RIDER_ASSIGNED' || status === 'ACCEPTED',
-          assignedRiderId: updatedBooking.riderId
-        }
-      }
-
-      // Send to all riders who have bids on this booking
-      for (const bid of updatedBooking.bids) {
-        if (bid.rider) {
-          await socketIOServer.sendNotificationToUser(bid.rider.id, bidUpdateMessage.payload)
-        }
+    // Socket.IO event name = payload.type — must include type so clients receive "booking_status_update"
+    const courierBookingStatusPayload = {
+      type: "booking_status_update" as const,
+      bookingId: updatedBooking.id,
+      bookingType: "courier" as const,
+      status: updatedBooking.status,
+      bookingNumber: updatedBooking.bookingNumber,
+      isBookedByAnother: status === "RIDER_ASSIGNED" || status === "ACCEPTED",
+      assignedRiderId: updatedBooking.riderId,
+      riderId: updatedBooking.riderId,
+      timestamp: new Date().toISOString(),
+    }
+    const courierRiderIds = new Set<string>()
+    for (const bid of updatedBooking.bids || []) {
+      if (bid.rider?.id) courierRiderIds.add(bid.rider.id)
+    }
+    if (updatedBooking.riderId) courierRiderIds.add(updatedBooking.riderId)
+    for (const rid of courierRiderIds) {
+      try {
+        await socketIOServer.sendNotificationToUser(rid, courierBookingStatusPayload)
+      } catch (e) {
+        console.error("courier booking_status_update socket:", e)
       }
     }
 
     // Send notification to customer about status update
     if (updatedBooking.customer) {
       try {
-        // If delivery is completed, send rating request notification
-        if (status === 'DELIVERED' || status === 'COMPLETED') {
-          await NotificationBridge.sendNotification({
-            userId: updatedBooking.customer.id,
-            title: 'Rate Your Delivery',
-            message: 'Your delivery is complete. Please rate your rider to help us improve.',
-            type: 'REVIEW_REQUEST',
-            module: 'COURIER',
-            actionUrl: `/courier-bookings/${courierBookingId}/rate`,
-            data: {
-              actionType: 'navigate',
-              screen: 'riderfeedback',
-              params: [
-                {
-                  name: 'bookingId',
-                  value: courierBookingId,
-                },
-                {
-                  name: 'serviceType',
-                  value: updatedOrder?.module?.toLowerCase(),
-                },
-              ],
-            },
-          })
-          
-
-          // Also send WebSocket notification for real-time update
+        if (status === "DELIVERED" || status === "COMPLETED") {
           try {
-            await socketIOServer.sendNotificationToUser(updatedBooking.customer.id, {
-              type: 'review_request',
-              bookingId: courierBookingId,
-              bookingType: 'courier',
-              bookingNumber: updatedBooking.bookingNumber,
-              actionType: 'navigate',
-              screen: 'riderfeedback',
-              params: {
-                name: 'bookingId',
-                value: courierBookingId,
-              },
-              timestamp: new Date().toISOString()
-            })
-          } catch (wsError) {
-            console.error('Failed to send WebSocket rating notification:', wsError)
+            await notifyCourierDeliveryCompleted(courierBookingId, { terminalStatus: status })
+          } catch (reviewNotifyErr) {
+            console.error("notifyCourierDeliveryCompleted:", reviewNotifyErr)
           }
         } else {
           // Regular status updates
@@ -329,10 +298,7 @@ export async function PUT(
             notificationRouteObj = {
               actionType: 'navigate',
               screen: 'CourierBookingScreen',
-              params: {
-                name: 'bookingId',
-                value: courierBookingId,
-              }
+              params: [{ name: 'bookingId', value: courierBookingId }],
             }
           }
 

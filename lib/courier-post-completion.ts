@@ -2,12 +2,21 @@ import { prisma } from "@/lib/prisma"
 import {
   completeOrderWalletTransactions,
   ensureOrderCompletionPendingWallets,
+  ensureRiderDeliveryWalletCompleted,
 } from "@/lib/wallet-transaction-service"
 import { createRiderCommission, tryCalculateCommissionAmount } from "@/lib/commission-service"
-import { completePharmacyPayment, markCommissionsAsPaid } from "@/lib/pharmacy-payment-service"
+import {
+  ensureWholesalerSupplierOrderPayoutCompleted,
+  markCommissionsAsPaid,
+} from "@/lib/pharmacy-payment-service"
 import { markRiderEarningAsPaid, resolveRiderCommissionModule } from "@/lib/rider-earnings-helper"
+import { bumpRiderBonusOnDeliveryEarning } from "@/lib/rider-bonus-engine"
 import { splitAmountByWeights } from "@/lib/order-vendor-platform-fee-record"
-import { CommissionStatus, CommissionType } from "@prisma/client"
+import { CommissionStatus, CommissionType, type Module } from "@prisma/client"
+import {
+  computeVendorOfferSettlementPayout,
+  usesOfferSettlementModule,
+} from "@/lib/pharmacy-vendor-settlement"
 
 /**
  * Run wallet completion, commissions, and supplier payouts after a courier booking
@@ -26,10 +35,11 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
     },
   })
 
+  if (!updatedBooking) return
   const done =
     updatedBooking.status === "COMPLETED" ||
     updatedBooking.status === "DELIVERED"
-  if (!updatedBooking || !done || !updatedBooking.riderId) {
+  if (!done || !updatedBooking.riderId) {
     return
   }
 
@@ -37,16 +47,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
   const deliveryFee = updatedBooking.fare || 0
   const riderId = updatedBooking.riderId
 
-  const riderCommissionModule = await resolveRiderCommissionModule({
-    courierBookingId: courierBooking.id,
-  })
-  const riderCutFromDelivery = await tryCalculateCommissionAmount(
-    riderCommissionModule,
-    deliveryFee,
-    CommissionType.RIDER_COMMISSION
-  )
-
-  let updatedOrder: {
+  type UpdatedOrder = {
     id: string
     module: string
     vendorId: string | null
@@ -57,7 +58,8 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
     deliveryFee: number
     isChildOrder: boolean
     childId: string | null
-  } | null = null
+  }
+  let updatedOrder: UpdatedOrder | null = null
 
   if (updatedBooking.orderId) {
     const o = await prisma.order.findUnique({
@@ -75,14 +77,53 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
         childId: true,
       },
     })
-    if (o) updatedOrder = o as typeof updatedOrder
+    if (o) updatedOrder = o as unknown as UpdatedOrder
+  }
+
+  const riderCommissionModule = await resolveRiderCommissionModule({
+    courierBookingId: courierBooking.id,
+    orderModule: updatedOrder?.module as Module | undefined,
+  })
+  /** Wholesale: RIDER_COMMISSION on delivery fee uses WHOLESALER settings (see pharmacy quote accept). */
+  const riderCutModule: Module =
+    courierBooking.module === "WHOLESALER" ? "WHOLESALER" : riderCommissionModule
+  const riderCutFromDelivery = await tryCalculateCommissionAmount(
+    riderCutModule,
+    deliveryFee,
+    CommissionType.RIDER_COMMISSION
+  )
+
+  /** Vendor→supplier (WHOLESALER): RiderEarning must exist for markRiderEarningAsPaid + ledger; accept-route may have skipped or failed. */
+  if (
+    courierBooking.module === "WHOLESALER" &&
+    (courierBooking.supplierOrders?.length ?? 0) > 0 &&
+    riderId &&
+    deliveryFee > 0
+  ) {
+    try {
+      const existingEarn = await prisma.riderEarning.findFirst({
+        where: { riderId, orderId: courierBookingId },
+      })
+      if (!existingEarn) {
+        const { createRiderEarning } = await import("@/lib/rider-earnings-helper")
+        await createRiderEarning({
+          riderId,
+          courierBookingId,
+          totalAmount: deliveryFee,
+          finalAmount: deliveryFee,
+          description: `Wholesale supplier delivery ${courierBooking.bookingNumber || courierBookingId}`,
+        })
+      }
+    } catch (earnErr) {
+      console.error("WHOLESALER ensure rider earning:", earnErr)
+    }
   }
 
   try {
     if (courierBooking.supplierOrders && courierBooking.supplierOrders.length > 0) {
       for (const supplierOrder of courierBooking.supplierOrders) {
         try {
-          await completePharmacyPayment(supplierOrder.id)
+          await ensureWholesalerSupplierOrderPayoutCompleted(supplierOrder.id)
 
           await markCommissionsAsPaid(supplierOrder.id, undefined, {
             isSupplierOrder: true,
@@ -99,15 +140,32 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
             },
           })
 
-          if (!existingRiderCommission) {
-            await createRiderCommission({
-              module: riderCommissionModule,
+          const anyRiderCommissionRow = await prisma.riderCommission.findFirst({
+            where: {
               courierBookingId: courierBookingId,
               riderId: riderId,
-              orderAmount: deliveryFee,
-              commissionType: CommissionType.RIDER_COMMISSION,
-              status: CommissionStatus.PAID,
-            })
+              commissionType: "RIDER_COMMISSION",
+            },
+          })
+
+          const shouldInsertPaidCommission =
+            courierBooking.module === "WHOLESALER"
+              ? !anyRiderCommissionRow
+              : !existingRiderCommission
+
+          if (shouldInsertPaidCommission) {
+            try {
+              await createRiderCommission({
+                module: riderCutModule,
+                courierBookingId: courierBookingId,
+                riderId: riderId,
+                orderAmount: deliveryFee,
+                commissionType: CommissionType.RIDER_COMMISSION,
+                status: CommissionStatus.PAID,
+              })
+            } catch (riderCommErr) {
+              console.error("createRiderCommission (supplier courier):", riderCommErr)
+            }
           }
 
           await prisma.supplierOrder.update({
@@ -119,6 +177,21 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
           })
         } catch (supplierOrderError: unknown) {
           console.error(`Error processing supplier order ${supplierOrder.id}:`, supplierOrderError)
+        }
+      }
+
+      // Credit the rider their net delivery fare for supplier (pharmacy -> wholesaler) deliveries
+      // Net = deliveryFee - rider commission (module WHOLESALER, type RIDER_COMMISSION)
+      const riderNetFare = Math.max(0, deliveryFee - riderCutFromDelivery)
+      if (riderNetFare > 0) {
+        try {
+          await ensureRiderDeliveryWalletCompleted({
+            riderId,
+            amount: riderNetFare,
+            courierBookingId,
+          })
+        } catch (riderPayoutError) {
+          console.error("Error crediting rider for supplier delivery:", riderPayoutError)
         }
       }
     }
@@ -149,6 +222,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
             discount: true,
             vendorCommission: true,
             deliveryFee: true,
+            module: true,
           },
         })
 
@@ -169,12 +243,27 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
                 subtotal: true,
                 discount: true,
                 vendorCommission: true,
+                module: true,
               },
             })
-            const disc = childFull?.discount ?? 0
-            const vc = childFull?.vendorCommission ?? 0
-            const net = Math.max(0, (childFull?.subtotal ?? childOrder.subtotal) - disc)
-            const vendorPayoutChild = Math.max(0, net - vc)
+            let vendorPayoutChild = 0
+            let vendorWalletMeta: Record<string, unknown> | undefined
+            if (usesOfferSettlementModule(childFull?.module)) {
+              const p = await computeVendorOfferSettlementPayout(childOrder.id)
+              vendorPayoutChild = p.vendorPayout
+              vendorWalletMeta = {
+                vendorSettlementMerchandise: p.settlementMerchandise,
+                vendorCommission: p.vendorCommission,
+                specialOfferDiscountFunding: p.funding,
+                pharmacySettlementMerchandise: p.settlementMerchandise,
+                pharmacyVendorCommission: p.vendorCommission,
+              }
+            } else {
+              const disc = childFull?.discount ?? 0
+              const vc = childFull?.vendorCommission ?? 0
+              const net = Math.max(0, (childFull?.subtotal ?? childOrder.subtotal) - disc)
+              vendorPayoutChild = Math.max(0, net - vc)
+            }
 
             const riderShare =
               wsum > 0 ? Math.max(0, childOrder.deliveryFee ?? 0) : deliveryFee / n
@@ -189,6 +278,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
               vendorAmount: vendorPayoutChild,
               courierBookingId,
               description: `Order ${childOrder.id} completion`,
+              vendorMetadata: vendorWalletMeta,
             })
             await completeOrderWalletTransactions(childOrder.id)
             await markCommissionsAsPaid(childOrder.id)
@@ -205,8 +295,22 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
       const netRiderSingle = Math.max(0, deliveryFee - riderCutFromDelivery)
 
       if (payParentVendor) {
-        const netParent = Math.max(0, (updatedOrder.subtotal ?? 0) - (updatedOrder.discount ?? 0))
-        const vendorPayout = Math.max(0, netParent - (updatedOrder.vendorCommission ?? 0))
+        let vendorPayout = 0
+        let parentVendorMeta: Record<string, unknown> | undefined
+        if (usesOfferSettlementModule(updatedOrder.module)) {
+          const p = await computeVendorOfferSettlementPayout(updatedOrder.id)
+          vendorPayout = p.vendorPayout
+          parentVendorMeta = {
+            vendorSettlementMerchandise: p.settlementMerchandise,
+            vendorCommission: p.vendorCommission,
+            specialOfferDiscountFunding: p.funding,
+            pharmacySettlementMerchandise: p.settlementMerchandise,
+            pharmacyVendorCommission: p.vendorCommission,
+          }
+        } else {
+          const netParent = Math.max(0, (updatedOrder.subtotal ?? 0) - (updatedOrder.discount ?? 0))
+          vendorPayout = Math.max(0, netParent - (updatedOrder.vendorCommission ?? 0))
+        }
 
         await ensureOrderCompletionPendingWallets({
           orderId: updatedOrder.id,
@@ -216,6 +320,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
           vendorAmount: vendorPayout,
           courierBookingId,
           description: `Order ${updatedOrder.id} completion`,
+          vendorMetadata: parentVendorMeta,
         })
         await completeOrderWalletTransactions(updatedOrder.id)
         await markCommissionsAsPaid(updatedOrder.id)
@@ -246,6 +351,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
       },
     })
     await markRiderEarningAsPaid(undefined, courierBookingId)
+    void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
   } catch (commissionError) {
     console.error("Error processing commissions on order completion:", commissionError)
     try {
@@ -254,6 +360,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
         data: { paymentStatus: "PAID" },
       })
       await markRiderEarningAsPaid(undefined, courierBookingId)
+      void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
     } catch (e2) {
       console.error("Error in courier completion fallback (payment + rider earning):", e2)
     }

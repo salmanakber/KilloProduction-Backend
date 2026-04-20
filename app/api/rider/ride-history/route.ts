@@ -83,6 +83,26 @@ export async function GET(request: NextRequest) {
       ...courierBookings.map(b => b.id),
     ]
 
+    const rideIds = rideBookings.map((b) => b.id)
+    const courierIds = courierBookings.map((b) => b.id)
+    const earningOr: Array<{ rideBookingId?: { in: string[] }; orderId?: { in: string[] } }> = []
+    if (rideIds.length) earningOr.push({ rideBookingId: { in: rideIds } })
+    if (courierIds.length) earningOr.push({ orderId: { in: courierIds } })
+    const riderEarnings =
+      earningOr.length > 0
+        ? await prisma.riderEarning.findMany({
+            where: { riderId: session.id, OR: earningOr },
+            select: { rideBookingId: true, orderId: true, netAmount: true },
+          })
+        : []
+    const netPayoutByBookingId = new Map<string, number>()
+    for (const e of riderEarnings) {
+      const key = e.rideBookingId || e.orderId
+      if (key && e.netAmount != null && Number.isFinite(e.netAmount)) {
+        netPayoutByBookingId.set(key, e.netAmount)
+      }
+    }
+
     const reviews = await prisma.review.findMany({
       where: {
         OR: [
@@ -159,6 +179,7 @@ export async function GET(request: NextRequest) {
       estimatedFare: booking.fare,
       finalFare: booking.fare,
       fare: booking.fare,
+      netPayout: netPayoutByBookingId.get(booking.id),
       customer: booking.customer,
       rideType: booking.rideType,
       customerRating: booking.customerRating,

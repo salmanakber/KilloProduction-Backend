@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getPaymentGatewayConfig } from '@/lib/payment-gateway'
 import { completeWalletTopUp } from '@/lib/wallet-topup-complete'
+import { recordPaymentProcessingLedgerIfApplicable } from '@/lib/payment-processing-ledger'
+import type { Module } from '@prisma/client'
 import Stripe from 'stripe'
 
 export async function POST(request: NextRequest) {
@@ -77,6 +79,23 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
             },
           },
         })
+
+        if (paymentIntent.metadata?.type !== 'WALLET_TOPUP') {
+          const fee = Number(prevMeta.paymentProcessingFee ?? 0)
+          const module = prevMeta.module as Module | undefined
+          if (module && fee > 0 && existing.userId) {
+            await recordPaymentProcessingLedgerIfApplicable({
+              paymentId: existing.id,
+              userId: existing.userId,
+              module,
+              orderAmount: Number(prevMeta.commissionBaseAmount ?? prevMeta.baseAmount ?? 0),
+              feeAmount: fee,
+              ratePercent: Number(prevMeta.paymentProcessingRate ?? 0),
+              currency: existing.currency,
+              gateway: existing.gateway,
+            })
+          }
+        }
       }
     }
 

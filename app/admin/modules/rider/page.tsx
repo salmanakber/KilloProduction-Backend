@@ -111,11 +111,23 @@ export default function RiderManagementPage() {
   const [activityData, setActivityData] = useState<ActivityData | null>(null)
   const [currencies, setCurrencies] = useState<Currency[]>([])
 
+  const [currency, setCurrency] = useState<string>("₦")
+
+  const getCurrency = async () => {
+    const currency = await fetch('/api/currencies').then(res => res.json()).then(data => data.defaultCurrency).catch(err => {
+      console.error('Error fetching default currency:', err)
+      return null
+    })
+    setCurrency(currency?.symbol || '₦')
+  }
+
+
   useEffect(() => {
     fetchRiderStats()
     fetchRiders()
     fetchRideTypes()
     fetchCurrencies()
+    void getCurrency()
   }, [])
 
   const fetchRiderStats = async () => {
@@ -380,7 +392,7 @@ export default function RiderManagementPage() {
                     </div>
                   </TableCell>
                   <TableCell>{rider.totalRides}</TableCell>
-                  <TableCell>{currencies.find(c => c.isDefault)?.symbol || '₦'} {rider.totalEarnings.toLocaleString()}</TableCell>
+                  <TableCell>{currency} {rider.totalEarnings.toLocaleString()}</TableCell>
                   <TableCell>
                     {rider.documentsVerified ? (
                       <CheckCircle className="h-4 w-4 text-green-600" />
@@ -425,6 +437,7 @@ export default function RiderManagementPage() {
                               rideTypes={rideTypes}
                               activityData={activityData}
                               currencies={currencies}
+                              currency={currency}
                             />
                           )}
                         </DialogContent>
@@ -463,6 +476,7 @@ export default function RiderManagementPage() {
               onCancel={cancelEdit}
               rideTypes={rideTypes}
               currencies={currencies}
+              currency={currency}
             />
           </DialogContent>
         </Dialog>
@@ -478,6 +492,7 @@ function RiderDetailsModal({
   rideTypes,
   activityData,
   currencies,
+  currency,
 }: { 
   rider: Rider; 
   onStatusChange: (id: string, status: string) => void;
@@ -485,6 +500,8 @@ function RiderDetailsModal({
   rideTypes: RideType[];
   activityData: ActivityData | null;
   currencies: Currency[];
+  currency: string;
+  currency: string;
 }) {
   const getModuleIcon = (moduleName: string) => {
     switch (moduleName) {
@@ -673,7 +690,7 @@ function RiderDetailsModal({
               <CardTitle className="text-sm">Total Earnings</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{currencies.find(c => c.isDefault)?.symbol || '₦'} {rider.totalEarnings.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{currency} {rider.totalEarnings.toLocaleString()}</div>
             </CardContent>
           </Card>
           <Card>
@@ -713,7 +730,7 @@ function RiderDetailsModal({
                     <div className="text-sm text-muted-foreground">Cancelled</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold">{currencies.find(c => c.isDefault)?.symbol || '₦'} {activityData.rideBookings.earnings.toLocaleString()}</div>
+                    <div className="text-2xl font-bold">{currency} {activityData.rideBookings.earnings.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Earnings</div>
                   </div>
                 </div>
@@ -743,7 +760,7 @@ function RiderDetailsModal({
                     <div className="text-sm text-muted-foreground">Cancelled</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold">{currencies.find(c => c.isDefault)?.symbol || '₦'} {activityData.courierBookings.earnings.toLocaleString()}</div>
+                    <div className="text-2xl font-bold">{currency} {activityData.courierBookings.earnings.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Earnings</div>
                   </div>
                 </div>
@@ -761,7 +778,7 @@ function RiderDetailsModal({
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold">{currencies.find(c => c.isDefault)?.symbol || '₦'} {activityData.wallet.balance.toLocaleString()}</div>
+                    <div className="text-2xl font-bold">{currency} {activityData.wallet.balance.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Current Balance</div>
                   </div>
                   <div className="text-center">
@@ -769,11 +786,11 @@ function RiderDetailsModal({
                     <div className="text-sm text-muted-foreground">Total Transactions</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{currencies.find(c => c.isDefault)?.symbol || '₦'} {activityData.wallet.totalDeposits.toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-green-600">{currency} {activityData.wallet.totalDeposits.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Total Deposits</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">{currencies.find(c => c.isDefault)?.symbol || '₦'} {activityData.wallet.totalWithdrawals.toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-red-600">{currency} {activityData.wallet.totalWithdrawals.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Total Withdrawals</div>
                   </div>
                 </div>
@@ -803,7 +820,7 @@ function RiderDetailsModal({
                             <div className="text-xs text-muted-foreground">Activities</div>
                           </div>
                           <div className="text-center">
-                            <div className="text-sm font-medium">{currencies.find(c => c.isDefault)?.symbol || '₦'} {module.earnings.toLocaleString()}</div>
+                            <div className="text-sm font-medium">{currency} {module.earnings.toLocaleString()}</div>
                             <div className="text-xs text-muted-foreground">Earnings</div>
                           </div>
                         </div>
@@ -833,13 +850,16 @@ function EditRiderForm({
   onCancel,
   rideTypes,
   currencies,
+  currency,
 }: {
   rider: Rider;
   onSave: (formData: Rider) => void;
   onCancel: () => void;
   rideTypes: RideType[];
   currencies: Currency[];
-}) {
+  currency: string;
+  currency: string;
+  }) {
   const [formData, setFormData] = useState(rider)
 
   const handleInputChange = (field: string, value: any) => {
@@ -994,7 +1014,7 @@ function EditRiderForm({
           <SelectContent className="bg-white">
             {rideTypes.map((rideType) => (
               <SelectItem key={rideType.id} value={rideType.id}>
-                {rideType.name} - {currencies.find(c => c.isDefault)?.symbol || '₦'} {rideType.pricePerKm}
+                {rideType.name} - {currency} {rideType.pricePerKm}
               </SelectItem>
             ))}
           </SelectContent>

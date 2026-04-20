@@ -2,6 +2,12 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import type { Prisma } from "@prisma/client"
+import {
+  settlementMerchandiseFromOrderItems,
+  summarizeOfferFundingFromItems,
+  usesOfferSettlementModule,
+  type OfferDiscountFundingSummary,
+} from "@/lib/pharmacy-vendor-settlement"
 
 const orderDetailInclude = {
   customer: {
@@ -199,6 +205,22 @@ export async function GET(
       }
     }
 
+    /** Courier booking is stored on the aggregate parent order, not on per-store child rows. */
+    const courierLookupOrderId =
+      order.isChildOrder && order.childId ? order.childId : order.id
+
+    const courierBooking = await prisma.courierBooking.findFirst({
+      where: { orderId: courierLookupOrderId },
+      select: {
+        id: true,
+        bookingNumber: true,
+        status: true,
+        riderId: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
     let orderPayload = { ...order }
 
     // For food orders, fetch images for menu items
@@ -251,7 +273,46 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ order: orderPayload })
+    /** Card payment + ledger attach to the aggregate parent; child rows use `childId` → parent. */
+    const ledgerOrderId =
+      order.isChildOrder && order.childId ? order.childId : order.id
+
+    const processingLedger = await prisma.paymentProcessingLedger.findFirst({
+      where: { payment: { orderId: ledgerOrderId } },
+      select: { commissionAmount: true, commissionRate: true },
+    })
+
+    const orderMeta = order.metadata as { specialOffers?: unknown } | null | undefined
+    const subNum = Number(order.subtotal || 0)
+    const discNum = Number(order.discount || 0)
+    let vendorSettlementMerchandise = subNum
+    let specialOfferDiscountFunding: OfferDiscountFundingSummary | undefined
+    if (usesOfferSettlementModule(order.module)) {
+      vendorSettlementMerchandise = settlementMerchandiseFromOrderItems(
+        order.orderItems,
+        subNum,
+        discNum,
+      )
+      specialOfferDiscountFunding = summarizeOfferFundingFromItems(order.orderItems)
+    }
+
+    const orderWithDelivery = {
+      ...orderPayload,
+      courierBookingId: courierBooking?.id ?? null,
+      courierBookingNumber: courierBooking?.bookingNumber ?? null,
+      courierBookingStatus: courierBooking?.status ?? null,
+      deliveryRiderAssigned: Boolean(courierBooking?.riderId),
+      paymentProcessingFee: processingLedger?.commissionAmount ?? null,
+      paymentProcessingRate: processingLedger?.commissionRate ?? null,
+      /** Customer-paid merchandise (order subtotal before settlement view). */
+      customerMerchandiseSubtotal: subNum,
+      /** Book / settlement merchandise for offer-aware modules (matches vendor list `totalAmount`). */
+      vendorSettlementMerchandise,
+      specialOfferDiscountFunding,
+      specialOffers: orderMeta?.specialOffers ?? null,
+    }
+
+    return NextResponse.json({ order: orderWithDelivery })
   } catch (error) {
     console.error("Order fetch error:", error)
     return NextResponse.json({ error: "Failed to fetch order" }, { status: 500 })

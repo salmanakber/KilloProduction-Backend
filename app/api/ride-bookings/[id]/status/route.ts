@@ -75,25 +75,29 @@ export async function PUT(
       }
     })
 
-    // Send WebSocket notification to all riders who have bids on this booking
-    if (updatedBooking.rideBids && updatedBooking.rideBids.length > 0) {
-      const bidUpdateMessage = {
-        type: 'booking_status_update',
-        payload: {
-          bookingId: updatedBooking.id,
-          bookingType: 'ride',
-          status: updatedBooking.status,
-          bookingNumber: updatedBooking.bookingNumber,
-          isBookedByAnother: status === 'RIDER_ASSIGNED' || status === 'ACCEPTED',
-          assignedRiderId: updatedBooking.riderId
-        }
-      }
-
-      // Send to all riders who have bids on this booking
-      for (const bid of updatedBooking.rideBids) {
-        if (bid.rider) {
-          await socketIOServer.sendNotificationToUser(bid.rider.id, bidUpdateMessage.payload)
-        }
+    // Socket.IO event name = payload.type — must include type so clients receive "booking_status_update"
+    // (otherwise the server falls back to emitting "notification" and RiderLiveMap never hears completion).
+    const rideBookingStatusPayload = {
+      type: "booking_status_update" as const,
+      bookingId: updatedBooking.id,
+      bookingType: "ride" as const,
+      status: updatedBooking.status,
+      bookingNumber: updatedBooking.bookingNumber,
+      isBookedByAnother: status === "RIDER_ASSIGNED" || status === "ACCEPTED",
+      assignedRiderId: updatedBooking.riderId,
+      riderId: updatedBooking.riderId,
+      timestamp: new Date().toISOString(),
+    }
+    const rideRiderIds = new Set<string>()
+    for (const bid of updatedBooking.rideBids || []) {
+      if (bid.rider?.id) rideRiderIds.add(bid.rider.id)
+    }
+    if (updatedBooking.riderId) rideRiderIds.add(updatedBooking.riderId)
+    for (const rid of rideRiderIds) {
+      try {
+        await socketIOServer.sendNotificationToUser(rid, rideBookingStatusPayload)
+      } catch (e) {
+        console.error("ride booking_status_update socket:", e)
       }
     }
 
@@ -136,6 +140,46 @@ export async function PUT(
             })
           } catch (wsError) {
             console.error('Failed to send WebSocket rating notification:', wsError)
+          }
+
+          if (updatedBooking.riderId) {
+            try {
+              await NotificationBridge.sendNotification({
+                userId: updatedBooking.riderId,
+                title: "Rate your passenger",
+                message: `Trip #${updatedBooking.bookingNumber} is complete. Please rate your customer.`,
+                type: "REVIEW_REQUEST",
+                module: "RIDER",
+                actionUrl: `/riderfeedback?bookingId=${rideBookingId}&perspective=rider`,
+                data: {
+                  actionType: "navigate",
+                  screen: "riderfeedback",
+                  bookingId: rideBookingId,
+                  perspective: "rider",
+                  params: [
+                    { name: "bookingId", value: rideBookingId },
+                    { name: "perspective", value: "rider" },
+                  ],
+                },
+              })
+              await socketIOServer.sendNotificationToUser(updatedBooking.riderId, {
+                type: "review_request",
+                bookingId: rideBookingId,
+                bookingType: "ride",
+                bookingNumber: updatedBooking.bookingNumber,
+                module: "RIDING",
+                actionType: "navigate",
+                screen: "riderfeedback",
+                perspective: "rider",
+                params: [
+                  { name: "bookingId", value: rideBookingId },
+                  { name: "perspective", value: "rider" },
+                ],
+                timestamp: new Date().toISOString(),
+              })
+            } catch (riderReviewErr) {
+              console.error("Rider rating prompt (ride):", riderReviewErr)
+            }
           }
         } else {
           // Regular status updates

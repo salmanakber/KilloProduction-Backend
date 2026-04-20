@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getVendorMerchandiseCredits, sumCreditsInRange } from "@/lib/vendor-wallet-revenue"
+import { getPharmacyReviewStatsFromPrisma } from "@/lib/pharmacy-review-stats"
 
 export async function GET(request: NextRequest) {
   try {
@@ -302,26 +303,36 @@ export async function GET(request: NextRequest) {
       }),
     ])
 
+
+    console.log("306 topMedicines", topMedicines)
     // Get medicine details for top medicines
     const topMedicinesWithDetails = await Promise.all(
       topMedicines.map(async (item) => {
-        const medicine = await prisma.medicine.findUnique({
-          where: { id: item.productId },
-          select: { id: true, name: true, price: true, images: true, form: true, stock: true },
+        const medicine = await prisma.pharmacyMedicine.findUnique({
+          where: { pharmacyId_centralMedicineId: { pharmacyId: pharmacy.id, centralMedicineId: item.productId as any } },
+          select: {
+            id: true,
+            price: true,
+            stock: true,
+            centralMedicine: {
+              select: { id: true, name: true, images: true, form: true },
+            },
+          },
         })
-  
+    
         return {
           id: medicine?.id || item.productId,
-          name: medicine?.name || 'Unknown Medicine',
+          name: medicine?.centralMedicine?.name || 'Unknown Medicine',
           price: medicine?.price || 0,
-          images: medicine?.images || [],
-          form: medicine?.form,
+          images: medicine?.centralMedicine?.images || [],
+          form: medicine?.centralMedicine?.form,
           stock: medicine?.stock || 0,
           totalSold: item._sum.quantity,
           orderCount: item._count.productId,
         }
-      }),
+      })
     )
+    
 
     // Format recent orders to match mobile app expectations
     const formattedRecentOrders = recentOrders.map(order => ({
@@ -342,6 +353,7 @@ export async function GET(request: NextRequest) {
     
 
     // Format top medicines to match mobile app expectations
+    
     const formattedTopMedicines = topMedicinesWithDetails.map(medicine => ({
       id: medicine.id,
       name: medicine.name,
@@ -427,7 +439,6 @@ export async function GET(request: NextRequest) {
             id: true,
             pharmacyName: true,
             logo: true,
-            rating: true,
             isVerified: true,
             pharmacyChats: true,
           }
@@ -530,6 +541,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const pharmacyReviewStats = await getPharmacyReviewStatsFromPrisma(pharmacy.id)
+
     const suggestedCustomers = todayQueueEntries.map(queue => {
       const prescriptionData = queue.prescriptionData as any;
       const aiResponse = queue.aiResponse as any;
@@ -552,7 +565,7 @@ export async function GET(request: NextRequest) {
           id: queue.pharmacy.id,
           pharmacyName: queue.pharmacy.pharmacyName,
           logo: queue.pharmacy.logo || null,
-          rating: queue.pharmacy.rating || 0,
+          rating: pharmacyReviewStats.roundedRating,
           isVerified: queue.pharmacy.isVerified || false
         }
       };
@@ -607,8 +620,11 @@ export async function GET(request: NextRequest) {
         verificationStatus: pharmacy.isVerified ? "VERIFIED" : "PENDING",
         medicineTypes: [], // Will be populated from specializations
         isVerified: pharmacy.isVerified,
-        rating: 0, // Will be calculated from reviews
-        totalReviews: 0,
+        address: pharmacy.address,
+        latitude: pharmacy.lon,
+        longitude: pharmacy.lat,
+        rating: pharmacyReviewStats.roundedRating,
+        totalReviews: pharmacyReviewStats.totalReviews,
         is24Hours: pharmacy.is24Hours || false,
         deliveryAvailable: pharmacy.deliveryAvailable || false
       },

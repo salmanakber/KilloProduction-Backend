@@ -1,6 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import {
+  settlementMerchandiseFromOrderItems,
+  summarizeOfferFundingFromItems,
+  usesOfferSettlementModule,
+  type OfferDiscountFundingSummary,
+} from "@/lib/pharmacy-vendor-settlement"
 
 export async function GET(
   request: NextRequest,
@@ -16,8 +22,6 @@ export async function GET(
     
 
     const { orderId } = params
-
-    console.log('orderId', orderId)
 
     const where: any = {
       id: orderId,
@@ -82,6 +86,20 @@ export async function GET(
       return NextResponse.json({ error: "Order not found" }, { status: 404 })
     }
 
+    const orderMeta = (order as { metadata?: { specialOffers?: unknown } | null }).metadata
+    const subNum = Number(order.subtotal || 0)
+    const discNum = Number(order.discount || 0)
+    let vendorSettlementMerchandise = subNum
+    let specialOfferDiscountFunding: OfferDiscountFundingSummary | undefined
+    if (usesOfferSettlementModule(order.module)) {
+      vendorSettlementMerchandise = settlementMerchandiseFromOrderItems(
+        order.orderItems,
+        subNum,
+        discNum,
+      )
+      specialOfferDiscountFunding = summarizeOfferFundingFromItems(order.orderItems)
+    }
+
     return NextResponse.json({
       order: {
         id: order.id,
@@ -116,6 +134,10 @@ export async function GET(
         metadata: (order as any).metadata || {},
         isChildOrder: order.isChildOrder,
         childId: order.childId,
+        customerMerchandiseSubtotal: subNum,
+        vendorSettlementMerchandise,
+        specialOfferDiscountFunding,
+        specialOffers: orderMeta?.specialOffers ?? null,
       },
     })
   } catch (error) {

@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
+import { createWalletTransaction } from "@/lib/wallet-transaction-service"
+import { tryCalculateCommissionAmount } from "@/lib/commission-service"
+import { CommissionType } from "@prisma/client"
 
 export async function POST(request: NextRequest) {
   try {
@@ -92,6 +95,54 @@ export async function POST(request: NextRequest) {
         },
       },
     })
+
+    // Pharmacy → wholesaler courier: rider is now known — pending CREDIT for net delivery fare (completed on trip completion).
+    try {
+      const moduleRow = await prisma.courierBooking.findUnique({
+        where: { id: bid.courierBookingId },
+        select: { module: true },
+      })
+      const isWholesalerCourier =
+        String(moduleRow?.module || "").toUpperCase() === "WHOLESALER"
+      if (isWholesalerCourier && bid.riderId) {
+        const supplierOrder = await prisma.supplierOrder.findFirst({
+          where: { courierBookingId: bid.courierBookingId },
+          select: { id: true },
+        })
+        if (supplierOrder) {
+          const deliveryFee = updatedCourierBooking.fare ?? bid.bidAmount ?? 0
+          const riderCut = await tryCalculateCommissionAmount(
+            "WHOLESALER",
+            deliveryFee,
+            CommissionType.RIDER_COMMISSION,
+          )
+          const riderNetFare = Math.max(0, deliveryFee - riderCut)
+          if (riderNetFare > 0) {
+            const ref = `courier:${bid.courierBookingId}:delivery`
+            const existing = await prisma.walletTransaction.findFirst({
+              where: { userId: bid.riderId, reference: ref },
+            })
+            if (!existing) {
+              await createWalletTransaction({
+                userId: bid.riderId,
+                type: "CREDIT",
+                amount: riderNetFare,
+                description: `Pending delivery payment for booking ${bid.courierBookingId}`,
+                status: "PENDING",
+                reference: ref,
+                metadata: {
+                  courierBookingId: bid.courierBookingId,
+                  transactionType: "DELIVERY_PAYMENT",
+                  supplierOrderId: supplierOrder.id,
+                },
+              })
+            }
+          }
+        }
+      }
+    } catch (walletErr) {
+      console.error("accept-bid rider wholesale wallet:", walletErr)
+    }
 
     // Accept the winning bid and reject all others
     await prisma.courierBid.updateMany({

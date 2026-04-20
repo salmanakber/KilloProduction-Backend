@@ -81,6 +81,45 @@ export function buildPharmacySupplierVendorFeedbackPlan(input: {
 }
 
 /**
+ * Retail store vendor (food / grocery / pharmacy / auto parts) rates the rider after courier delivery.
+ */
+export function buildVendorStoreCourierFeedbackPlan(input: {
+  rider: { id: string; name: string | null } | null
+}): FeedbackCardDef[] {
+  const cards: FeedbackCardDef[] = []
+  if (input.rider) {
+    cards.push({
+      key: "rider",
+      target: "rider",
+      title: "How was the delivery partner?",
+      userId: input.rider.id,
+      displayName: input.rider.name || "Driver",
+    })
+  }
+  return cards
+}
+
+/** Wholesaler rates the pharmacy (buyer) only after supplier-order courier delivery. */
+export function buildWholesalerSupplierFeedbackPlan(input: {
+  rider: { id: string; name: string | null } | null
+  pharmacy: { pharmacyName: string | null; userId: string } | null
+}): FeedbackCardDef[] {
+  const cards: FeedbackCardDef[] = []
+  void input.rider
+  if (input.pharmacy) {
+    cards.push({
+      key: "pharmacy_vendor",
+      target: "vendor",
+      title: "How was the pharmacy?",
+      subtitle: input.pharmacy.pharmacyName || undefined,
+      userId: input.pharmacy.userId,
+      displayName: input.pharmacy.pharmacyName || "Pharmacy",
+    })
+  }
+  return cards
+}
+
+/**
  * Build which rating cards to show for a customer after delivery.
  * Rules (customer app):
  * - Pure ride / courier with no order: rider only.

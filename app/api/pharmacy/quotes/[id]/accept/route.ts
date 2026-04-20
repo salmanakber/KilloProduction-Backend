@@ -65,6 +65,17 @@ export async function POST(
         { status: 404 }
       )
     }
+
+    if (supplierOrder.status !== "QUOTE_ACCEPTED") {
+      return NextResponse.json(
+        {
+          error:
+            "Confirm supplier quote terms first (open the quote and tap Confirm terms), then arrange delivery.",
+          currentStatus: supplierOrder.status,
+        },
+        { status: 400 }
+      )
+    }
     
     // Validate required fields
     if (!pharmacyAddress || !vehicleType || !paymentMethod || !rideTypeId) {
@@ -223,41 +234,92 @@ export async function POST(
       }
     })
 
-    // Get order amount (excluding delivery fee)
+    // Commission / payout breakdown
+    // Pharmacy pays: orderAmount + deliveryFee + pharmacyPlatformFee (PHARMACY / PLATFORM_FEE)
+    // Wholesaler receives (at completion): orderAmount - wholesalerCommission (WHOLESALER / WHOLESALE_ORDER)
+    // Rider receives (at completion): deliveryFee - riderCommission (WHOLESALER / RIDER_COMMISSION)
     const orderAmount = calculatedAmounts.orderAmount || supplierOrder.totalAmount || 0
     const deliveryFee = calculatedAmounts.deliveryCharge || riderFare
-    const platformFee = calculatedAmounts.platformFee || 0
-    const totalAmount = calculatedAmounts.totalAmount || (orderAmount + deliveryFee + platformFee)
 
-    // Fetch WHOLESALE_ORDER commission rate from commissionSetting
-    // This is the tax/commission applied to wholesaler earnings
+    const { calculateCommission, tryCalculateCommissionAmount } = await import("@/lib/commission-service")
+
+    // Pharmacy platform fee — what the pharmacy pays on top
+    let pharmacyPlatformFeeRate = 0
+    let pharmacyPlatformFee = 0
+    try {
+      const r = await calculateCommission("PHARMACY", orderAmount, "PLATFORM_FEE")
+      pharmacyPlatformFeeRate = r.commissionRate
+      pharmacyPlatformFee = r.commissionAmount
+    } catch (e) {
+      pharmacyPlatformFee = Number(calculatedAmounts.platformFee) || 0
+    }
+
+    // Wholesaler commission — deducted from wholesaler payout
     let wholesalerCommissionRate = 0
     let wholesalerCommissionAmount = 0
     try {
-      const { calculateCommission } = await import("@/lib/commission-service")
-      const wholesalerCommissionCalc = await calculateCommission(
-        "WHOLESALER",
-        orderAmount,
-        "WHOLESALE_ORDER"
-      )
-      wholesalerCommissionRate = wholesalerCommissionCalc.commissionRate
-      wholesalerCommissionAmount = wholesalerCommissionCalc.commissionAmount
-    } catch (error: any) {
-      console.error("⚠️ Error fetching WHOLESALE_ORDER commission:", error)
-      // Continue with 0 commission if setting not found
+      const r = await calculateCommission("WHOLESALER", orderAmount, "WHOLESALE_ORDER")
+      wholesalerCommissionRate = r.commissionRate
+      wholesalerCommissionAmount = r.commissionAmount
+    } catch (e) {
+      console.error("⚠️ Error fetching WHOLESALER / WHOLESALE_ORDER commission:", e)
     }
 
-    // Calculate vendor earnings (order amount minus commissions)
-    // Wholesaler receives: orderAmount - platformFee - wholesalerCommission
-    const wholesalerEarnings = orderAmount - platformFee - wholesalerCommissionAmount
+    // Rider commission — deducted from delivery fee at completion (for tracking / breakdown)
+    const riderCommissionAmount = await tryCalculateCommissionAmount(
+      "WHOLESALER",
+      deliveryFee,
+      "RIDER_COMMISSION",
+    )
+
+    const wholesalerEarnings = Math.max(0, orderAmount - wholesalerCommissionAmount)
+    const riderNetFare = Math.max(0, deliveryFee - riderCommissionAmount)
+    const totalAmount =
+      calculatedAmounts.totalAmount || (orderAmount + deliveryFee + pharmacyPlatformFee)
+
+    const sr0 = supplierOrder.supplierResponse as Record<string, unknown> | null
+    const co0 =
+      sr0 && typeof sr0 === "object" && sr0 !== null && "counterOffer" in sr0
+        ? (sr0 as { counterOffer?: { markupPercent?: unknown } }).counterOffer
+        : undefined
+    const wholesaleMarkupPercent =
+      co0 &&
+      typeof co0 === "object" &&
+      co0 !== null &&
+      "markupPercent" in co0 &&
+      Number.isFinite(Number((co0 as { markupPercent?: unknown }).markupPercent))
+        ? Number((co0 as { markupPercent: number }).markupPercent)
+        : undefined
+
+    const orderSlipPayload = {
+      version: 1 as const,
+      generatedAt: new Date().toISOString(),
+      orderId: supplierOrder.id,
+      orderNumber: supplierOrder.orderNumber,
+      quoteNumber: supplierOrder.quoteNumber,
+      pharmacyName: pharmacy.pharmacyName,
+      wholesalerName: supplierOrder.wholesaler.companyName,
+      currency: calculatedAmounts.currency || supplierOrder.currency || "NGN",
+      items: supplierOrder.items.map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        lineTotal: it.totalPrice,
+      })),
+      merchandiseTotal: orderAmount,
+      deliveryFee,
+      pharmacyPlatformFee,
+      distanceKm: distance,
+      totalPayable: totalAmount,
+      paymentMethod: paymentMethod === "PAY_NOW" ? "CARD" : paymentMethod,
+      ...(wholesaleMarkupPercent !== undefined ? { wholesaleMarkupPercent } : {}),
+    }
 
     // Process payment and wallet transactions if payment succeeded
-    console.log("paymentData 11", paymentData)
-    let paymentProcessed = false
     if (paymentData && paymentData.status === 'PAID') {
       try {
         await prisma.$transaction(async (tx) => {
-          // Process payment for wholesaler
+          // PENDING credit for wholesaler (completed on delivery)
           await processPharmacyPayment({
             tx,
             paymentData,
@@ -269,63 +331,50 @@ export async function POST(
             commissions: {
               vendorCommission: wholesalerCommissionAmount,
               vendorCommissionRate: wholesalerCommissionRate,
-              platformCommission: platformFee,
+              platformCommission: pharmacyPlatformFee,
             },
             module: 'WHOLESALER',
             metadata: {
               wholesalerId: supplierOrder.wholesaler.id,
               pharmacyId: pharmacy.id,
               deliveryFee,
+              riderNetFare,
+              riderCommissionAmount,
+              pharmacyPlatformFee,
             }
           })
         })
-        paymentProcessed = true
-        console.log("✅ Payment processed and wallet transaction created (PENDING)")
+        console.log("✅ Wholesaler PENDING wallet transaction created for supplier order", params.id)
       } catch (paymentError: any) {
         console.error("⚠️ Payment processing error:", paymentError)
-        // Don't fail the order if payment processing fails, but log it
       }
     }
 
-    // Create commissions using commission-service (all PENDING until rider completes order)
-    // Note: orderId is not passed since VendorCommission.orderId only accepts Order model IDs, not SupplierOrder IDs
-    // Commissions can be queried by vendorId + module + commissionType + createdAt
+    // VendorCommission bookkeeping rows (PAID later in runCourierCompletionSideEffects)
     try {
-      // 1. WHOLESALER module, PLATFORM_FEE commission (based on order amount)
-      await createVendorCommission({
-        module: "WHOLESALER",
-        vendorId: supplierOrder.wholesaler.userId,
-        orderAmount: orderAmount,
-        commissionType: "PLATFORM_FEE",
-        status: "PENDING"
-      })
-
-      // 2. PHARMACY module, WHOLESALE_ORDER commission (based on order amount)
-      await createVendorCommission({
-        module: "PHARMACY",
-        vendorId: pharmacy.userId,
-        orderAmount: orderAmount,
-        commissionType: "WHOLESALE_ORDER",
-        status: "PENDING"
-      })
-
-      // 3. WHOLESALER module, WHOLESALE_ORDER commission (based on order amount)
-      // This is the commission/tax deducted from wholesaler earnings (already calculated above)
-      await createVendorCommission({
-        module: "WHOLESALER",
-        vendorId: supplierOrder.wholesaler.userId,
-        orderAmount: orderAmount,
-        commissionType: "WHOLESALE_ORDER",
-        status: "PENDING"
-      })
-
-      // 4. RIDING module, RIDER_COMMISSION commission (based on delivery fee)
-      // Note: This will be created when rider accepts the booking
-      // The riderId will be set when rider accepts
-      console.log("✅ Commissions created successfully (PENDING status)")
+      // Wholesaler deduction (WHOLESALE_ORDER on WHOLESALER module)
+      if (wholesalerCommissionAmount > 0) {
+        await createVendorCommission({
+          module: "WHOLESALER",
+          vendorId: supplierOrder.wholesaler.userId,
+          orderAmount: orderAmount,
+          commissionType: "WHOLESALE_ORDER",
+          status: "PENDING",
+        })
+      }
+      // Pharmacy platform fee (PHARMACY / PLATFORM_FEE)
+      if (pharmacyPlatformFee > 0) {
+        await createVendorCommission({
+          module: "PHARMACY",
+          vendorId: pharmacy.userId,
+          orderAmount: orderAmount,
+          commissionType: "PLATFORM_FEE",
+          status: "PENDING",
+        })
+      }
+      // Rider commission row is created by runCourierCompletionSideEffects once the rider is known
     } catch (commissionError: any) {
       console.error("⚠️ Commission creation error:", commissionError)
-      // Don't fail the order if commission creation fails, but log it
     }
 
     // Update supplier order with courier booking and address details
@@ -345,7 +394,19 @@ export async function POST(
         isQuote: false,
 
         // Set payment status to PAID if payment succeeded, otherwise PENDING
-        paymentStatus: (paymentData && paymentData.status === 'PAID') ? "PAID" : "PENDING"
+        paymentStatus: (paymentData && paymentData.status === 'PAID') ? "PAID" : "PENDING",
+        orderSlip: {
+          ...orderSlipPayload,
+          courierBookingId: courierBooking.id,
+          courierBookingNumber: courierBooking.bookingNumber,
+          paymentReference:
+            paymentData && typeof paymentData === "object" && paymentData !== null && "reference" in paymentData
+              ? String((paymentData as { reference?: string }).reference || "")
+              : paymentData && typeof paymentData === "object" && paymentData !== null && "id" in paymentData
+                ? String((paymentData as { id?: string }).id || "")
+                : null,
+          paid: Boolean(paymentData && (paymentData as { status?: string }).status === "PAID"),
+        } as object,
       },
       include: {
         wholesaler: {
@@ -395,7 +456,10 @@ export async function POST(
         message: `New medicine delivery request from ${pharmacy.pharmacyName}. Pickup distance from you: ${riderDistance.toFixed(1)}km, Trip: ${distance.toFixed(1)}km, Fare: ₦${riderFare.toFixed(0)}${driverSpeed ? `, ETA: ${estimatedArrivalMinutes}min (GPS speed: ${driverSpeed.toFixed(1)}km/h)` : `, ETA: ${estimatedArrivalMinutes}min`}`,
         type: "DELIVERY",
         module: "PHARMACY",
-        data: { 
+        data: {
+          actionType: "navigate",
+          screen: "RiderLiveMap",
+          params: [{ name: "bookingId", value: courierBooking.id }],
           courierBookingId: courierBooking.id,
           distance,
           fare: riderFare,
@@ -403,9 +467,9 @@ export async function POST(
           driverSpeed,
           pharmacyName: pharmacy.pharmacyName,
           wholesalerName: supplierOrder.wholesaler.companyName,
-          pickupDistanceKm: riderDistance
+          pickupDistanceKm: riderDistance,
         },
-        actionUrl: `/rider/deliveries/${courierBooking.id}`
+        actionUrl: `/rider/deliveries/${courierBooking.id}`,
       })
 
       await socketServer.sendNewRideToUser(rider.user.id, {
@@ -432,16 +496,15 @@ export async function POST(
       actionUrl: `/wholesaler/orders/${supplierOrder.id}`,
       data: {
         actionType: "navigate",
-        screen: 'WholesalerOrders',
-        params: [
-          { name: 'orderId', value: supplierOrder.id },
-        ],
+        screen: "SupplierOrderTracking",
+        params: [{ name: "orderId", value: supplierOrder.id }],
         orderId: supplierOrder.id,
-        pharmacyName: pharmacy.pharmacyName
-      }
+        pharmacyName: pharmacy.pharmacyName,
+      },
     })
 
 
+    
 
     return NextResponse.json({
       message: "Order confirmed and delivery arranged successfully",
@@ -455,7 +518,17 @@ export async function POST(
           fare: riderFare,
           estimatedTime: courierBooking.estimatedTime,
           estimatedArrivalMinutes: estimatedArrivalMinutes,
-          driverSpeed: driverSpeed
+          driverSpeed: driverSpeed,
+          pharmacyName: pharmacy.pharmacyName,
+          wholesalerName: supplierOrder.wholesaler.companyName,
+          pickupAddress: wholesalerAddress?.fullAddress || supplierOrder.wholesaler.address,
+          dropAddress: deliveryAddress || (typeof pharmacyAddress === 'string' ? pharmacyAddress : pharmacyAddress.fullAddress),
+          pickupLatitude: wholesalerAddress?.latitude || wholesalerCoords.latitude,
+          pickupLongitude: wholesalerAddress?.longitude || wholesalerCoords.longitude,
+          dropLatitude: typeof pharmacyAddress === 'string' ? pharmacyCoords.latitude : pharmacyAddress.latitude,
+          dropLongitude: typeof pharmacyAddress === 'string' ? pharmacyCoords.longitude : pharmacyAddress.longitude,
+          estimatedFare: riderFare,
+       
         },
         availableRiders: availableRiders.length,
         calculations: {

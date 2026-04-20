@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { getPharmacyReviewStatsBatch } from '@/lib/pharmacy-review-stats'
 
 // Haversine formula
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest) {
       },
       select: {
         id: true,
+        userId: true,
         pharmacyName: true,
         description: true,
         address: true,
@@ -118,6 +120,8 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    const reviewStatsByPharmacy = await getPharmacyReviewStatsBatch(pharmacies.map((p) => p.id))
+
     // Process pharmacies with distance and performance
     const processedPharmacies = pharmacies
       .map(pharmacy => {
@@ -133,7 +137,14 @@ export async function GET(request: NextRequest) {
         if (distance > maxDistance) return null
 
         const isOpen = isPharmacyOpen(pharmacy.openingHours, pharmacy.is24Hours)
-        const performanceScore = calculatePerformanceScore(pharmacy)
+        const stats = reviewStatsByPharmacy.get(pharmacy.id)
+        const ratingFromReviews = stats?.roundedRating ?? 0
+        const totalReviewsFromDb = stats?.totalReviews ?? 0
+        const performanceScore = calculatePerformanceScore({
+          ...pharmacy,
+          rating: ratingFromReviews,
+          totalReviews: totalReviewsFromDb,
+        })
         
         // Check if pharmacy is new (registered in last 30 days)
         const thirtyDaysAgo = new Date()
@@ -149,6 +160,7 @@ export async function GET(request: NextRequest) {
 
         return {
           id: pharmacy.id,
+          vendorUserId: pharmacy.userId,
           name: pharmacy.pharmacyName || 'Pharmacy',
           description: pharmacy.description,
           address: pharmacy.address || '',
@@ -157,8 +169,8 @@ export async function GET(request: NextRequest) {
           website: pharmacy.website,
           distance: `${distance.toFixed(1)} km`,
           distanceValue: distance,
-          rating: pharmacy.rating,
-          reviews: pharmacy.totalReviews,
+          rating: ratingFromReviews,
+          reviews: totalReviewsFromDb,
           isOpen,
           is24Hours: pharmacy.is24Hours,
           logo: pharmacy.logo,

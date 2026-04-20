@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       usersPending,
       vendorOfferPendingFood,
       vendorOfferPendingGrocery,
+      medicineSuggestionsPending,
     ] = await Promise.all([
       prisma.mechanicProfile.count({ where: { isVerified: false } }),
       prisma.pharmacy.count({ where: { status: "PENDING" } }),
@@ -92,6 +93,7 @@ export async function GET(request: NextRequest) {
       "/admin/vendor-offers": vendorOfferPendingFood + vendorOfferPendingGrocery,
       "/admin/money-app-admin/payouts": withdrawalsPending,
       "/admin/money-app-admin": withdrawalsPending,
+      "/admin/medicines/wholesaler-suggestions": medicineSuggestionsPending,
     }
 
     return NextResponse.json({ counts })

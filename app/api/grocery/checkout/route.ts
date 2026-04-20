@@ -14,6 +14,13 @@ import {
   splitAmountByWeights,
 } from "@/lib/order-vendor-platform-fee-record"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { NotificationBridge } from "@/lib/notification-bridge"
+import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
+import {
+  computeVendorOfferSettlementPayout,
+  settlementMerchandiseFromCartLines,
+} from "@/lib/pharmacy-vendor-settlement"
+import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
 
 function generateOrderNumber(): string {
   return `GRC-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
@@ -144,7 +151,15 @@ export async function POST(request: NextRequest) {
 
     const discountedSubtotalGrocery = Math.max(0, subtotal - promoDiscount)
     const platformCommission = await checkoutPlatformFeeAmount("GROCERY", discountedSubtotalGrocery)
-    const vendorCommissionTotal = await checkoutVendorCommissionAmount("GROCERY", discountedSubtotalGrocery)
+    const vendorCommissionSubtotalGrocery = settlementMerchandiseFromCartLines(
+      items,
+      subtotal,
+      promoDiscount,
+    )
+    const vendorCommissionTotal = await checkoutVendorCommissionAmount(
+      "GROCERY",
+      vendorCommissionSubtotalGrocery,
+    )
 
     const rideType = await prisma.rideType.findFirst({
       where: { category: "COURIER", vehicleType: "MOTORCYCLE", isActive: true },
@@ -240,6 +255,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
+
     // Calculate total
     const total = Math.max(0, subtotal - promoDiscount) + deliveryFee + platformCommission
 
@@ -303,6 +320,7 @@ export async function POST(request: NextRequest) {
         const storeTotal = Math.max(0, storeSubtotal - storeDiscount) + storeDeliveryFee + storePlatformCommission
 
         const childOrderNumber = generateOrderNumber()
+        const groceryChildOfferMeta = buildOrderSpecialOffersMetadata(storeItems as Record<string, unknown>[])
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -324,6 +342,7 @@ export async function POST(request: NextRequest) {
             notes: notes ?? null,
             groceryId: store.id,
             isChildOrder: true as any,
+            ...(groceryChildOfferMeta ? { metadata: { specialOffers: groceryChildOfferMeta } as object } : {}),
             orderItems: {
               create: storeItems.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
                 const c = (it.customizations as any) || undefined
@@ -353,6 +372,7 @@ export async function POST(request: NextRequest) {
 
       // Create parent order that aggregates all child orders
       const parentOrderNumber = generateOrderNumber()
+      const groceryParentOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -375,6 +395,7 @@ export async function POST(request: NextRequest) {
           groceryId: null,
           isChildOrder: false as any,
           childId: null as any,
+          ...(groceryParentOfferMeta ? { metadata: { specialOffers: groceryParentOfferMeta } as object } : {}),
           orderItems: {
             create: items.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
               const c = (it.customizations as any) || undefined
@@ -411,6 +432,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Single store: Create regular order (no parent-child relationship)
       const orderNumber = generateOrderNumber()
+      const grocerySingleOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -433,6 +455,7 @@ export async function POST(request: NextRequest) {
           groceryId: primaryStore.id,
           isChildOrder: false as any,
           childId: null as any,
+          ...(grocerySingleOfferMeta ? { metadata: { specialOffers: grocerySingleOfferMeta } as object } : {}),
           orderItems: {
             create: items.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
               const c = (it.customizations as any) || undefined
@@ -607,28 +630,10 @@ export async function POST(request: NextRequest) {
         // Create wallet transactions (pending) for vendors and rider
         // Vendor transactions
         for (const vendorPayment of vendorPayments) {
-          const co = isMultiStore ? childOrders.find((c) => c.id === vendorPayment.orderId) : order
-          // Special offers: if PLATFORM funded, vendor should not lose that discount.
-          const lineItems = (co?.orderItems || []) as any[]
-          let platformDiscount = 0
-          for (const li of lineItems) {
-            const cust = li?.customizations as any
-            const offerId = String(cust?.kiloOfferId || "").trim()
-            if (!offerId) continue
-            const fundedBy = String(cust?.kiloOfferDiscountFundedBy || "").toUpperCase()
-            if (fundedBy !== "PLATFORM") continue
-            const originalUnit = Number(cust?.kiloOfferOriginalUnitPrice || 0)
-            const unit = Number(li?.unitPrice || 0)
-            const qty = Number(li?.quantity || 0)
-            if (!Number.isFinite(originalUnit) || !Number.isFinite(unit) || !Number.isFinite(qty)) continue
-            platformDiscount += Math.max(0, (originalUnit - unit) * qty)
-          }
-
-          const net = Math.max(0, (co?.subtotal ?? 0) - (co?.discount ?? 0) + platformDiscount)
-          const vendorAmount = Math.max(0, net - (co?.vendorCommission ?? 0))
+          const p = await computeVendorOfferSettlementPayout(vendorPayment.orderId)
           await createOrderCompletionWalletTransactions({
             vendorId: vendorPayment.vendorId,
-            vendorAmount,
+            vendorAmount: p.vendorPayout,
             orderId: vendorPayment.orderId,
             courierBookingId: courierBooking.id,
             description: `Payment for grocery order ${order.orderNumber}`,
@@ -688,6 +693,47 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.error("Loyalty award error:", e)
       }
+    }
+
+    try {
+      await NotificationBridge.sendNotification({
+        userId: user.id,
+        title: "Order Placed Successfully",
+        message: `Your grocery order #${order.orderNumber} has been placed.`,
+        type: "ORDER_UPDATE",
+        module: "GROCERY",
+        data: {
+          actionType: "navigate",
+          screen: "OrderDetails",
+          params: [{ name: "orderId", value: order.id }],
+        },
+        actionUrl: `/orders/${order.id}`,
+      })
+      const vendorTargets = isMultiStore
+        ? childOrders.map((co: { id: string; orderNumber: string; vendorId: string | null }) => ({
+            userId: co.vendorId,
+            orderId: co.id,
+            orderNumber: co.orderNumber,
+          }))
+        : [{ userId: primaryStore.userId, orderId: order.id, orderNumber: order.orderNumber }]
+      for (const vt of vendorTargets) {
+        if (!vt.userId) continue
+        await NotificationBridge.sendNotification({
+          userId: vt.userId,
+          title: "New Grocery Order",
+          message: `You have a new order #${vt.orderNumber}.`,
+          type: "ORDER_UPDATE",
+          module: "GROCERY",
+          data: {
+            actionType: "navigate",
+            screen: "OrderDetails",
+            params: [{ name: "orderId", value: vt.orderId }],
+          },
+          actionUrl: `/grocery/orders/${vt.orderId}`,
+        })
+      }
+    } catch (notifErr) {
+      console.error("Grocery checkout notifications:", notifErr)
     }
 
     return NextResponse.json({

@@ -18,6 +18,8 @@ export interface CreateWalletTransactionParams {
   status?: WalletTransactionStatus
   reference?: string
   metadata?: any
+  /** When set with PENDING status, CREDIT is held until this time (rider payout clearance). */
+  clearsAt?: Date | null
 }
 
 /**
@@ -66,6 +68,7 @@ export async function createWalletTransaction(
       reference: params.reference,
       orderId: params.orderId,
       status,
+      clearsAt: params.clearsAt ?? null,
       metadata: params.metadata,
     },
   })
@@ -128,6 +131,7 @@ export async function completeWalletTransaction(transactionId: string): Promise<
       data: {
         status: 'COMPLETED',
         balance: newBalance,
+        clearsAt: null,
       },
     }),
     prisma.wallet.update({
@@ -225,6 +229,8 @@ export async function ensureOrderCompletionPendingWallets(params: {
   vendorAmount: number
   courierBookingId?: string
   description?: string
+  /** Merged into vendor ORDER_PAYMENT wallet row metadata (e.g. special-offer funding). */
+  vendorMetadata?: Record<string, unknown>
 }): Promise<void> {
   const pending = await prisma.walletTransaction.findMany({
     where: { orderId: params.orderId, status: "PENDING" },
@@ -240,10 +246,38 @@ export async function ensureOrderCompletionPendingWallets(params: {
 
   const effectiveVendorAmount = vendorPrepaidAtCheckout ? 0 : params.vendorAmount
 
-  const hasVendor =
-    pending.some((t) => txMetaType(t.metadata) === "ORDER_PAYMENT") ||
-    Boolean(vendorPrepaidAtCheckout)
+  const vendorPendingTx = pending.find((t) => txMetaType(t.metadata) === "ORDER_PAYMENT")
+  const hasVendor = Boolean(vendorPendingTx) || Boolean(vendorPrepaidAtCheckout)
   const hasRider = pending.some((t) => txMetaType(t.metadata) === "DELIVERY_PAYMENT")
+
+  /** Checkout may create ORDER_PAYMENT using customer subtotal; pharmacy settlement corrects amount at completion. */
+  if (
+    vendorPendingTx &&
+    !vendorPrepaidAtCheckout &&
+    params.vendorId &&
+    vendorPendingTx.userId === params.vendorId &&
+    effectiveVendorAmount > 0
+  ) {
+    const diff = Math.abs(Number(vendorPendingTx.amount) - effectiveVendorAmount)
+    if (diff > 0.009) {
+      const prevMeta =
+        vendorPendingTx.metadata && typeof vendorPendingTx.metadata === "object"
+          ? (vendorPendingTx.metadata as Record<string, unknown>)
+          : {}
+      await prisma.walletTransaction.update({
+        where: { id: vendorPendingTx.id },
+        data: {
+          amount: effectiveVendorAmount,
+          metadata: {
+            ...prevMeta,
+            transactionType: "ORDER_PAYMENT",
+            ...(params.vendorMetadata && typeof params.vendorMetadata === "object" ? params.vendorMetadata : {}),
+            ...(params.courierBookingId ? { courierBookingId: params.courierBookingId } : {}),
+          },
+        },
+      })
+    }
+  }
 
   if (!hasVendor && params.vendorId && effectiveVendorAmount > 0) {
     await createWalletTransaction({
@@ -256,6 +290,7 @@ export async function ensureOrderCompletionPendingWallets(params: {
       metadata: {
         courierBookingId: params.courierBookingId,
         transactionType: "ORDER_PAYMENT",
+        ...(params.vendorMetadata && typeof params.vendorMetadata === "object" ? params.vendorMetadata : {}),
       },
     })
   }
@@ -276,7 +311,7 @@ export async function ensureOrderCompletionPendingWallets(params: {
   }
 }
 
-/** Courier completed with no marketplace order — pay rider delivery fare only. */
+/** Courier completed with no marketplace order — pay rider delivery fare (held until clearance). */
 export async function ensureRiderDeliveryWalletCompleted(params: {
   riderId: string
   amount: number
@@ -291,15 +326,22 @@ export async function ensureRiderDeliveryWalletCompleted(params: {
       reference: ref,
     },
   })
-  if (existing) return
+  if (existing?.status === "COMPLETED") return
+  if (existing?.status === "PENDING") return
+
+  const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
+    "@/lib/rider-wallet-clearance-settings"
+  )
+  const days = await getRiderWalletClearanceDays()
 
   await createWalletTransaction({
     userId: params.riderId,
     type: "CREDIT",
     amount: params.amount,
-    description: `Delivery payment for booking ${params.courierBookingId}`,
-    status: "COMPLETED",
+    description: `Delivery payment for booking ${params.courierBookingId} (clears in ${days} day${days === 1 ? "" : "s"})`,
+    status: "PENDING",
     reference: ref,
+    clearsAt: computeWalletClearsAt(days),
     metadata: {
       courierBookingId: params.courierBookingId,
       transactionType: "DELIVERY_PAYMENT",

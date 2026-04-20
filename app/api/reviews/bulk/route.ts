@@ -22,7 +22,7 @@ function parseReviewTarget(raw: string): "RIDER" | "VENDOR" | "MECHANIC" | "WHOL
 export async function POST(request: NextRequest) {
   try {
     const user = await authenticateRequest(request)
-    if (!user || (user.role !== "CUSTOMER" && user.role !== "RIDER")) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -36,20 +36,79 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const isCustomerReviewer = user.role === "CUSTOMER"
+    const pharmacyProfile = await prisma.pharmacy.findUnique({
+      where: { userId: user.id },
+      select: { id: true, userId: true },
+    })
+    const wholesalerProfile = await prisma.wholesaler.findUnique({
+      where: { userId: user.id },
+      select: { id: true, userId: true },
+    })
 
-    const [rideBooking, courierBooking] = await Promise.all([
-      prisma.rideBooking.findFirst({
-        where: isCustomerReviewer
-          ? { id: bookingId, customerId: user.id }
-          : { id: bookingId, riderId: user.id },
-      }),
-      prisma.courierBooking.findFirst({
-        where: isCustomerReviewer
-          ? { id: bookingId, customerId: user.id }
-          : { id: bookingId, riderId: user.id },
-      }),
-    ])
+    const isCustomerReviewer = user.role === "CUSTOMER"
+    const isRiderReviewer = user.role === "RIDER"
+    const isPharmacyWholesaleReviewer = !!pharmacyProfile
+    const isWholesalerReviewer = !!wholesalerProfile
+    const isVendorReviewer = user.role === "VENDOR"
+
+    if (
+      !isCustomerReviewer &&
+      !isRiderReviewer &&
+      !isPharmacyWholesaleReviewer &&
+      !isWholesalerReviewer &&
+      !isVendorReviewer
+    ) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    let rideBooking: Awaited<ReturnType<typeof prisma.rideBooking.findFirst>> = null
+    let courierBooking: Awaited<ReturnType<typeof prisma.courierBooking.findFirst>> = null
+
+    /** Retail store vendors may also have a pharmacy profile; resolve their courier booking first. */
+    if (isVendorReviewer) {
+      courierBooking = await prisma.courierBooking.findFirst({
+        where: {
+          id: bookingId,
+          OR: [
+            { order: { vendorId: user.id } },
+            { order: { childOrders: { some: { vendorId: user.id } } } },
+            { order: { pharmacy: { userId: user.id } } },
+            { order: { food: { userId: user.id } } },
+            { order: { grocery: { userId: user.id } } },
+          ],
+        },
+      })
+    } else if (isCustomerReviewer || isPharmacyWholesaleReviewer) {
+      const [rb, cb] = await Promise.all([
+        prisma.rideBooking.findFirst({
+          where: { id: bookingId, customerId: user.id },
+        }),
+        prisma.courierBooking.findFirst({
+          where: { id: bookingId, customerId: user.id },
+        }),
+      ])
+      rideBooking = rb
+      courierBooking = cb
+    } else if (isRiderReviewer) {
+      const [rb, cb] = await Promise.all([
+        prisma.rideBooking.findFirst({
+          where: { id: bookingId, riderId: user.id },
+        }),
+        prisma.courierBooking.findFirst({
+          where: { id: bookingId, riderId: user.id },
+        }),
+      ])
+      rideBooking = rb
+      courierBooking = cb
+    } else if (isWholesalerReviewer) {
+      courierBooking = await prisma.courierBooking.findFirst({
+        where: {
+          id: bookingId,
+          module: "WHOLESALER",
+          supplierOrders: { some: { wholesalerId: wholesalerProfile!.id } },
+        },
+      })
+    }
 
     const booking = rideBooking || courierBooking
     if (!booking) {
@@ -120,7 +179,36 @@ export async function POST(request: NextRequest) {
           skip = true
         }
       } else if (targetType === "VENDOR") {
-        if (!courierBooking?.orderId) {
+        const wholesaleWholesalerRatesPharmacy =
+          isWholesalerReviewer &&
+          !!wholesalerProfile &&
+          courierBooking?.module === "WHOLESALER" &&
+          !courierBooking.orderId
+
+        if (wholesaleWholesalerRatesPharmacy) {
+          const pharm = await prisma.pharmacy.findFirst({
+            where: { userId: id },
+            select: { id: true, pharmacyName: true, userId: true },
+          })
+          if (!pharm) {
+            skip = true
+          } else {
+            const so = await prisma.supplierOrder.findFirst({
+              where: {
+                courierBookingId: bookingId,
+                pharmacyId: pharm.id,
+                wholesalerId: wholesalerProfile.id,
+              },
+            })
+            if (!so) {
+              skip = true
+            } else {
+              targetUserId = pharm.userId
+              targetName = pharm.pharmacyName || "Pharmacy"
+              reviewDataToCreate.pharmacyId = pharm.id
+            }
+          }
+        } else if (!courierBooking?.orderId) {
           skip = true
         } else {
           const order = await prisma.order.findUnique({
@@ -213,6 +301,20 @@ export async function POST(request: NextRequest) {
         })
         if (!wholesaler) {
           skip = true
+        } else if (pharmacyProfile && courierBooking?.module === "WHOLESALER") {
+          const so = await prisma.supplierOrder.findFirst({
+            where: {
+              courierBookingId: bookingId,
+              wholesalerId: wholesaler.id,
+              pharmacyId: pharmacyProfile.id,
+            },
+          })
+          if (!so) {
+            skip = true
+          } else {
+            targetUserId = wholesaler.userId
+            targetName = wholesaler.companyName
+          }
         } else {
           targetUserId = wholesaler.userId
           targetName = wholesaler.companyName
@@ -280,6 +382,8 @@ export async function POST(request: NextRequest) {
       } else if (targetType === "WHOLESALER") {
         const w = await prisma.wholesaler.findFirst({ where: { userId: id } })
         if (w) await updateWholesalerRating(w.id)
+      } else if (targetType === "VENDOR" && review.pharmacyId) {
+        await updatePharmacyRating(review.pharmacyId)
       }
     }
 
@@ -320,12 +424,14 @@ export async function POST(request: NextRequest) {
           userId: notif.userId,
           title: "New Review Received",
           message: `${user.name} has left you a ${roleLabel} review`,
-          type: "REVIEW_REQUEST",
+          type: "REVIEW_RECEIVED",
           module: module as any,
-          actionUrl: `/reviews?targetId=${notif.userId}&targetType=${notif.targetType}`,
+          actionUrl: `/reviews?targetId=${encodeURIComponent(notif.userId)}&targetType=${encodeURIComponent(notif.targetType)}`,
           data: {
             actionType: "navigate",
-            screen: "Reviews",
+            screen: "ReviewScreen",
+            targetId: notif.userId,
+            targetType: notif.targetType,
             params: [
               { name: "targetId", value: notif.userId },
               { name: "targetType", value: notif.targetType },
@@ -348,6 +454,29 @@ export async function POST(request: NextRequest) {
       { error: error.message || "Failed to submit reviews" },
       { status: 500 }
     )
+  }
+}
+
+async function updatePharmacyRating(pharmacyId: string) {
+  try {
+    const reviews = await prisma.review.findMany({
+      where: {
+        pharmacyId,
+        targetType: "VENDOR",
+      },
+      select: { rating: true },
+    })
+    if (reviews.length === 0) return
+    const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0)
+    const averageRating = totalRating / reviews.length
+    await prisma.pharmacy.update({
+      where: { id: pharmacyId },
+      data: {
+        rating: averageRating,
+      },
+    })
+  } catch (error) {
+    console.error("Error updating pharmacy rating:", error)
   }
 }
 

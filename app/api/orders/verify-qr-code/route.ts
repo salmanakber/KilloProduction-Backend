@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
+import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
 import { finalizeCourierDropoffDelivery } from "@/lib/finalize-courier-dropoff-delivery"
 import { processMechanicAutoPartsOrderQr } from "@/lib/mechanic-auto-parts-qr-verify"
 import crypto from "crypto"
@@ -233,6 +234,11 @@ export async function POST(request: NextRequest) {
           data: { status: "COMPLETED", deliveredAt: new Date() },
         })
         await runCourierCompletionSideEffects(courierBookingId)
+        try {
+          await notifyCourierDeliveryCompleted(courierBookingId, { terminalStatus: "COMPLETED" })
+        } catch (notifyErr) {
+          console.error("verify-qr wholesale delivery review notifications:", notifyErr)
+        }
         return NextResponse.json({
           success: true,
           verified: true,
@@ -317,8 +323,8 @@ export async function POST(request: NextRequest) {
             select: { id: true, orderId: true },
           })
           if (!fullBooking?.orderId || fullBooking.orderId !== parentOrderId) {
-            console.log( "fullBooking.orderId", fullBooking.orderId)
-            console.log( "parentOrderId", parentOrderId)
+            console.log("fullBooking.orderId", fullBooking?.orderId)
+            console.log("parentOrderId", parentOrderId)
             return NextResponse.json({ error: "Order does not match this booking" }, { status: 400 })
           }
 

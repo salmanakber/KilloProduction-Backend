@@ -116,6 +116,7 @@ export async function GET(request: NextRequest) {
     }
 
     const maxDeliveryDistance = riderProfile.maxDeliveryDistance || 10 // Default 10km if not set
+    
 
     const riderFilter = buildRiderServiceFilter(
       riderProfile.serviceTypes,
@@ -188,9 +189,14 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    
+
     const courierFiltered = courierBookings.filter((b) =>
       courierMatchesRider(riderFilter, b.module, b.rideType.vehicleType)
     )
+
+    
+    
 
     // Get ride bookings - only REQUESTED status, exclude BIDDING
     const rideBookings = await prisma.rideBooking.findMany({
@@ -331,6 +337,10 @@ const withDistances = await Promise.all(
     if (effectiveRiderLat === 0 && effectiveRiderLng === 0) {
       return { ...request, isWithinRange: true }
     }
+    console.log("3232 effectiveRiderLat", effectiveRiderLat)
+    console.log("3232 effectiveRiderLng", effectiveRiderLng)
+    console.log("3232 request.pickupLatitude", request.pickupLatitude)
+    console.log("3232 request.pickupLongitude", request.pickupLongitude)
 
     const distanceToPickup = await calculateDistance(
       effectiveRiderLat,
@@ -348,6 +358,7 @@ const withDistances = await Promise.all(
   })
 )
 
+console.log("3232 withDistances", withDistances)
 // Now filter based on calculated flag
 const filteredRequests = withDistances.filter(req => req.isWithinRange)
 
@@ -388,6 +399,8 @@ const sortedRequests = filteredRequests.sort(
         },
       }
     })
+
+    
 
     return NextResponse.json({
       success: true,

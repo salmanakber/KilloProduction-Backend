@@ -14,6 +14,23 @@ export async function GET(
 
     const offer = await prisma.specialOffer.findUnique({
       where: { id: params.id },
+      select: {
+        id: true,
+        title: true,
+        subtitle: true,
+        description: true,
+        discountType: true,
+        discountValue: true,
+        discountFundedBy: true,
+        validFrom: true,
+        validUntil: true,
+        bannerImageUrl: true,
+        imageUrl: true,
+        isActive: true,
+        module: true,
+        maxUses: true,
+        usedCount: true,
+      },
     })
     if (!offer || !offer.isActive) {
       return NextResponse.json({ error: "Offer not found" }, { status: 404 })
@@ -26,6 +43,7 @@ export async function GET(
         offerId: params.id,
         status: { in: ["APPROVED", "ACTIVE", "SUBMITTED_PRODUCT"] as any },
       },
+      orderBy: { createdAt: "asc" },
     })
     
 
@@ -42,52 +60,82 @@ export async function GET(
     let products: any[] = []
     
     if (module === "PHARMACY") {
-      const rows = await prisma.centralMedicine.findMany({
-        where: { id: { in: productIds } },
-        include: {
-          pharmacyMedicines: {
-            where: { stock: { gt: 0 } }, // only available stock
-            select: {
-              id: true,
-              pharmacyId: true,
-              price: true,
-              stock: true,
-              pharmacy: {
-                select: { pharmacyName: true },
-              },
-            },
-          },
-        },
+      // Submissions store centralMedicineId; the same central ID may appear from multiple vendors.
+      // One row per submission: resolve that vendor's PharmacyMedicine (not "cheapest globally").
+      const uniqueCentralIds = [...new Set(productIds)]
+      const centrals = await prisma.centralMedicine.findMany({
+        where: { id: { in: uniqueCentralIds } },
       })
-    
-      products = rows.map((row) => {
-        // sort pharmacies by lowest price
-        const sorted = row.pharmacyMedicines.sort(
-          (a, b) => Number(a.price) - Number(b.price)
-        )
-    
-        const best = sorted[0] // cheapest pharmacy
-    
-        return {
-          id: row.id,
-          name: row.name,
-          image:
-            Array.isArray(row.images) && row.images.length
-              ? row.images[0]
-              : null,
-    
-          // ✅ SAFE access with fallback
-          price: best ? Number(best.price) : 0,
-          vendorId: best?.pharmacyId || null,
-          vendorName: best?.pharmacy?.pharmacyName || null,
-          stock: best?.stock || 0,
-    
-          // optional: keep full data if needed
-          raw: row,
-        }
-      })
-    
+      const centralById = new Map(centrals.map((c) => [c.id, c]))
 
+      const vendorUserIds = [...new Set(submissions.map((s) => s.vendorId))]
+      const pharmacies = await prisma.pharmacy.findMany({
+        where: { userId: { in: vendorUserIds } },
+        select: { id: true, userId: true },
+      })
+      const pharmacyIdByUserId = new Map(pharmacies.map((p) => [p.userId, p.id]))
+
+      type Pair = { pharmacyId: string; centralMedicineId: string }
+      const pairs: Pair[] = []
+      for (const sub of submissions) {
+        const pharmacyId = pharmacyIdByUserId.get(sub.vendorId)
+        if (!pharmacyId) continue
+        pairs.push({ pharmacyId, centralMedicineId: sub.productId })
+      }
+
+      const pmKey = (p: Pair) => `${p.pharmacyId}::${p.centralMedicineId}`
+
+      const pmRows =
+        pairs.length > 0
+          ? await prisma.pharmacyMedicine.findMany({
+              where: {
+                OR: pairs.map((p) => ({
+                  pharmacyId: p.pharmacyId,
+                  centralMedicineId: p.centralMedicineId,
+                })),
+                stock: { gt: 0 },
+                isAvailable: true,
+              },
+              include: {
+                pharmacy: { select: { pharmacyName: true } },
+              },
+            })
+          : []
+
+      const pmByKey = new Map<string, (typeof pmRows)[0]>()
+      for (const pm of pmRows) {
+        const k = pmKey({
+          pharmacyId: pm.pharmacyId,
+          centralMedicineId: pm.centralMedicineId,
+        })
+        if (!pmByKey.has(k)) pmByKey.set(k, pm)
+      }
+
+      products = []
+      for (const sub of submissions) {
+        const pharmacyId = pharmacyIdByUserId.get(sub.vendorId)
+        if (!pharmacyId) continue
+        const central = centralById.get(sub.productId)
+        if (!central) continue
+        const pm = pmByKey.get(pmKey({ pharmacyId, centralMedicineId: sub.productId }))
+        if (!pm) continue
+
+        products.push({
+          id: pm.id,
+          submissionId: sub.id,
+          centralMedicineId: central.id,
+          name: central.name,
+          image:
+            Array.isArray(central.images) && central.images.length
+              ? central.images[0]
+              : null,
+          price: Number(pm.price) || 0,
+          vendorId: pm.pharmacyId,
+          vendorName: pm.pharmacy?.pharmacyName || null,
+          stock: pm.stock || 0,
+          raw: { ...central, pharmacyMedicine: pm },
+        })
+      }
     } else if (module === "FOOD") {
       const rows = await prisma.menuItem.findMany({
         where: { id: { in: productIds }, isAvailable: true },
@@ -166,6 +214,8 @@ export async function GET(
         bannerImageUrl: offer.bannerImageUrl,
         imageUrl: offer.imageUrl,
         module,
+        maxUses: offer.maxUses ?? null,
+        usedCount: offer.usedCount ?? 0,
       },
       products: enrichedProducts,
     })

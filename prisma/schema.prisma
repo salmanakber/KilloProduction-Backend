@@ -1421,6 +1421,8 @@ model SupplierOrder {
   courierBooking       CourierBooking?     @relation("SupplierOrderCourier", fields: [courierBookingId], references: [id])
   pharmacy             Pharmacy            @relation(fields: [pharmacyId], references: [id])
   wholesaler           Wholesaler          @relation(fields: [wholesalerId], references: [id])
+  /// Snapshot slip (items, fees, payment ref) after pharmacy confirms & pays for wholesale delivery
+  orderSlip            Json?
 
   @@map("supplier_orders")
 }
@@ -3076,10 +3078,13 @@ model WalletTransaction {
   reference   String?
   orderId     String?
   status      WalletTransactionStatus @default(COMPLETED)
+  /// When set, CREDIT stays PENDING until this time, then worker moves to COMPLETED (rider payouts).
+  clearsAt    DateTime?
   metadata    Json?
   createdAt   DateTime                @default(now())
   user        User                    @relation("UserWalletTransactions", fields: [userId], references: [id])
 
+  @@index([status, clearsAt])
   @@map("wallet_transactions")
 }
 
@@ -3444,6 +3449,8 @@ model SystemSettings {
   pricePerKm                  Float    @default(100.0)
   bidExpire                   Int      @default(30)
   minwithdraw                 Int      @default(10)
+  /// Rider wallet: calendar days before delivery earnings credit becomes withdrawable (default 4).
+  riderWalletClearanceDays    Int      @default(4)
   compnyinfo                  Json?
 
   /// BullMQ worker: use AI to refine abandoned-cart recipient list (still needs active GENERAL_ANALYSIS config).
@@ -4241,6 +4248,8 @@ enum NotificationType {
   ORDER_STATUS_UPDATE
   MECHANIC_OFFER_RECEIVED
   MONEY_TRANSFER
+  WALLET_UPDATE
+  ORDER
 }
 
 enum TicketPriority {

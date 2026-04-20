@@ -22,6 +22,12 @@ import {
 import { scheduleFoodRiderDispatchJob } from "@/lib/food-rider-dispatch-queue"
 import { getGlobalSocketServer } from "@/lib/socket-server"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
+import {
+  computeVendorOfferSettlementPayout,
+  settlementMerchandiseFromCartLines,
+} from "@/lib/pharmacy-vendor-settlement"
+import { buildOrderSpecialOffersMetadata, mergeOrderMetadata } from "@/lib/order-special-offer-metadata"
 
 // Helper function to generate order number
 function generateOrderNumber(): string {
@@ -246,7 +252,15 @@ export async function POST(request: NextRequest) {
 
     const discountedSubtotalFood = Math.max(0, subtotal - promoDiscount)
     const platformCommission = await checkoutPlatformFeeAmount("FOOD", discountedSubtotalFood)
-    const vendorCommissionTotal = await checkoutVendorCommissionAmount("FOOD", discountedSubtotalFood)
+    const vendorCommissionSubtotalFood = settlementMerchandiseFromCartLines(
+      items,
+      subtotal,
+      promoDiscount,
+    )
+    const vendorCommissionTotal = await checkoutVendorCommissionAmount(
+      "FOOD",
+      vendorCommissionSubtotalFood,
+    )
 
     // Get ride type for COURIER with MOTORCYCLE
     const rideType = await prisma.rideType.findFirst({
@@ -366,6 +380,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
+
     const total = Math.max(0, subtotal - promoDiscount) + deliveryFee + platformCommission
 
     let parentOrder: any = null
@@ -416,6 +432,13 @@ export async function POST(request: NextRequest) {
         const restaurantTotal = Math.max(0, restaurantSubtotal - restaurantDiscount) + restaurantDeliveryFee + restaurantPlatformCommission
 
         const childOrderNumber = generateOrderNumber()
+        const foodMetaChild = mergeOrderMetadata(
+          { food: foodPrepMeta } as Record<string, unknown>,
+          (() => {
+            const m = buildOrderSpecialOffersMetadata(restaurantItems as Record<string, unknown>[])
+            return m ? { specialOffers: m } : {}
+          })(),
+        )
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -435,7 +458,7 @@ export async function POST(request: NextRequest) {
             paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
             paymentMethod: paymentMethod || 'CARD',
             notes,
-            metadata: { food: foodPrepMeta } as any,
+            metadata: foodMetaChild as any,
             foodId: restaurant.id,
             isChildOrder: true as any,
             orderItems: {
@@ -473,6 +496,13 @@ export async function POST(request: NextRequest) {
 
       // Create parent order that aggregates all child orders
       const parentOrderNumber = generateOrderNumber()
+      const foodMetaParent = mergeOrderMetadata(
+        { food: foodPrepMeta } as Record<string, unknown>,
+        (() => {
+          const m = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+          return m ? { specialOffers: m } : {}
+        })(),
+      )
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -492,7 +522,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes: notes || `Multi-restaurant order from ${restaurantIds.length} restaurants`,
-          metadata: { food: foodPrepMeta } as any,
+          metadata: foodMetaParent as any,
           foodId: null,
           isChildOrder: false as any,
           childId: null as any,
@@ -538,6 +568,13 @@ export async function POST(request: NextRequest) {
     } else {
       // Single restaurant: Create regular order (no parent-child relationship)
       const orderNumber = generateOrderNumber()
+      const foodMetaSingle = mergeOrderMetadata(
+        { food: foodPrepMeta } as Record<string, unknown>,
+        (() => {
+          const m = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+          return m ? { specialOffers: m } : {}
+        })(),
+      )
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -557,7 +594,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes,
-          metadata: { food: foodPrepMeta } as any,
+          metadata: foodMetaSingle as any,
           foodId: restaurantIds[0],
           isChildOrder: false as any,
           childId: null as any,
@@ -776,31 +813,10 @@ export async function POST(request: NextRequest) {
         // Create wallet transactions (pending) for vendors and rider
         // Vendor transactions
         for (const vendorPayment of vendorPayments) {
-          const co = isMultiRestaurant
-            ? childOrders.find((c) => c.id === vendorPayment.orderId)
-            : order
-
-          // Special offers: if PLATFORM funded, vendor should not lose that discount.
-          const lineItems = (co?.orderItems || []) as any[]
-          let platformDiscount = 0
-          for (const li of lineItems) {
-            const cust = li?.customizations as any
-            const offerId = String(cust?.kiloOfferId || "").trim()
-            if (!offerId) continue
-            const fundedBy = String(cust?.kiloOfferDiscountFundedBy || "").toUpperCase()
-            if (fundedBy !== "PLATFORM") continue
-            const originalUnit = Number(cust?.kiloOfferOriginalUnitPrice || 0)
-            const unit = Number(li?.unitPrice || 0)
-            const qty = Number(li?.quantity || 0)
-            if (!Number.isFinite(originalUnit) || !Number.isFinite(unit) || !Number.isFinite(qty)) continue
-            platformDiscount += Math.max(0, (originalUnit - unit) * qty)
-          }
-
-          const net = Math.max(0, (co?.subtotal ?? 0) - (co?.discount ?? 0) + platformDiscount)
-          const vendorAmount = Math.max(0, net - (co?.vendorCommission ?? 0))
+          const p = await computeVendorOfferSettlementPayout(vendorPayment.orderId)
           await createOrderCompletionWalletTransactions({
             vendorId: vendorPayment.vendorId,
-            vendorAmount,
+            vendorAmount: p.vendorPayout,
             orderId: vendorPayment.orderId,
             courierBookingId: courierBooking.id,
             description: `Payment for food order ${order.orderNumber}`,

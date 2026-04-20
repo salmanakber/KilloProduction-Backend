@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { getPharmacyReviewStatsBatch } from '@/lib/pharmacy-review-stats'
 
 // Haversine formula to calculate distance between two points
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
       },
       select: {
         id: true,
+        userId: true,
         pharmacyName: true,
         description: true,
         address: true,
@@ -118,6 +120,7 @@ export async function GET(request: NextRequest) {
 
         return {
           id: pharmacy.id,
+          vendorUserId: pharmacy.userId,
           name: pharmacy.pharmacyName || 'Pharmacy',
           description: pharmacy.description,
           address: pharmacy.address || 'Address not available',
@@ -154,8 +157,20 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a!.distanceValue - b!.distanceValue)
       .slice(0, limit)
 
+    const reviewStatsByPharmacy = await getPharmacyReviewStatsBatch(
+      pharmaciesWithDistance.map((p) => p!.id)
+    )
+    const pharmaciesWithReviewRatings = pharmaciesWithDistance.map((p) => {
+      const stats = reviewStatsByPharmacy.get(p!.id)
+      return {
+        ...p!,
+        rating: stats?.roundedRating ?? 0,
+        reviews: stats?.totalReviews ?? 0,
+      }
+    })
+
     return NextResponse.json({ 
-      pharmacies: pharmaciesWithDistance,
+      pharmacies: pharmaciesWithReviewRatings,
       total: pharmaciesWithDistance.length,
       userLocation: {
         latitude: userLat,

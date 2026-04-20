@@ -5,7 +5,7 @@ import { authenticateRequest } from "@/lib/auth"
 export async function GET(request: NextRequest) {
   try {
     const user = await authenticateRequest(request)
-    if (!user || user.role !== "ADMIN") {
+    if (!user || (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -14,8 +14,7 @@ export async function GET(request: NextRequest) {
     const page = Number.parseInt(searchParams.get("page") || "1")
     const limit = Number.parseInt(searchParams.get("limit") || "20")
 
-    // Build where clause
-    const where: any = {}
+    const where: Record<string, unknown> = {}
 
     if (status && status !== "ALL") {
       where.status = status
@@ -24,26 +23,6 @@ export async function GET(request: NextRequest) {
     const [suggestions, total] = await Promise.all([
       prisma.medicineSuggestion.findMany({
         where,
-        include: {
-          // Include wholesaler info if it's a wholesaler suggestion
-          wholesaler: {
-            where: { id: { equals: { suggestedBy: true } } },
-            select: {
-              companyName: true,
-              email: true,
-              phone: true,
-            },
-          },
-          // Include pharmacy info if it's a pharmacy suggestion
-          pharmacy: {
-            where: { id: { equals: { suggestedBy: true } } },
-            select: {
-              pharmacyName: true,
-              email: true,
-              phone: true,
-            },
-          },
-        },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -51,17 +30,28 @@ export async function GET(request: NextRequest) {
       prisma.medicineSuggestion.count({ where }),
     ])
 
-    // Process suggestions to include suggester info
-    const processedSuggestions = suggestions.map(suggestion => {
-      const suggesterInfo = suggestion.suggestedByType === "WHOLESALER" 
-        ? suggestion.wholesaler 
-        : suggestion.pharmacy
+    const ids = [...new Set(suggestions.map((s) => s.suggestedBy))]
+    const [wholesalers, pharmacies] = await Promise.all([
+      prisma.wholesaler.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, companyName: true, email: true, phone: true },
+      }),
+      prisma.pharmacy.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, pharmacyName: true, email: true, phone: true },
+      }),
+    ])
+    const wMap = new Map(wholesalers.map((w) => [w.id, { type: "WHOLESALER" as const, ...w }]))
+    const pMap = new Map(pharmacies.map((p) => [p.id, { type: "PHARMACY" as const, ...p }]))
 
+    const processedSuggestions = suggestions.map((suggestion) => {
+      const suggesterInfo =
+        suggestion.suggestedByType === "WHOLESALER"
+          ? wMap.get(suggestion.suggestedBy) ?? null
+          : pMap.get(suggestion.suggestedBy) ?? null
       return {
         ...suggestion,
         suggesterInfo,
-        wholesaler: undefined,
-        pharmacy: undefined,
       }
     })
 
@@ -79,4 +69,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch suggestions" }, { status: 500 })
   }
 }
-

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { isValidLatLon } from "@/lib/geo"
 
 export async function GET(request: NextRequest) {
   try {
@@ -80,6 +81,7 @@ export async function GET(request: NextRequest) {
         createdAt: order.createdAt,
         wholesaler: order.wholesaler,
         supplierResponse: order.supplierResponse,
+        orderSlip: (order as { orderSlip?: unknown }).orderSlip ?? null,
         courierBooking: order.courierBooking ? {
           id: order.courierBooking.id,
           status: order.courierBooking.status,
@@ -121,8 +123,11 @@ export async function POST(request: NextRequest) {
       wholesalerId, 
       items, 
       deliveryAddress, 
+      deliveryLatitude,
+      deliveryLongitude,
       notes, 
       expectedDeliveryDate,
+      currency,
       orderType = "QUOTE" // QUOTE or CONFIRMED_ORDER
     } = body
 
@@ -163,9 +168,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const resolvedAddress = (typeof deliveryAddress === "string" && deliveryAddress.trim())
+      ? deliveryAddress.trim()
+      : pharmacy.address
+
+    const latRaw =
+      deliveryLatitude != null ? Number(deliveryLatitude) : pharmacy.lat != null ? Number(pharmacy.lat) : NaN
+    const lonRaw =
+      deliveryLongitude != null ? Number(deliveryLongitude) : pharmacy.lon != null ? Number(pharmacy.lon) : NaN
+
+    if (!isValidLatLon(latRaw, lonRaw)) {
+      return NextResponse.json(
+        {
+          error:
+            "Delivery location is missing valid coordinates. Open pharmacy profile, set the address using the map picker so latitude and longitude are saved, then try again.",
+        },
+        { status: 400 }
+      )
+    }
+
     // Validate items and calculate totals
     let totalAmount = 0
-    const validatedItems = []
+    const validatedItems: any[] = []
 
     for (const item of items) {
       const product = wholesaler.wholesalerProducts.find(p => p.id === item.productId)
@@ -210,8 +234,10 @@ export async function POST(request: NextRequest) {
         status: orderType === "QUOTE" ? "QUOTE_SENT" : "PENDING",
         orderType: orderType as any,
         totalAmount,
-        currency: "NGN", // Default currency
-        deliveryAddress: deliveryAddress || pharmacy.address,
+        currency: currency || "NGN", // Default currency
+        deliveryAddress: resolvedAddress,
+        deliveryLatitude: latRaw,
+        deliveryLongitude: lonRaw,
         notes,
         expectedDeliveryDate: expectedDeliveryDate ? new Date(expectedDeliveryDate) : null,
         isQuote: orderType === "QUOTE",

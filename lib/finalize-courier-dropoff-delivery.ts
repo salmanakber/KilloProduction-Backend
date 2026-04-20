@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
+import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
 
 /**
  * Completes courier booking at drop-off (same outcome as rider scanning customer QR in DELIVERY phase).
@@ -93,6 +94,12 @@ export async function finalizeCourierDropoffDelivery(courierBookingId: string): 
   }
 
   await runCourierCompletionSideEffects(courierBookingId)
+
+  try {
+    await notifyCourierDeliveryCompleted(courierBookingId, { terminalStatus: "COMPLETED" })
+  } catch (e) {
+    console.error("finalizeCourierDropoffDelivery review notifications:", e)
+  }
 
   return { success: true }
 }

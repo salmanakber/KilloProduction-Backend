@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma"
 import { createOrderCompletionWalletTransactions } from "@/lib/wallet-transaction-service"
+import {
+  computeVendorOfferSettlementPayout,
+  usesOfferSettlementModule,
+} from "@/lib/pharmacy-vendor-settlement"
 
 function metaType(metadata: unknown): string | undefined {
   if (metadata && typeof metadata === "object" && "transactionType" in metadata) {
@@ -28,6 +32,7 @@ export async function createPendingVendorWalletsForCourierOrder(params: {
       id: true,
       orderNumber: true,
       vendorId: true,
+      module: true,
       subtotal: true,
       discount: true,
       total: true,
@@ -42,6 +47,7 @@ export async function createPendingVendorWalletsForCourierOrder(params: {
     select: {
       id: true,
       vendorId: true,
+      module: true,
       subtotal: true,
       discount: true,
       total: true,
@@ -62,6 +68,7 @@ export async function createPendingVendorWalletsForCourierOrder(params: {
 
   const addVendorPending = async (row: {
     id: string
+    module: string | null
     vendorId: string | null
     subtotal: number
     discount: number | null
@@ -70,10 +77,16 @@ export async function createPendingVendorWalletsForCourierOrder(params: {
     deliveryFee: number | null
   }) => {
     if (!row.vendorId) return
-    const disc = row.discount ?? 0
-    const vc = row.vendorCommission ?? 0
-    const net = Math.max(0, row.subtotal - disc)
-    const vendorAmount = Math.max(0, net - vc)
+    let vendorAmount: number
+    if (usesOfferSettlementModule(row.module)) {
+      const p = await computeVendorOfferSettlementPayout(row.id)
+      vendorAmount = p.vendorPayout
+    } else {
+      const disc = row.discount ?? 0
+      const vc = row.vendorCommission ?? 0
+      const net = Math.max(0, row.subtotal - disc)
+      vendorAmount = Math.max(0, net - vc)
+    }
     if (vendorAmount <= 0) return
 
     await createOrderCompletionWalletTransactions({
@@ -92,6 +105,7 @@ export async function createPendingVendorWalletsForCourierOrder(params: {
   } else {
     await addVendorPending({
       id: parent.id,
+      module: parent.module,
       vendorId: parent.vendorId,
       subtotal: parent.subtotal,
       discount: parent.discount,

@@ -36,6 +36,41 @@ export async function GET(
       return NextResponse.json({ error: 'Store not found' }, { status: 404 })
     }
 
+    const recentReviews = await prisma.review.findMany({
+      where: {
+        OR: [
+          { groceryId: id },
+          {
+            order: {
+              module: 'GROCERY',
+              groceryId: id,
+            },
+          },
+        ],
+        targetType: 'VENDOR',
+      },
+      take: 8,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: { id: true, name: true, avatar: true },
+        },
+      },
+    })
+
+    const formattedReviews = recentReviews.map((review) => ({
+      id: review.id,
+      rating: review.rating,
+      title: review.title,
+      comment: review.comment,
+      createdAt: review.createdAt.toISOString(),
+      reviewer: {
+        id: review.user.id,
+        name: review.user.name,
+        avatar: review.user.avatar,
+      },
+    }))
+
     const byCategory = new Map<string, (typeof store.products)[0][]>()
     for (const p of store.products) {
       const cat = (p.category || 'Other').trim() || 'Other'
@@ -54,8 +89,10 @@ export async function GET(
     return NextResponse.json({
       store: {
         ...storeRest,
+        vendorUserId: store.userId,
         productsCount: store._count.products,
         reviewsCount: store._count.reviews,
+        reviews: formattedReviews,
         categories,
       },
     })

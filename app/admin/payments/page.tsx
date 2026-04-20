@@ -154,6 +154,44 @@ export default function PaymentManagement() {
   const [gatewayTotalPages, setGatewayTotalPages] = useState(1)
   const [actionBanner, setActionBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null)
   const [walletDetail, setWalletDetail] = useState<Payment | null>(null)
+  const [riderClearanceDays, setRiderClearanceDays] = useState(4)
+  const [savingClearance, setSavingClearance] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/payments/rider-wallet-clearance")
+        if (!res.ok) return
+        const data = await res.json()
+        if (typeof data.riderWalletClearanceDays === "number") {
+          setRiderClearanceDays(data.riderWalletClearanceDays)
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+  }, [])
+
+  const saveRiderClearanceDays = async () => {
+    setSavingClearance(true)
+    try {
+      const res = await fetch("/api/admin/payments/rider-wallet-clearance", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ riderWalletClearanceDays }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Save failed")
+      setActionBanner({
+        type: "ok",
+        text: `Rider wallet clearance set to ${data.riderWalletClearanceDays} calendar day(s).`,
+      })
+    } catch (e) {
+      setActionBanner({ type: "err", text: String(e) })
+    } finally {
+      setSavingClearance(false)
+    }
+  }
 
   const fetchPaymentData = useCallback(async () => {
     try {
@@ -443,6 +481,37 @@ export default function PaymentManagement() {
           </button>
         </div>
       )}
+
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row sm:items-end gap-4">
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold text-gray-900">Rider wallet payment clearance</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Calendar days before delivery earnings appear in the rider&apos;s withdrawable balance (processed by the dispatch worker).
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label htmlFor="riderClearanceDays" className="text-sm text-gray-600 whitespace-nowrap">
+            Days (1–14)
+          </label>
+          <input
+            id="riderClearanceDays"
+            type="number"
+            min={1}
+            max={14}
+            value={riderClearanceDays}
+            onChange={(e) => setRiderClearanceDays(Math.min(14, Math.max(1, Number(e.target.value) || 4)))}
+            className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
+          />
+          <button
+            type="button"
+            disabled={savingClearance}
+            onClick={() => void saveRiderClearanceDays()}
+            className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {savingClearance ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

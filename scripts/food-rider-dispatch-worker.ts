@@ -10,6 +10,7 @@ import { processMarketingScheduledJob } from "@/lib/process-marketing-scheduled-
 import { catchUpOverdueScheduledCampaigns } from "@/lib/marketing-scheduled-catchup";
 import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
 import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
+import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
 
 const url = process.env.REDIS_URL;
 
@@ -102,6 +103,7 @@ console.log(
 const BONUS_MS = Number(process.env.RIDER_BONUS_TICK_MS || 10 * 60 * 1000);
 const MARKETING_MS = Number(process.env.MARKETING_AUTOMATION_MS || 6 * 60 * 60 * 1000);
 const MARKETING_CATCHUP_MS = Number(process.env.MARKETING_SCHEDULED_CATCHUP_MS || 60 * 1000);
+const WALLET_CLEARANCE_MS = Number(process.env.RIDER_WALLET_CLEARANCE_TICK_MS || 15 * 60 * 1000);
 
 setInterval(() => {
   processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
@@ -127,6 +129,18 @@ void processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick] boot
 
 void catchUpOverdueScheduledCampaigns().catch((e) =>
   console.error("[marketing-scheduled-catchup] boot", e)
+);
+
+setInterval(() => {
+  processRiderWalletClearance()
+    .then(({ cleared }) => {
+      if (cleared > 0) console.log(`[rider-wallet-clearance] cleared=${cleared}`);
+    })
+    .catch((e) => console.error("[rider-wallet-clearance]", e));
+}, WALLET_CLEARANCE_MS);
+
+void processRiderWalletClearance().catch((e) =>
+  console.error("[rider-wallet-clearance] boot", e)
 );
 
 // Graceful shutdown (IMPORTANT)

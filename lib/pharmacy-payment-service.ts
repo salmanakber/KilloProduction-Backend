@@ -1,5 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@prisma/client'
+import { CommissionType, type Module } from "@prisma/client"
+import { calculateCommission } from "@/lib/commission-service"
+import { completeWalletTransaction, createWalletTransaction } from "@/lib/wallet-transaction-service"
 
 export interface ProcessPharmacyPaymentParams {
   /**
@@ -187,6 +190,92 @@ export async function completePharmacyPayment(
       }
     })
   ])
+}
+
+/**
+ * After delivery: complete pending wholesaler credit from checkout, or create a completed credit if none existed
+ * (e.g. gateway path skipped creating PENDING wallet rows).
+ */
+export async function ensureWholesalerSupplierOrderPayoutCompleted(supplierOrderId: string): Promise<void> {
+  await completePharmacyPayment(supplierOrderId)
+
+  const so = await prisma.supplierOrder.findUnique({
+    where: { id: supplierOrderId },
+    include: { wholesaler: { select: { userId: true } } },
+  })
+  if (!so) return
+
+  const wholesalerUserId = so.wholesaler.userId
+
+  const alreadyDone = await prisma.walletTransaction.findFirst({
+    where: {
+      userId: wholesalerUserId,
+      orderId: supplierOrderId,
+      status: "COMPLETED",
+      type: "CREDIT",
+    },
+  })
+  if (alreadyDone) return
+
+  const stillPending = await prisma.walletTransaction.findFirst({
+    where: {
+      userId: wholesalerUserId,
+      orderId: supplierOrderId,
+      status: "PENDING",
+      type: "CREDIT",
+    },
+  })
+  if (stillPending) {
+    await completeWalletTransaction(stillPending.id)
+    return
+  }
+
+  if (so.paymentStatus !== "PAID") {
+    console.warn(
+      `[ensureWholesalerSupplierOrderPayoutCompleted] supplier order ${supplierOrderId} paymentStatus is not PAID; skipping fallback vendor credit`
+    )
+    return
+  }
+
+  const orderAmount = so.totalAmount || 0
+  if (orderAmount <= 0) return
+
+  let platformFee = 0
+  let wholesaleCommission = 0
+  const mod = "WHOLESALER" as Module
+  try {
+    const platformCalc = await calculateCommission(mod, orderAmount, CommissionType.PLATFORM_FEE)
+    platformFee = platformCalc.commissionAmount
+    const wholesaleCalc = await calculateCommission(mod, orderAmount, CommissionType.WHOLESALE_ORDER)
+    wholesaleCommission = wholesaleCalc.commissionAmount
+  } catch (e) {
+    console.warn("[ensureWholesalerSupplierOrderPayoutCompleted] commission calc:", e)
+  }
+
+  const vendorNet = Math.max(0, orderAmount - platformFee - wholesaleCommission)
+  if (vendorNet <= 0) return
+
+  const dup = await prisma.walletTransaction.findFirst({
+    where: {
+      reference: `supplier-vendor-delivery:${supplierOrderId}`,
+    },
+  })
+  if (dup) return
+
+  await createWalletTransaction({
+    userId: wholesalerUserId,
+    type: "CREDIT",
+    amount: vendorNet,
+    description: `Wholesale delivery payout #${so.orderNumber}`,
+    orderId: supplierOrderId,
+    status: "COMPLETED",
+    reference: `supplier-vendor-delivery:${supplierOrderId}`,
+    metadata: {
+      supplierOrderId,
+      transactionType: "ORDER_PAYMENT",
+      source: "supplier_order_delivery_fallback",
+    },
+  })
 }
 
 /**

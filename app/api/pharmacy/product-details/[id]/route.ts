@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
 import { serializePharmacyProductImages } from '@/lib/central-medicine-images'
+import { getPharmacyReviewStatsFromPrisma } from '@/lib/pharmacy-review-stats'
 
 // Haversine formula
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -46,6 +47,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const userLat = parseFloat(searchParams.get('latitude') || '9.0820')
     const userLon = parseFloat(searchParams.get('longitude') || '8.6753')
+    
 
     // Fetch pharmacy medicine with all related data
     const pharmacyMedicine = await prisma.pharmacyMedicine.findUnique({
@@ -139,12 +141,13 @@ export async function GET(
       totalSold: salesData._sum.quantity || 0,
       pharmacy: {
         id: pharmacyMedicine.pharmacy.id,
+        vendorUserId: pharmacyMedicine.pharmacy.userId,
         name: pharmacyMedicine.pharmacy.pharmacyName,
         logo: pharmacyMedicine.pharmacy.logo || '',
         address: pharmacyMedicine.pharmacy.address || '',
         distance: distance.toFixed(1),
-        rating: pharmacyMedicine.pharmacy.rating,
-        reviews: pharmacyMedicine.pharmacy.totalReviews,
+        rating: pharmacyStoreReviewStats.roundedRating,
+        reviews: pharmacyStoreReviewStats.totalReviews,
         description: pharmacyMedicine.pharmacy.description || '',
         responseTime: pharmacyMedicine.pharmacy.responseTime,
         coverImage: pharmacyMedicine.pharmacy.coverImage || '',

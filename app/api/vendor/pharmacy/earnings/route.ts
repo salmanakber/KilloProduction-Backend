@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     })
+    
 
     // Get order IDs from wallet transactions to verify payments
     const orderIds = allWalletTransactions

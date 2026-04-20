@@ -1,6 +1,45 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import type { Prisma } from "@prisma/client"
+
+/**
+ * Customer, assigned rider, or store vendor linked to the booking's order (parent or child row).
+ */
+async function canUserViewCourierBooking(params: {
+  userId: string
+  courierBooking: { customerId: string; riderId: string | null; orderId: string | null }
+}): Promise<boolean> {
+  const { userId, courierBooking: cb } = params
+  if (cb.customerId === userId) return true
+  if (cb.riderId && cb.riderId === userId) return true
+  if (!cb.orderId) return false
+
+  const vendorOrStoreOwner: Prisma.OrderWhereInput = {
+    OR: [
+      { vendorId: userId },
+      { pharmacy: { userId } },
+      { food: { userId } },
+      { grocery: { userId } },
+      { autoPart: { store: { userId } } },
+    ],
+  }
+
+  const linkedToBooking = await prisma.order.findFirst({
+    where: {
+      AND: [
+        {
+          OR: [{ id: cb.orderId }, { childId: cb.orderId }],
+        },
+        {
+          OR: [{ customerId: userId }, vendorOrStoreOwner],
+        },
+      ],
+    },
+    select: { id: true },
+  })
+  return !!linkedToBooking
+}
 
 export async function GET(
   request: NextRequest,
@@ -94,8 +133,15 @@ export async function GET(
       return NextResponse.json({ error: "Booking not found" }, { status: 404 })
     }
 
-    // Verify customer owns the booking
-    if (courierBooking.customerId !== user.id) {
+    const allowed = await canUserViewCourierBooking({
+      userId: user.id,
+      courierBooking: {
+        customerId: courierBooking.customerId,
+        riderId: courierBooking.riderId,
+        orderId: courierBooking.orderId,
+      },
+    })
+    if (!allowed) {
       return NextResponse.json({ error: "Not authorized to view this booking" }, { status: 403 })
     }
 

@@ -512,6 +512,30 @@ export async function GET(request: NextRequest) {
       })),
     ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
+    const recentRideIds = allRecentRides.filter((r) => r.type === "ride").map((r) => r.id)
+    const recentCourierIds = allRecentRides.filter((r) => r.type === "courier").map((r) => r.id)
+    const recentEarningOr: Array<{ rideBookingId?: { in: string[] }; orderId?: { in: string[] } }> = []
+    if (recentRideIds.length) recentEarningOr.push({ rideBookingId: { in: recentRideIds } })
+    if (recentCourierIds.length) recentEarningOr.push({ orderId: { in: recentCourierIds } })
+    const recentRiderEarnings =
+      recentEarningOr.length > 0
+        ? await prisma.riderEarning.findMany({
+            where: { riderId: session.id, OR: recentEarningOr },
+            select: { rideBookingId: true, orderId: true, netAmount: true },
+          })
+        : []
+    const netPayoutByRecentId = new Map<string, number>()
+    for (const e of recentRiderEarnings) {
+      const key = e.rideBookingId || e.orderId
+      if (key && e.netAmount != null && Number.isFinite(e.netAmount)) {
+        netPayoutByRecentId.set(key, e.netAmount)
+      }
+    }
+    const allRecentRidesWithNet = allRecentRides.map((r) => ({
+      ...r,
+      netPayout: netPayoutByRecentId.get(r.id),
+    }))
+
     const analytics = {
       todayRides,
       weekRides,
@@ -542,7 +566,7 @@ export async function GET(request: NextRequest) {
         },
       },
       analytics,
-      recentRides: allRecentRides,
+      recentRides: allRecentRidesWithNet,
       activeBookings,
       pendingCashout: pendingCashout._sum.amount || 0,
       isOnline,

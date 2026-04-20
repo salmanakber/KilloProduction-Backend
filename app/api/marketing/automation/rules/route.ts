@@ -4,6 +4,11 @@ import { authenticateRequest } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await authenticateRequest(request)
+    if (!user || !["ADMIN", "SUPER_ADMIN"].includes(user.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const rules = await prisma.automationRule.findMany({
       orderBy: {
         createdAt: "desc",
@@ -17,6 +22,9 @@ export async function GET(request: NextRequest) {
       trigger: rule.trigger,
       actions: rule.actions,
       isActive: rule.isActive,
+      executionCount: rule.totalExecutions,
+      successCount: rule.successfulExecutions,
+      failureCount: rule.failedExecutions,
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
     }))

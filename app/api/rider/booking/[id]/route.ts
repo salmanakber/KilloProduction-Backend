@@ -5,6 +5,7 @@ import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { socketIOServer } from "@/lib/socket-server"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
+import { sendWholesaleCourierTripCompletedReviewPrompts } from "@/lib/wholesale-courier-completion-notifications"
 
 export async function GET(
   request: NextRequest,
@@ -356,14 +357,17 @@ export async function PUT(
       })
     }
 
-    // When booking is completed/delivered, update rider earning status to PAID
+    // When booking is completed/delivered: rides use runRideCompletionSideEffects (same as /api/ride-bookings/.../status + peak bonus).
+    // Courier: mark earnings paid first, then runCourierCompletionSideEffects (wallet + peak bonus bump).
     if ((rideBooking && status === 'COMPLETED') || (courierBooking && (status === 'COMPLETED' || status === 'DELIVERED'))) {
       try {
-        const { markRiderEarningAsPaid } = await import("@/lib/rider-earnings-helper")
-        await markRiderEarningAsPaid(
-          rideBooking ? bookingId : undefined,
-          courierBooking ? bookingId : undefined
-        )
+        if (rideBooking) {
+          const { runRideCompletionSideEffects } = await import("@/lib/ride-post-completion")
+          await runRideCompletionSideEffects(bookingId)
+        } else {
+          const { markRiderEarningAsPaid } = await import("@/lib/rider-earnings-helper")
+          await markRiderEarningAsPaid(undefined, bookingId)
+        }
       } catch (earningError) {
         console.error("Error updating rider earning status:", earningError)
         // Don't fail the request if earning update fails
@@ -379,77 +383,143 @@ export async function PUT(
       }
     }
 
-    // When booking is completed/delivered, send a review request notification to the customer
+    // When booking is completed/delivered, send review prompts + keep rider LiveMap in sync
     try {
-  
-      if ((rideBooking && status === 'COMPLETED') || (courierBooking && (status === 'COMPLETED' || status === 'DELIVERED'))) {
-        const customerUserId = updatedBooking.customer.id
-        const bookingType = rideBooking ? 'RIDING' : 'COURIER'
-        const title = rideBooking ? 'Rate Your Ride' : 'Rate Your Delivery'
-        const message = rideBooking
-          ? 'Your trip is complete. Please rate your rider to help us improve.'
-          : 'Your delivery is complete. Please rate your rider to help us improve.'
+      const isCourierTerminal =
+        !!courierBooking && (status === "COMPLETED" || status === "DELIVERED")
+      const isRideCompleted = !!rideBooking && status === "COMPLETED"
+      const isTerminalReview = isRideCompleted || isCourierTerminal
 
-        await NotificationBridge.sendNotification({
-          userId: customerUserId,
-          title,
-          message,
-          type: 'REVIEW_REQUEST',
-          module: bookingType,
-          actionUrl: rideBooking
-            ? `/riding/bookings/${bookingId}/rate`
-            : `/courier-bookings/${bookingId}/rate`,
-          data: {
-            actionType: 'navigate',
-            screen: 'RiderFeedbackScreen',
-            params: {
-              bookingId: bookingId,
-            },
+      if (isTerminalReview) {
+        try {
+          await socketIOServer.sendNotificationToUser(session.id, {
+            type: "booking_status_update",
             bookingId: bookingId,
+            bookingType: rideBooking ? "riding" : "courier",
             status: status,
-            bookingType: bookingType.toLowerCase()
-          }
-        })
-
-        // Also send WebSocket notification for real-time update
-        try {
-          await socketIOServer.sendNotificationToUser(customerUserId, {
-            type: 'review_request',
-            bookingId: bookingId,
-            bookingType: bookingType.toLowerCase(),
             bookingNumber: updatedBooking.bookingNumber,
-            actionType: 'navigate',
-            screen: 'RiderFeedbackScreen',
-            params: {
-              bookingId: bookingId,
-            },
-            timestamp: new Date().toISOString()
+            riderId: session.id,
+            timestamp: new Date().toISOString(),
           })
-        } catch (wsError) {
-          console.error('Failed to send WebSocket rating notification:', wsError)
+        } catch (wsErr) {
+          console.error("Rider booking_status_update (completion):", wsErr)
         }
-
-        // Send email notification
-        try {
-          await sendEmailFromTemplate(
-            updatedBooking.customer.email,
-            'RIDE_FEEDBACK_REQUEST',
-            {
-              customerName: updatedBooking.customer.name,
-              riderName: updatedBooking.rider?.name || 'Rider',
-              rideType: bookingType,
-              rideId: bookingId,
-              feedbackUrl: `${process.env.APP_URL}/riderfeedback/${bookingId}`,
-              appName: process.env.APP_NAME || 'App',
-            }
-          )
-        } catch (emailError) {
-          console.error('Failed to send feedback email:', emailError)
-        }
-
-          
       }
-      else
+
+      if (isTerminalReview) {
+        const customerUserId = updatedBooking.customer.id
+        const bookingType = rideBooking ? "RIDING" : "COURIER"
+
+        if (courierBooking && courierBooking.module === "WHOLESALER") {
+          await sendWholesaleCourierTripCompletedReviewPrompts({
+            courierBookingId: bookingId,
+            bookingNumber: updatedBooking.bookingNumber,
+            customerUserId,
+            riderUserId: session.id,
+            terminalStatus: status,
+          })
+        } else {
+          const title = rideBooking ? "Rate Your Ride" : "Rate Your Delivery"
+          const message = rideBooking
+            ? "Your trip is complete. Please rate your rider to help us improve."
+            : "Your delivery is complete. Please rate your rider to help us improve."
+
+          await NotificationBridge.sendNotification({
+            userId: customerUserId,
+            title,
+            message,
+            type: "REVIEW_REQUEST",
+            module: bookingType,
+            actionUrl: rideBooking
+              ? `/riding/bookings/${bookingId}/rate`
+              : `/courier-bookings/${bookingId}/rate`,
+            data: {
+              actionType: "navigate",
+              screen: "RiderFeedbackScreen",
+              params: {
+                bookingId: bookingId,
+              },
+              bookingId: bookingId,
+              status: status,
+              bookingType: bookingType.toLowerCase(),
+            },
+          })
+
+          try {
+            await socketIOServer.sendNotificationToUser(customerUserId, {
+              type: "review_request",
+              bookingId: bookingId,
+              bookingType: bookingType.toLowerCase(),
+              bookingNumber: updatedBooking.bookingNumber,
+              actionType: "navigate",
+              screen: "RiderFeedbackScreen",
+              params: {
+                bookingId: bookingId,
+              },
+              timestamp: new Date().toISOString(),
+            })
+          } catch (wsError) {
+            console.error("Failed to send WebSocket rating notification:", wsError)
+          }
+
+          try {
+            await sendEmailFromTemplate(
+              updatedBooking.customer.email,
+              "RIDE_FEEDBACK_REQUEST",
+              {
+                customerName: updatedBooking.customer.name,
+                riderName: updatedBooking.rider?.name || "Rider",
+                rideType: bookingType,
+                rideId: bookingId,
+                feedbackUrl: `${process.env.APP_URL}/riderfeedback/${bookingId}`,
+                appName: process.env.APP_NAME || "App",
+              }
+            )
+          } catch (emailError) {
+            console.error("Failed to send feedback email:", emailError)
+          }
+
+          try {
+            await NotificationBridge.sendNotification({
+              userId: session.id,
+              title: rideBooking ? "Rate your passenger" : "Rate your customer",
+              message: rideBooking
+                ? `Trip #${updatedBooking.bookingNumber} is complete. Please rate your customer.`
+                : `Delivery #${updatedBooking.bookingNumber} is complete. Please rate your customer.`,
+              type: "REVIEW_REQUEST",
+              module: "RIDER",
+              actionUrl: `/riderfeedback?bookingId=${bookingId}&perspective=rider`,
+              data: {
+                actionType: "navigate",
+                screen: "riderfeedback",
+                bookingId: bookingId,
+                perspective: "rider",
+                params: [
+                  { name: "bookingId", value: bookingId },
+                  { name: "perspective", value: "rider" },
+                ],
+              },
+            })
+            await socketIOServer.sendNotificationToUser(session.id, {
+              type: "review_request",
+              bookingId: bookingId,
+              bookingType: bookingType.toLowerCase(),
+              bookingNumber: updatedBooking.bookingNumber,
+              module: bookingType,
+              actionType: "navigate",
+              screen: "riderfeedback",
+              perspective: "rider",
+              params: [
+                { name: "bookingId", value: bookingId },
+                { name: "perspective", value: "rider" },
+              ],
+              timestamp: new Date().toISOString(),
+            })
+          } catch (riderReviewErr) {
+            console.error("Rider rating prompt (rider/booking API):", riderReviewErr)
+          }
+        }
+      } else
       {
         const bookingType = rideBooking ? 'RIDING' : 'COURIER'
         const statusMessages: {[key: string]: {title: string, message: string}} = {

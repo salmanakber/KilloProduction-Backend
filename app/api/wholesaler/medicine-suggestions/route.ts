@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
           medicineName: name,
           wholesalerName: wholesaler.companyName,
         },
-        actionUrl: `/admin/medicine-suggestions/${suggestion.id}`,
+        actionUrl: `/admin/medicines/wholesaler-suggestions?suggestion=${suggestion.id}`,
       })
     }
 
