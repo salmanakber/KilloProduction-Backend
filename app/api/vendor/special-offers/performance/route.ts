@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { metricsForOfferLine } from "@/lib/special-offer-line-metrics"
+import { platformFundedDeltaForOrder } from "@/lib/order-special-offer-pricing"
 
 export async function GET(request: NextRequest) {
   try {
@@ -86,7 +87,14 @@ export async function GET(request: NextRequest) {
               customizations: item.customizations,
             })
             wg += m.grossSales
-            wn += m.netVendorMerchandise
+            const platformDelta =
+              m.discountPlatform > 0
+                ? 0
+                : platformFundedDeltaForOrder(order.metadata, module, {
+                    productId,
+                    offerId: offer.id,
+                  })
+            wn += m.netVendorMerchandise + platformDelta
           }
         }
         weeklySeries.push({
@@ -109,10 +117,17 @@ export async function GET(request: NextRequest) {
             unitPrice,
             customizations: item.customizations,
           })
+          const platformDelta =
+            m.discountPlatform > 0
+              ? 0
+              : platformFundedDeltaForOrder(order.metadata, module, {
+                  productId,
+                  offerId: offer.id,
+                })
           grossSales += m.grossSales
-          discountPlatform += m.discountPlatform
+          discountPlatform += m.discountPlatform + platformDelta
           discountVendor += m.discountVendor
-          netVendorMerchandise += m.netVendorMerchandise
+          netVendorMerchandise += m.netVendorMerchandise + platformDelta
         }
         if (hasMatchedItem) {
           totalOrders += 1

@@ -11,6 +11,7 @@ import { catchUpOverdueScheduledCampaigns } from "@/lib/marketing-scheduled-catc
 import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
 import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
+import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
 
 const url = process.env.REDIS_URL;
 
@@ -104,6 +105,8 @@ const BONUS_MS = Number(process.env.RIDER_BONUS_TICK_MS || 10 * 60 * 1000);
 const MARKETING_MS = Number(process.env.MARKETING_AUTOMATION_MS || 6 * 60 * 60 * 1000);
 const MARKETING_CATCHUP_MS = Number(process.env.MARKETING_SCHEDULED_CATCHUP_MS || 60 * 1000);
 const WALLET_CLEARANCE_MS = Number(process.env.RIDER_WALLET_CLEARANCE_TICK_MS || 15 * 60 * 1000);
+/** Same logic as GET /api/cron/pill-reminders — keeps reminders firing if external cron is misconfigured. */
+const PILL_REMINDERS_MS = Number(process.env.PILL_REMINDERS_TICK_MS || 60 * 1000);
 
 setInterval(() => {
   processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
@@ -142,6 +145,20 @@ setInterval(() => {
 void processRiderWalletClearance().catch((e) =>
   console.error("[rider-wallet-clearance] boot", e)
 );
+
+setInterval(() => {
+  runPillRemindersJob()
+    .then(({ notificationsSent, remindersChecked }) => {
+      if (notificationsSent > 0 || remindersChecked > 0) {
+        console.log(
+          `[pill-reminders] checked=${remindersChecked} notifications=${notificationsSent}`
+        );
+      }
+    })
+    .catch((e) => console.error("[pill-reminders]", e));
+}, PILL_REMINDERS_MS);
+
+void runPillRemindersJob().catch((e) => console.error("[pill-reminders] boot", e));
 
 // Graceful shutdown (IMPORTANT)
 process.on("SIGINT", async () => {

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
 import { cloudinary } from '@/lib/cloudinary'
 import { getGlobalSocketServer } from '@/lib/socket-server'
+import { NotificationBridge } from '@/lib/notification-bridge'
 
 async function getphramcyId(chatId: string) {
   const pharmacy = await prisma.pharmacy.findUnique({
@@ -154,21 +155,6 @@ export async function POST(request: NextRequest) {
           });
       
           console.log('chat created', chat);
-      
-          // Create notification for pharmacy on first message
-          await prisma.notification.create({
-            data: {
-              userId: chat.pharmacy.userId,
-              title: 'New Chat Message',
-              message: `${chat.user.name || 'A customer'} sent you a message`,
-              type: 'CHAT_MESSAGE',
-              module: 'PHARMACY',
-              data: {
-                chatId: chat.id,
-                customerId: session.id
-              }
-            }
-          });
         }
       }
       
@@ -251,6 +237,30 @@ export async function POST(request: NextRequest) {
         tempId: `temp-${Date.now()}`,
         message: messagePayload
       })
+
+      // Push + in-app notification for recipient on every new message (not only first in thread)
+      if (recipientId) {
+        const preview =
+          (newMessage.message || '').replace(/\s+/g, ' ').trim().slice(0, 140) || 'New message'
+        const senderLabel =
+          chat.userId === session.id
+            ? chat.user?.name || 'Customer'
+            : chat.pharmacy?.pharmacyName || 'Pharmacy'
+        void NotificationBridge.sendNotification({
+          userId: recipientId,
+          title: `New message from ${senderLabel}`,
+          message: preview,
+          type: 'CHAT_MESSAGE',
+          module: 'PHARMACY',
+          data: {
+            chatId: chat.id,
+            pharmacyId: chat.pharmacyId,
+            customerId: chat.userId,
+            actionType: 'navigate',
+            screen: 'Chat',
+          },
+        }).catch((err) => console.error('pharmacy chat notify recipient:', err))
+      }
     }
 
     return NextResponse.json({ 

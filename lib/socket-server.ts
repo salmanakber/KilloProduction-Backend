@@ -641,9 +641,20 @@ class SocketIOServer {
             // Route by user IDs (customer userId <-> pharmacy owner userId)
             const pharmacyOwnerUserId = pharmacyChat.pharmacy?.userId || null
             recipientId = pharmacyChat.userId === socket.data.userId ? pharmacyOwnerUserId : pharmacyChat.userId
-            senderName = pharmacyChat.pharmacy?.user?.name || 'Pharmacy'
-            senderRole = 'VENDOR'
-            senderAvatar = pharmacyChat.pharmacy?.user?.avatar || null
+            const isPharmacySender = pharmacyOwnerUserId === socket.data.userId
+            if (isPharmacySender) {
+              senderName = pharmacyChat.pharmacy?.user?.name || 'Pharmacy'
+              senderRole = 'VENDOR'
+              senderAvatar = pharmacyChat.pharmacy?.user?.avatar || null
+            } else {
+              const sender = await prisma.user.findUnique({
+                where: { id: socket.data.userId },
+                select: { name: true, avatar: true, role: true },
+              })
+              senderName = sender?.name || 'Customer'
+              senderRole = 'CUSTOMER'
+              senderAvatar = sender?.avatar || null
+            }
           }
           
           if (!recipientId) {
@@ -676,19 +687,7 @@ class SocketIOServer {
           })
         } catch (error) {
           console.error('❌ Error handling chat_message:', error)
-          // Fallback: echo back to sender
-          socket.emit("chat_message", {
-            chatId: chatId || bookingId,
-            bookingId: bookingId,
-            message,
-            messageType,
-            tempImageUri,
-            fileUrl,
-            duration,
-            fileName,
-            fileSize,
-            timestamp: new Date().toISOString()
-          })
+          // Do not echo chat_message to sender — clients use optimistic UI + message_confirmed from REST
         }
       })
 

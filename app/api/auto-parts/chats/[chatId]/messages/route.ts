@@ -328,20 +328,50 @@ export async function POST(
 
     // Send push notification
     try {
-      // await NotificationBridge.sendNotification({
-      //   userId: recipientId,
-      //   title: "New Message",
-      //   message: `${user.name || "Someone"} sent you a message`,
-      //   type: "AUTO_PARTS_CHAT",
-      //   module: "AUTO_PARTS",
-      //   data: {
-      //     chatId,
-      //     senderId: user.id,
-      //     senderName: user.name,
-      //     message: message.substring(0, 100), // Preview
-      //   },
-      //   actionUrl: `/auto-parts/chats/${chatId}`,
-      // })
+      const unreadFromSender = await prisma.autoPartsChatMessage.count({
+        where: {
+          chatId,
+          senderId: user.id,
+          isRead: false,
+        },
+      })
+
+      const recentChatNotifs = await prisma.notification.findMany({
+        where: {
+          userId: recipientId,
+          type: "AUTO_PARTS_CHAT" as any,
+          module: "AUTO_PARTS" as any,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+      })
+      const latestForChat = recentChatNotifs.find(
+        (n: any) => String((n.data as any)?.chatId || "") === String(chatId)
+      ) as any
+
+      const twoHoursMs = 2 * 60 * 60 * 1000
+      const nowTs = Date.now()
+      const latestTs = latestForChat ? new Date(latestForChat.createdAt).getTime() : 0
+      const lastUnreadCount = Number((latestForChat?.data as any)?.unreadCountSent || 0)
+      const hit7MsgThreshold = unreadFromSender >= 7 && unreadFromSender - lastUnreadCount >= 7
+      const hit2HourThreshold = !latestForChat || nowTs - latestTs >= twoHoursMs
+
+      if (hit7MsgThreshold || hit2HourThreshold) {
+        await NotificationBridge.sendNotification({
+          userId: recipientId,
+          title: "New auto parts messages",
+          message: `${senderName || user.name || "Someone"} sent ${unreadFromSender} message${unreadFromSender > 1 ? "s" : ""}.`,
+          type: "AUTO_PARTS_CHAT",
+          module: "AUTO_PARTS",
+          data: {
+            chatId,
+            senderId: user.id,
+            senderName: senderName || user.name,
+            unreadCountSent: unreadFromSender,
+          },
+          actionUrl: `/auto-parts/chats/${chatId}`,
+        })
+      }
     } catch (notifError) {
       // Chat notification error
     }

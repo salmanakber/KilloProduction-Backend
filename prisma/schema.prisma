@@ -3829,6 +3829,7 @@ enum PartCondition {
   USED_FAIR
   REFURBISHED
   ANY
+  USED
 }
 
 enum UrgencyLevel {
@@ -4250,6 +4251,7 @@ enum NotificationType {
   MONEY_TRANSFER
   WALLET_UPDATE
   ORDER
+  MECHANIC_ADDITIONAL_PARTS_REQUEST
 }
 
 enum TicketPriority {

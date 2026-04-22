@@ -62,6 +62,8 @@ export async function GET(
       }
     })
 
+    
+
     if (!pharmacyMedicine) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 })
     }
@@ -107,6 +109,8 @@ export async function GET(
       pharmacyMedicine.pharmacy.is24Hours
     )
 
+    const pharmacyReviewStats = await getPharmacyReviewStatsFromPrisma(pharmacyMedicine.pharmacy.id)
+
     const { image: coverImage, images: galleryImages } = serializePharmacyProductImages(
       pharmacyMedicine.centralMedicine.images
     )
@@ -146,13 +150,20 @@ export async function GET(
         logo: pharmacyMedicine.pharmacy.logo || '',
         address: pharmacyMedicine.pharmacy.address || '',
         distance: distance.toFixed(1),
-        rating: pharmacyStoreReviewStats.roundedRating,
-        reviews: pharmacyStoreReviewStats.totalReviews,
+        rating:
+          pharmacyReviewStats.totalReviews > 0
+            ? pharmacyReviewStats.roundedRating
+            : pharmacyMedicine.pharmacy.rating || 0,
+        reviews:
+          pharmacyReviewStats.totalReviews > 0
+            ? pharmacyReviewStats.totalReviews
+            : pharmacyMedicine.pharmacy.totalReviews || 0,
         description: pharmacyMedicine.pharmacy.description || '',
         responseTime: pharmacyMedicine.pharmacy.responseTime,
         coverImage: pharmacyMedicine.pharmacy.coverImage || '',
         
         isOpen,
+        is24Hours: pharmacyMedicine.pharmacy.is24Hours ?? false,
         user: pharmacyMedicine.pharmacy.user || null,
       }
 

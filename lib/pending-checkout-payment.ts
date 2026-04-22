@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma"
 
-const PRE_CHECKOUT_PREFIXES = ["cart-", "pending-"] as const
+/**
+ * Pre-checkout Stripe refs (orderId before a real Order exists).
+ * Legacy: `auto-parts-cart-*`, `ORD-*`, `GRC-*` — prefer stable `cart-*` from the app.
+ */
+const PRE_CHECKOUT_PREFIXES = ["cart-", "pending-", "auto-parts-cart-", "ORD-", "GRC-"] as const
 
 export function isPreCheckoutClientRef(clientRef: string): boolean {
   return PRE_CHECKOUT_PREFIXES.some((p) => clientRef.startsWith(p))

@@ -17,18 +17,21 @@ export async function POST(
 
     const { offerId } = params
     const body = await request.json()
-    const { mechanicIds, requestId } = body
+    const { mechanicIds, requestId, systemPick } = body
   
 
     if (!mechanicIds || !Array.isArray(mechanicIds) || mechanicIds.length === 0) {
+      
       return NextResponse.json({ error: "Mechanic IDs are required" }, { status: 400 })
     }
 
     if (mechanicIds.length > 5) {
+      
       return NextResponse.json({ error: "Maximum 5 mechanics can be selected" }, { status: 400 })
     }
     
     if (mechanicIds.length < 3) {
+      
       return NextResponse.json({ error: "Minimum 3 mechanics must be selected" }, { status: 400 })
     }
 
@@ -71,6 +74,7 @@ export async function POST(
     })
 
     if (!customerAddress) {
+      
       return NextResponse.json({ error: "Customer address not found" }, { status: 400 })
     }
 
@@ -78,7 +82,7 @@ export async function POST(
     const vendorLat = offer.vendor.vendorProfile?.latitude
     const vendorLon = offer.vendor.vendorProfile?.longitude
     const vendorAddress = offer.vendor.vendorProfile?.address
-    console.log('vendorLat', offer.vendor)
+    
 
     if (!vendorLat || !vendorLon) {
       return NextResponse.json({ error: "Vendor location not available" }, { status: 400 })
@@ -101,6 +105,7 @@ export async function POST(
 
     // Collect all mechanic User IDs to store in metadata for resend functionality
     const allMechanicUserIds: string[] = []
+    const skippedMechanicIds: string[] = []
 
     // Create mechanic service requests for each selected mechanic
     const serviceRequests = await Promise.all(
@@ -121,6 +126,23 @@ export async function POST(
         // Get MechanicProfile ID (User.mechanicProfile is an array, get the first one)
         const mechanicProfile = mechanic.mechanicProfile[0]
         const mechanicProfileId = mechanicProfile.id
+
+        // Skip if already invited for this request+offer pair
+        const existingForMechanic = await prisma.mechanicServiceRequest.findFirst({
+          where: {
+            customerId: user.id,
+            mechanicId: mechanicProfileId,
+            metadata: {
+              path: ["offerId"],
+              equals: offerId,
+            },
+          } as any,
+          select: { id: true },
+        })
+        if (existingForMechanic) {
+          skippedMechanicIds.push(mechanic.id)
+          return null
+        }
 
         // Create service request with all necessary fields from PartRequest
         // Note: Each mechanic gets their own service request (one mechanicId per request)
@@ -210,7 +232,7 @@ export async function POST(
     // Update all service requests to include all mechanic User IDs in metadata for resend functionality
     // This allows frontend to easily get all User IDs when resending
     await Promise.all(
-      serviceRequests.map(async (sr) => {
+      serviceRequests.filter(Boolean).map(async (sr: any) => {
         const currentMetadata = (sr as any).metadata as any
         await prisma.mechanicServiceRequest.update({
           where: { id: sr.id },
@@ -219,18 +241,32 @@ export async function POST(
             metadata: {
               ...(currentMetadata || {}),
               mechanicUserIds: allMechanicUserIds, // Store all User IDs for resend
+              systemPickEnabled: Boolean(systemPick),
             }
           }
         })
       })
     )
 
+    const createdServiceRequests = serviceRequests.filter(Boolean) as NonNullable<(typeof serviceRequests)[number]>[]
+    if (createdServiceRequests.length === 0) {
+      return NextResponse.json(
+        {
+          error: "No new nearby mechanics to notify",
+          details: "All selected mechanics already received this request",
+          skippedMechanicIds,
+        },
+        { status: 400 }
+      )
+    }
+
     return NextResponse.json({
       success: true,
-      message: `${mechanicIds.length} mechanic(s) notified successfully`,
-      serviceRequests: serviceRequests.map(sr => ({ id: sr.id })),
+      message: `${createdServiceRequests.length} mechanic(s) notified successfully`,
+      serviceRequests: createdServiceRequests.map(sr => ({ id: sr.id })),
       pickupFee: pickupFee,
-      distance: distance
+      distance: distance,
+      skippedMechanicIds,
     })
 
   } catch (error: any) {

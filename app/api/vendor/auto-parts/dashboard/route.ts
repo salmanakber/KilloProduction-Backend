@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getVendorMerchandiseCredits } from "@/lib/vendor-wallet-revenue"
+import { platformFundedDeltaForOrder } from "@/lib/order-special-offer-pricing"
 
 export async function GET(request: NextRequest) {
   try {
@@ -149,6 +150,14 @@ export async function GET(request: NextRequest) {
       }),
     )
 
+    const adjustedRecentOrders = recentOrders.map((o: any) => {
+      const platformDelta = platformFundedDeltaForOrder(o.metadata, "AUTO_PARTS")
+      return {
+        ...o,
+        total: Number(o.total || 0) + platformDelta,
+      }
+    })
+
     return NextResponse.json({
       analytics: {
         totalOrders,
@@ -156,7 +165,7 @@ export async function GET(request: NextRequest) {
         totalProducts,
         pendingOrders,
       },
-      recentOrders,
+      recentOrders: adjustedRecentOrders,
       topProducts: topProductsWithDetails,
       monthlyRevenue,
       partRequests,

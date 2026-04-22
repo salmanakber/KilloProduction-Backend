@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { getVendorMerchandiseCredits } from "@/lib/vendor-wallet-revenue"
 
 export async function GET(request: NextRequest) {
   try {
@@ -125,14 +126,11 @@ export async function GET(request: NextRequest) {
       }),
     ])
 
-    // Get recent orders (exclude DELIVERED, COMPLETED, and CANCELLED - show in order history instead)
+    // Recent order history (all statuses — matches vendor wallet / order timeline)
     const recentOrders = await prisma.order.findMany({
       where: {
         vendorId: user.id,
         module: "AUTO_PARTS",
-        status: {
-          notIn: ["DELIVERED", "REFUNDED", "CANCELLED"],
-        },
       },
       include: {
         customer: {
@@ -226,10 +224,19 @@ export async function GET(request: NextRequest) {
       take: 5,
     })
 
+    const { txs: walletCreditTxs } = await getVendorMerchandiseCredits({
+      vendorUserId: user.id,
+      module: "AUTO_PARTS",
+    })
+    const walletLifetimeMerchandise = walletCreditTxs.reduce((s, t) => s + Number(t.amount || 0), 0)
+
     return NextResponse.json({
       analytics: {
         totalOrders,
-        totalRevenue: totalRevenue._sum.total || 0,
+        /** Lifetime cleared merchandise credits (wallet), aligned with `/auto-parts/vendor/earnings`. */
+        totalRevenue: walletLifetimeMerchandise,
+        /** Gross order totals (non-wallet; optional UI) */
+        orderBookRevenue: totalRevenue._sum.total || 0,
         totalProducts,
         pendingOrders,
         todayRevenue: todayRevenue._sum.total || 0,

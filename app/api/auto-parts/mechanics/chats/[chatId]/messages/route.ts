@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getGlobalSocketServer } from "@/lib/socket-server"
+import { NotificationBridge } from "@/lib/notification-bridge"
 
 export async function GET(
   request: NextRequest,
@@ -135,6 +136,46 @@ export async function POST(
         timestamp: chatMessage.createdAt.toISOString(),
       })
     }
+
+    try {
+      const unreadFromSender = await prisma.autoPartsChatMessage.count({
+        where: { chatId, senderId: user.id, isRead: false },
+      })
+      const recentChatNotifs = await prisma.notification.findMany({
+        where: {
+          userId: recipientId,
+          type: "AUTO_PARTS_CHAT" as any,
+          module: "AUTO_PARTS" as any,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+      })
+      const latestForChat = recentChatNotifs.find(
+        (n: any) => String((n.data as any)?.chatId || "") === String(chatId)
+      ) as any
+      const twoHoursMs = 2 * 60 * 60 * 1000
+      const nowTs = Date.now()
+      const latestTs = latestForChat ? new Date(latestForChat.createdAt).getTime() : 0
+      const lastUnreadCount = Number((latestForChat?.data as any)?.unreadCountSent || 0)
+      const hit7MsgThreshold = unreadFromSender >= 7 && unreadFromSender - lastUnreadCount >= 7
+      const hit2HourThreshold = !latestForChat || nowTs - latestTs >= twoHoursMs
+      if (hit7MsgThreshold || hit2HourThreshold) {
+        await NotificationBridge.sendNotification({
+          userId: recipientId,
+          title: "New auto parts messages",
+          message: `${user.name || "Someone"} sent ${unreadFromSender} message${unreadFromSender > 1 ? "s" : ""}.`,
+          type: "AUTO_PARTS_CHAT",
+          module: "AUTO_PARTS",
+          data: {
+            chatId,
+            senderId: user.id,
+            senderName: user.name,
+            unreadCountSent: unreadFromSender,
+          },
+          actionUrl: `/auto-parts/chats/${chatId}`,
+        })
+      }
+    } catch {}
 
     return NextResponse.json({ message: chatMessage })
   } catch (error) {

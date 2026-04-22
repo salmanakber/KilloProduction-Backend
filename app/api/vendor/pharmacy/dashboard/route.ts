@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getVendorMerchandiseCredits, sumCreditsInRange } from "@/lib/vendor-wallet-revenue"
 import { getPharmacyReviewStatsFromPrisma } from "@/lib/pharmacy-review-stats"
+import { platformFundedDeltaForOrder } from "@/lib/order-special-offer-pricing"
 
 export async function GET(request: NextRequest) {
   try {
@@ -339,7 +340,7 @@ export async function GET(request: NextRequest) {
       id: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customer?.name || 'Unknown Customer',
-      total: order.total,
+      total: Number(order.total || 0) + platformFundedDeltaForOrder(order.metadata, "PHARMACY"),
       status: order.status,
       createdAt: order.createdAt.toISOString(),
       items: order.orderItems.map(item => ({
@@ -354,11 +355,41 @@ export async function GET(request: NextRequest) {
 
     // Format top medicines to match mobile app expectations
     
+    const deliveredOrdersForRevenue = await prisma.order.findMany({
+      where: {
+        vendorId: user.id,
+        module: "PHARMACY",
+        status: "DELIVERED",
+      },
+      select: {
+        metadata: true,
+        orderItems: {
+          select: {
+            productId: true,
+            quantity: true,
+            unitPrice: true,
+          },
+        },
+      },
+    })
+    const medicineRevenueByProductId = new Map<string, number>()
+    for (const order of deliveredOrdersForRevenue as any[]) {
+      for (const item of order.orderItems || []) {
+        if (!item?.productId) continue
+        const base = Number(item.unitPrice || 0) * Number(item.quantity || 0)
+        const delta = platformFundedDeltaForOrder(order.metadata, "PHARMACY", {
+          productId: String(item.productId),
+        })
+        const prev = medicineRevenueByProductId.get(String(item.productId)) || 0
+        medicineRevenueByProductId.set(String(item.productId), prev + base + delta)
+      }
+    }
+
     const formattedTopMedicines = topMedicinesWithDetails.map(medicine => ({
       id: medicine.id,
       name: medicine.name,
       totalSold: medicine.totalSold || 0,
-      revenue: (medicine.totalSold || 0) * (medicine.price || 0),
+      revenue: medicineRevenueByProductId.get(String(medicine.id)) || 0,
       stock: medicine.stock || 0,
       image: Array.isArray(medicine.images) ? medicine.images[0] : null
     }))

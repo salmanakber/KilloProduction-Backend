@@ -5,6 +5,17 @@ import { NotificationBridge } from "@/lib/notification-bridge"
 import { getGlobalSocketServer } from "@/lib/socket-server"
 import { enrichOffersWithLinkedProducts } from "@/lib/enrich-part-offers-products"
 
+const DELIVERY_AVAILABLE_NOW = "AVAILABLE_NOW"
+
+function isValidDeliveryTime(raw: unknown): boolean {
+  if (typeof raw !== "string") return false
+  const value = raw.trim()
+  if (!value) return false
+  if (value === DELIVERY_AVAILABLE_NOW) return true
+  const dt = new Date(value)
+  return Number.isFinite(dt.getTime()) && dt.getTime() > Date.now()
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await authenticateRequest(request)
@@ -18,6 +29,12 @@ export async function POST(request: NextRequest) {
     if (!data.requestId || !data.price || !data.condition || !data.deliveryTime) {
       return NextResponse.json(
         { error: "requestId, price, condition, and deliveryTime are required" },
+        { status: 400 }
+      )
+    }
+    if (!isValidDeliveryTime(data.deliveryTime)) {
+      return NextResponse.json(
+        { error: "deliveryTime must be AVAILABLE_NOW or a valid future ISO datetime" },
         { status: 400 }
       )
     }

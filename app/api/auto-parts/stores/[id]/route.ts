@@ -99,6 +99,14 @@ export async function GET(
     ])
 
     const profile = store.vendorProfile
+    const storeReviews = await prisma.review.aggregate({
+      where: {
+        targetType: "VENDOR",
+        targetId: store.id,
+      },
+      _avg: { rating: true },
+      _count: { _all: true },
+    })
     let distance = null
     if (userLat && userLon && profile?.latitude && profile?.longitude) {
       distance = calculateDistance(userLat, userLon, profile.latitude, profile.longitude)
@@ -139,6 +147,8 @@ export async function GET(
         logo: profile?.logo || null,
         coverImage: profile?.coverImage || null,
         isVerified: store.isVerified || false,
+        rating: Number(storeReviews._avg.rating || 0),
+        totalReviews: Number(storeReviews._count._all || 0),
         distance: distance ? `${distance.toFixed(1)} km` : null,
         distanceValue: distance,
         partsCount: store._count.vendorProducts,

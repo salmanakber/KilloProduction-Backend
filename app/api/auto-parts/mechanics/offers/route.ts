@@ -206,10 +206,10 @@ export async function POST(request: NextRequest) {
         actionUrl: `/auto-parts/mechanics/offers/${offer.id}`,
         data: {
           actionType: "navigate",
-          screen: 'mechanic-offer-details',
+          screen: 'PartRequestOffers',
           params: [
             {
-              name: 'offerId',
+              name: 'requestId',
               value: offer.id,
             },
           ],

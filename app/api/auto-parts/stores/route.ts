@@ -110,6 +110,25 @@ export async function GET(request: NextRequest) {
       prisma.user.count({ where: vendorWhere })
     ])
 
+    const storeUserIds = stores.map((s) => s.id)
+    const reviewAgg = storeUserIds.length
+      ? await prisma.review.groupBy({
+          by: ["targetId"],
+          where: {
+            targetType: "VENDOR",
+            targetId: { in: storeUserIds },
+          },
+          _avg: { rating: true },
+          _count: { _all: true },
+        })
+      : []
+    const reviewByTargetId = new Map(
+      reviewAgg.map((r) => [
+        r.targetId,
+        { avg: Number(r._avg.rating || 0), count: Number(r._count._all || 0) },
+      ]),
+    )
+
     // Format stores with distance
     const formattedStores = stores.map(store => {
       const profile = store.vendorProfile
@@ -132,8 +151,8 @@ export async function GET(request: NextRequest) {
         email: store.email || '',
         logo: profile?.logo || store.avatar,
         coverImage: profile?.coverImage || imageArray[0] || null,
-        rating: 4.5, // Can be calculated from reviews
-        totalReviews: 0,
+        rating: reviewByTargetId.get(store.id)?.avg || 0,
+        totalReviews: reviewByTargetId.get(store.id)?.count || 0,
         isVerified: store.isVerified || false,
         distance: distance ? `${distance.toFixed(1)} km` : null,
         distanceValue: distance,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { cloudinary } from '@/lib/cloudinary'
 
 export async function GET(request: NextRequest) {
   try {
@@ -183,6 +184,62 @@ export async function PUT(request: NextRequest) {
     const session = await authenticateRequest(request)
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const contentType = request.headers.get('content-type') || ''
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData()
+      const file = formData.get('profileImage') as File | null
+
+      if (!file || typeof (file as any).arrayBuffer !== 'function') {
+        return NextResponse.json({ error: 'profileImage file required' }, { status: 400 })
+      }
+
+      const buf = Buffer.from(await file.arrayBuffer())
+      const b64 = buf.toString('base64')
+      const uploadResult = await cloudinary.uploader.upload(
+        `data:${(file as any).type || 'image/jpeg'};base64,${b64}`,
+        {
+          folder: 'user_profiles',
+          resource_type: 'image',
+          transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
+        }
+      )
+
+      let userProfile = await prisma.userProfile.findUnique({
+        where: { userId: session.id },
+      })
+
+      if (!userProfile) {
+        userProfile = await prisma.userProfile.create({
+          data: {
+            userId: session.id,
+            firstName: session.name?.split(' ')[0] || 'User',
+            lastName: session.name?.split(' ').slice(1).join(' ') || '',
+            dateOfBirth: null,
+            gender: null,
+            bio: null,
+            profileImage: uploadResult.secure_url,
+            emergencyContact: null,
+          },
+        })
+      } else {
+        userProfile = await prisma.userProfile.update({
+          where: { userId: session.id },
+          data: { profileImage: uploadResult.secure_url },
+        })
+      }
+
+      await prisma.user.update({
+        where: { id: session.id },
+        data: { avatar: uploadResult.secure_url },
+      })
+
+      return NextResponse.json({
+        ...userProfile,
+        profileImage: uploadResult.secure_url,
+      })
     }
 
     const body = await request.json()

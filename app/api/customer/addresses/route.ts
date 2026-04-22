@@ -50,10 +50,10 @@ export async function POST(request: NextRequest) {
       address,
     } = body
 
-    // Validate required fields
-    
-    
-    if (!type || !street || !city || !state || !country || !postalCode) {
+    const streetLine = String(street || address || '').trim()
+    const resolvedTitle = String(title || '').trim() || (type === 'HOME' ? 'Home' : type === 'WORK' ? 'Work' : 'Address')
+
+    if (!type || !streetLine || !city || !state || !country || !postalCode) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
       data: {
         userId: session.id,
         type,
-        title ,
-        street,
+        title: resolvedTitle,
+        street: streetLine,
         city,
         state,
         country,
