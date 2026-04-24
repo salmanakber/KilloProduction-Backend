@@ -36,7 +36,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (module) where.module = module
-    if (user.role === "CUSTOMER" && hasServiceRequest === "true") {
+    // Keep default customer orders broad. Apply strict mechanic-linked filtering
+    // only when explicitly requested with hasServiceRequest=only.
+    if (user.role === "CUSTOMER" && hasServiceRequest === "only") {
       if (!module) {
         where.module = "AUTO_PARTS"
       }
@@ -138,6 +140,55 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const multiStoreNamesByParentId = new Map<string, string>()
+    if (user.role === "CUSTOMER" && !childId && orderIds.length > 0) {
+      const childOrders = await prisma.order.findMany({
+        where: {
+          childId: { in: orderIds },
+          isChildOrder: true,
+        },
+        select: {
+          childId: true,
+          vendor: {
+            select: {
+              name: true,
+              vendorProfile: { select: { businessName: true } },
+              autoPartsStore: { select: { storeName: true } },
+            },
+          },
+          food: { select: { name: true } },
+          grocery: { select: { storeName: true } },
+          pharmacy: { select: { pharmacyName: true } },
+        },
+      })
+
+      const storeNamesByParentId = new Map<string, Set<string>>()
+      for (const child of childOrders) {
+        if (!child.childId) continue
+        const storeName =
+          child.food?.name ||
+          child.grocery?.storeName ||
+          child.pharmacy?.pharmacyName ||
+          child.vendor?.vendorProfile?.businessName ||
+          child.vendor?.autoPartsStore?.storeName ||
+          child.vendor?.name ||
+          null
+
+        if (!storeName) continue
+        const normalized = String(storeName).trim()
+        if (!normalized) continue
+
+        if (!storeNamesByParentId.has(child.childId)) {
+          storeNamesByParentId.set(child.childId, new Set<string>())
+        }
+        storeNamesByParentId.get(child.childId)?.add(normalized)
+      }
+
+      storeNamesByParentId.forEach((names, parentId) => {
+        multiStoreNamesByParentId.set(parentId, Array.from(names).join(", "))
+      })
+    }
+
     const ordersWithDelivery = orders.map((order) => {
       const cb = courierByOrderId.get(order.id)
       return {
@@ -147,8 +198,11 @@ export async function GET(request: NextRequest) {
         courierBookingNumber: cb?.bookingNumber ?? null,
         courierBookingStatus: cb?.status ?? null,
         deliveryRiderAssigned: Boolean(cb?.riderId),
+        multiStoreNames: multiStoreNamesByParentId.get(order.id) ?? null,
       }
     })
+
+    console.log("ordersWithDelivery", ordersWithDelivery)
 
     return NextResponse.json({
       orders: ordersWithDelivery,

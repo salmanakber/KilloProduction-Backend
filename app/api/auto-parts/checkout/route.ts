@@ -5,6 +5,8 @@ import { getGlobalSocketServer } from "@/lib/socket-server"
 import { calculateRouteAndFee, type PickupPoint, type DropoffPoint } from "@/lib/multi-pickup-route.service"
 import { saveRouteToMultiplePickups } from "@/lib/multi-pickup-route-helper"
 import { createPendingVendorWalletsForCourierOrder } from "@/lib/create-pending-vendor-wallet-for-courier-order"
+import { createSplitPayments } from "@/lib/payment-service"
+import { createOrderCompletionWalletTransactions } from "@/lib/wallet-transaction-service"
 import { checkoutPlatformFeeAmount, checkoutVendorCommissionAmount } from "@/lib/commission-service"
 import {
   ensurePlatformFeeReportingVendorCommissions,
@@ -14,7 +16,10 @@ import {
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
-import { settlementMerchandiseFromCartLines } from "@/lib/pharmacy-vendor-settlement"
+import {
+  computeVendorOfferSettlementPayout,
+  settlementMerchandiseFromCartLines,
+} from "@/lib/pharmacy-vendor-settlement"
 import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
 
 function generateOrderNumber(): string {
@@ -174,13 +179,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Each item must have storeId or vendorId" }, { status: 400 })
     }
 
-    // Fetch AutoPartsStore records (by id or userId)
-    const stores = await prisma.autoPartsStore.findMany({
+    // Prefer VendorProfile (User + vendorProfile) as the canonical vendor location source.
+    const vendorUsers = await prisma.user.findMany({
       where: {
-        OR: [
-          { id: { in: storeIds } },
-          { userId: { in: storeIds } }
-        ]
+        id: { in: storeIds },
+        vendorProfile: { isNot: null },
+      },
+      select: {
+        id: true,
+        vendorProfile: {
+          select: {
+            businessName: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
+      },
+    })
+
+    let stores: Array<{
+      id: string
+      userId: string
+      storeName: string
+      address: string
+      latitude: number | null
+      longitude: number | null
+      source: "VENDOR_PROFILE" | "AUTO_PARTS_STORE"
+      autoPartsStoreId?: string
+    }> = vendorUsers
+      .filter((u) => u.vendorProfile)
+      .map((u) => ({
+        id: u.id,
+        userId: u.id,
+        storeName: u.vendorProfile?.businessName || "Auto Parts Store",
+        address: u.vendorProfile?.address || "",
+        latitude: u.vendorProfile?.latitude ?? null,
+        longitude: u.vendorProfile?.longitude ?? null,
+        source: "VENDOR_PROFILE" as const,
+      }))
+
+    // Fallback to AutoPartsStore records (by id or userId)
+    const fallbackAutoStores = await prisma.autoPartsStore.findMany({
+      where: {
+        OR: [{ id: { in: storeIds } }, { userId: { in: storeIds } }],
       },
       select: {
         id: true,
@@ -192,6 +234,134 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    if (fallbackAutoStores.length > 0) {
+      const byUserId = new Map<string, (typeof stores)[number]>()
+      for (const s of stores) byUserId.set(s.userId, s)
+      for (const s of fallbackAutoStores) {
+        if (!byUserId.has(s.userId)) {
+          byUserId.set(s.userId, {
+            id: s.id,
+            userId: s.userId,
+            storeName: s.storeName,
+            address: s.address,
+            latitude: s.latitude ?? null,
+            longitude: s.longitude ?? null,
+            source: "AUTO_PARTS_STORE",
+            autoPartsStoreId: s.id,
+          })
+        }
+      }
+      stores = Array.from(byUserId.values())
+    }
+
+    // Fallback: resolve store via product ownership when cart contains product IDs
+    // but item vendor/store keys are inconsistent (storeId vs vendor userId).
+    if (stores.length < storeIds.length) {
+      const productIds: string[] = Array.from(
+        new Set(
+          items
+            .map((it: any) => String(it.productId || it.partId || "").trim())
+            .filter(Boolean)
+        )
+      )
+
+      const [productRows, autoPartRows] = await Promise.all([
+        productIds.length
+          ? prisma.product.findMany({
+              where: { id: { in: productIds }, type: "AUTO_PART" as any },
+              select: { id: true, vendorId: true },
+            })
+          : Promise.resolve([]),
+        productIds.length
+          ? prisma.autoPart.findMany({
+              where: { id: { in: productIds } },
+              select: { id: true, storeId: true },
+            })
+          : Promise.resolve([]),
+      ])
+
+      const fallbackStoreIds = new Set<string>()
+      const fallbackVendorIds = new Set<string>()
+
+      for (const p of productRows) {
+        if (p.vendorId) fallbackVendorIds.add(p.vendorId)
+      }
+      for (const p of autoPartRows) {
+        if (p.storeId) fallbackStoreIds.add(p.storeId)
+      }
+
+      if (fallbackStoreIds.size > 0 || fallbackVendorIds.size > 0) {
+        const [extraVendorUsers, extraStores] = await Promise.all([
+          prisma.user.findMany({
+            where: {
+              id: { in: Array.from(fallbackVendorIds) },
+              vendorProfile: { isNot: null },
+            },
+            select: {
+              id: true,
+              vendorProfile: {
+                select: {
+                  businessName: true,
+                  address: true,
+                  latitude: true,
+                  longitude: true,
+                },
+              },
+            },
+          }),
+          prisma.autoPartsStore.findMany({
+          where: {
+            OR: [
+              { id: { in: Array.from(fallbackStoreIds) } },
+              { userId: { in: Array.from(fallbackVendorIds) } },
+            ],
+          },
+          select: {
+            id: true,
+            userId: true,
+            storeName: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+          },
+          }),
+        ])
+
+        const byUserId = new Map<string, (typeof stores)[number]>()
+        for (const s of stores) byUserId.set(s.userId, s)
+
+        for (const u of extraVendorUsers) {
+          if (!u.vendorProfile) continue
+          byUserId.set(u.id, {
+            id: u.id,
+            userId: u.id,
+            storeName: u.vendorProfile.businessName || "Auto Parts Store",
+            address: u.vendorProfile.address || "",
+            latitude: u.vendorProfile.latitude ?? null,
+            longitude: u.vendorProfile.longitude ?? null,
+            source: "VENDOR_PROFILE",
+          })
+        }
+
+        for (const s of extraStores) {
+          if (!byUserId.has(s.userId)) {
+            byUserId.set(s.userId, {
+              id: s.id,
+              userId: s.userId,
+              storeName: s.storeName,
+              address: s.address,
+              latitude: s.latitude ?? null,
+              longitude: s.longitude ?? null,
+              source: "AUTO_PARTS_STORE",
+              autoPartsStoreId: s.id,
+            })
+          }
+        }
+
+        stores = Array.from(byUserId.values())
+      }
+    }
+
     if (stores.length === 0) {
       return NextResponse.json({ error: "One or more stores not found" }, { status: 404 })
     }
@@ -201,6 +371,7 @@ export async function POST(request: NextRequest) {
     for (const store of stores) {
       storeMap[store.id] = store
       storeMap[store.userId] = store // Also map by userId
+      if (store.autoPartsStoreId) storeMap[store.autoPartsStoreId] = store
     }
 
     // Ensure all stores have coordinates
@@ -209,10 +380,17 @@ export async function POST(request: NextRequest) {
       if (store.latitude == null || store.longitude == null) {
         if (!apiKey) return NextResponse.json({ error: "Geocoding service unavailable" }, { status: 500 })
         const coords = await resolveCoordinates(store.address, apiKey)
-        await prisma.autoPartsStore.update({
-          where: { id: store.id },
-          data: { latitude: coords.latitude, longitude: coords.longitude },
-        })
+        if (store.source === "VENDOR_PROFILE") {
+          await prisma.vendorProfile.update({
+            where: { userId: store.userId },
+            data: { latitude: coords.latitude, longitude: coords.longitude },
+          })
+        } else {
+          await prisma.autoPartsStore.update({
+            where: { id: store.autoPartsStoreId || store.id },
+            data: { latitude: coords.latitude, longitude: coords.longitude },
+          })
+        }
         store.latitude = coords.latitude
         store.longitude = coords.longitude
       }
@@ -353,21 +531,20 @@ export async function POST(request: NextRequest) {
     // Customer total: items (after promo) + delivery + platform fee
     const total = discountedSubtotalAuto + deliveryFee + platformCommission
 
-    // Get vendor IDs from stores
-    const vendorIds = stores.map(s => s.userId).filter(Boolean) as string[]
-
     // Group items by store for multi-store orders
     const itemsByStoreFinal: Record<string, typeof items> = {}
     if (isMultiStore) {
       for (const item of items) {
         const storeId = item.storeId || item.autoPartsStoreId
         const vendorId = item.vendorId
-        const key = storeId || (vendorId && storeMap[vendorId]?.id)
-        if (key && storeMap[key]) {
-          if (!itemsByStoreFinal[key]) {
-            itemsByStoreFinal[key] = []
+        const rawKey = storeId || vendorId
+        const resolvedStore = rawKey ? storeMap[rawKey] : null
+        const canonicalStoreId = resolvedStore?.id
+        if (canonicalStoreId) {
+          if (!itemsByStoreFinal[canonicalStoreId]) {
+            itemsByStoreFinal[canonicalStoreId] = []
           }
-          itemsByStoreFinal[key].push(item)
+          itemsByStoreFinal[canonicalStoreId].push(item)
         }
       }
     }
@@ -679,53 +856,133 @@ export async function POST(request: NextRequest) {
       console.error("Auto-parts vendor commission record:", pcErr)
     }
 
-    // Create payment record if payment data provided
-    if (paymentData) {
+    const paymentCurrency = paymentData?.currency || settings?.defaultCurrency || "NGN"
+
+    if (paymentData && paymentData.status === "succeeded") {
+      try {
+        const vendorPayments = isMultiStore
+          ? childOrders.map((childOrder) => ({
+              vendorId: childOrder.vendorId!,
+              orderId: childOrder.id,
+              amount: childOrder.total,
+            }))
+          : [
+              {
+                vendorId: primaryStore.userId,
+                orderId: order.id,
+                amount: order.total,
+              },
+            ]
+
+        const riderPayment = {
+          riderId: "",
+          courierBookingId: courierBooking.id,
+          amount: deliveryFee,
+        }
+
+        await createSplitPayments({
+          userId: user.id,
+          currency: paymentCurrency,
+          status: "PAID",
+          gateway: paymentData.gateway || "STRIPE",
+          gatewayTransactionId: paymentData.id ?? paymentData.transactionId ?? undefined,
+          description: `Payment for auto-parts order ${order.orderNumber}`,
+          metadata: {
+            ...(paymentData as object),
+            orderNumber: order.orderNumber,
+            isMultiStore,
+            parentOrderId: order.id,
+          },
+          vendorPayments,
+          riderPayment,
+        })
+
+        for (const vendorPayment of vendorPayments) {
+          const payout = await computeVendorOfferSettlementPayout(vendorPayment.orderId)
+          await createOrderCompletionWalletTransactions({
+            vendorId: vendorPayment.vendorId,
+            vendorAmount: payout.vendorPayout,
+            orderId: vendorPayment.orderId,
+            courierBookingId: courierBooking.id,
+            description: `Payment for auto-parts order ${order.orderNumber}`,
+          })
+        }
+      } catch (splitErr) {
+        console.error("Auto-parts split payment error:", splitErr)
+        await prisma.payment.create({
+          data: {
+            userId: user.id,
+            orderId: order.id,
+            amount: total,
+            currency: paymentCurrency,
+            status: "PAID",
+            gateway: paymentData.gateway || "STRIPE",
+            gatewayTransactionId: paymentData.id || paymentData.transactionId || undefined,
+            metadata: paymentData,
+          },
+        })
+      }
+    } else if (paymentData) {
       await prisma.payment.create({
         data: {
           userId: user.id,
           orderId: order.id,
           amount: total,
-          currency: settings?.defaultCurrency || "NGN",
-          status: paymentData.status === 'succeeded' ? 'PAID' : 'PENDING',
-          gateway: paymentData.gateway || 'STRIPE',
+          currency: paymentCurrency,
+          status: paymentData.status === "succeeded" ? "PAID" : "PENDING",
+          gateway: paymentData.gateway || "STRIPE",
           gatewayTransactionId: paymentData.id || paymentData.transactionId || undefined,
-          metadata: paymentData
-        }
+          metadata: paymentData,
+        },
       })
     }
 
-    // Update order payment status if payment succeeded
-    if (paymentData?.status === 'succeeded') {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { paymentStatus: 'PAID' }
+    if (paymentData?.status === "succeeded") {
+      const targetOrderIds = isMultiStore ? [order.id, ...childOrders.map((co) => co.id)] : [order.id]
+      await prisma.order.updateMany({
+        where: { id: { in: targetOrderIds } },
+        data: { paymentStatus: "PAID" },
       })
     }
 
     // Send notification to vendor(s)
     const socketServer = getGlobalSocketServer()
-    for (const vendorId of vendorIds) {
-      socketServer?.sendNotificationToUser(vendorId, {
+    const vendorTargets = isMultiStore
+      ? childOrders.map((co) => ({
+          vendorId: co.vendorId as string,
+          orderId: co.id as string,
+          orderNumber: co.orderNumber as string,
+        }))
+      : [
+          {
+            vendorId: primaryStore.userId as string,
+            orderId: order.id as string,
+            orderNumber: order.orderNumber as string,
+          },
+        ]
+
+    for (const target of vendorTargets) {
+      if (!target.vendorId) continue
+      socketServer?.sendNotificationToUser(target.vendorId, {
         type: 'notification',
         title: 'New Auto Parts Order',
-        message: `You have a new order #${order.orderNumber}`,
-        orderId: order.id,
-        orderNumber: order.orderNumber as string
+        message: `You have a new order #${target.orderNumber}`,
+        orderId: target.orderId,
+        orderNumber: target.orderNumber
       })
       try {
         await NotificationBridge.sendNotification({
-          userId: vendorId,
+          userId: target.vendorId,
           title: "New Auto Parts Order",
-          message: `You have a new order #${order.orderNumber}`,
+          message: `You have a new order #${target.orderNumber}`,
           type: "ORDER_UPDATE",
           module: "AUTO_PARTS",
           data: {
             actionType: "navigate",
             screen: "OrderDetails",
-            params: [{ name: "orderId", value: order.id }],
+            params: [{ name: "orderId", value: target.orderId }],
           },
-          actionUrl: `/auto-parts/orders/${order.id}`,
+          actionUrl: `/auto-parts/orders/${target.orderId}`,
         })
       } catch (ne) {
         console.error("Auto-parts vendor NotificationBridge:", ne)

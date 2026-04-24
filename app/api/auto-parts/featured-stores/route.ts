@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const MIN_NEARBY_KM = 0
+const MAX_NEARBY_KM = 70
+
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371 // Earth's radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -19,8 +22,11 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const userLat = parseFloat(searchParams.get('latitude') || '0')
-    const userLon = parseFloat(searchParams.get('longitude') || '0')
+    const hasLat = searchParams.get("latitude") != null
+    const hasLon = searchParams.get("longitude") != null
+    const userLat = hasLat ? parseFloat(searchParams.get("latitude") as string) : null
+    const userLon = hasLon ? parseFloat(searchParams.get("longitude") as string) : null
+    const hasCoords = Number.isFinite(userLat) && Number.isFinite(userLon)
     const city = searchParams.get('city') // City filter
     const limit = parseInt(searchParams.get('limit') || '10')
  
@@ -38,7 +44,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by city if provided - use 'is' instead of 'isNot' when adding conditions
-    if (city) {
+    if (city && !hasCoords) {
       vendorWhere.vendorProfile = {
         is: {
           city: {
@@ -108,7 +114,7 @@ export async function GET(request: NextRequest) {
           }
         }
       },
-      take: limit,
+      take: Math.max(limit * 5, 50),
     })
 
     // Format as stores
@@ -125,8 +131,8 @@ export async function GET(request: NextRequest) {
       const rating = totalReviews > 0 ? parseFloat(averageRating.toFixed(1)) : 0
 
       // Calculate distance
-      const distance = vendor.vendorProfile?.latitude && vendor.vendorProfile?.longitude
-        ? calculateDistance(userLat, userLon, vendor.vendorProfile.latitude, vendor.vendorProfile.longitude)
+      const distance = hasCoords && vendor.vendorProfile?.latitude && vendor.vendorProfile?.longitude
+        ? calculateDistance(userLat as number, userLon as number, vendor.vendorProfile.latitude, vendor.vendorProfile.longitude)
         : null
 
       return {
@@ -156,12 +162,29 @@ export async function GET(request: NextRequest) {
           name: vendor.name,
           phone: vendor.phone,
           isVerified: vendor.isVerified
-        }
+        },
+        city: vendor.vendorProfile?.city || null,
       }
     })
 
+    const nearbyFiltered = stores
+      .filter((s) => {
+        if (s.distanceValue == null) return true
+        return s.distanceValue >= MIN_NEARBY_KM && s.distanceValue <= MAX_NEARBY_KM
+      })
+      .sort((a, b) => {
+        const aInPreferredBand = typeof a.distanceValue === "number" && a.distanceValue >= 15 && a.distanceValue <= 70
+        const bInPreferredBand = typeof b.distanceValue === "number" && b.distanceValue >= 15 && b.distanceValue <= 70
+        if (aInPreferredBand !== bInPreferredBand) return aInPreferredBand ? -1 : 1
+        const ad = typeof a.distanceValue === "number" ? a.distanceValue : Number.MAX_SAFE_INTEGER
+        const bd = typeof b.distanceValue === "number" ? b.distanceValue : Number.MAX_SAFE_INTEGER
+        if (ad !== bd) return ad - bd
+        return (b.rating || 0) - (a.rating || 0)
+      })
+      .slice(0, limit)
+
     return NextResponse.json({
-      stores,
+      stores: nearbyFiltered,
     })
   } catch (error) {
     console.error("Featured stores fetch error:", error)

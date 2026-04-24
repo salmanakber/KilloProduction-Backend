@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const MIN_NEARBY_KM = 0
+const MAX_NEARBY_KM = 70
+
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371 // Earth's radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -19,8 +22,11 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const userLat = parseFloat(searchParams.get('latitude') || '0')
-    const userLon = parseFloat(searchParams.get('longitude') || '0')
+    const hasLat = searchParams.get("latitude") != null
+    const hasLon = searchParams.get("longitude") != null
+    const userLat = hasLat ? parseFloat(searchParams.get("latitude") as string) : null
+    const userLon = hasLon ? parseFloat(searchParams.get("longitude") as string) : null
+    const hasCoords = Number.isFinite(userLat) && Number.isFinite(userLon)
     const city = searchParams.get('city') // City filter
     const limit = parseInt(searchParams.get('limit') || '10')
 
@@ -40,7 +46,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by vendor city if provided
-    if (city) {
+    if (city && !hasCoords) {
       productWhere.vendor = {
         vendorProfile: {
           city: {
@@ -66,6 +72,8 @@ export async function GET(request: NextRequest) {
                 city: true,
                 state: true,
                 address: true,
+                latitude: true,
+                longitude: true,
               }
             }
           }
@@ -160,14 +168,11 @@ export async function GET(request: NextRequest) {
           ? part.reviews.reduce((sum, r) => sum + r.rating, 0) / part.reviews.length
           : 4.5
 
-        // Calculate distance if user location provided
-        let distance = null
-        if (userLat && userLon) {
-          // You may need to add lat/lon to store model
-          // distance = calculateDistance(userLat, userLon, store.lat, store.lon)
-        }
-
         const vendorProfile = part.vendor.vendorProfile
+        const distance =
+          hasCoords && vendorProfile?.latitude && vendorProfile?.longitude
+            ? calculateDistance(userLat as number, userLon as number, vendorProfile.latitude, vendorProfile.longitude)
+            : null
         
         return {
           id: part.id,
@@ -196,13 +201,33 @@ export async function GET(request: NextRequest) {
             rating: 4.5,
             isVerified: part.vendor.isVerified || false,
             address: vendorProfile?.address || '',
+            city: vendorProfile?.city || "",
             distance: distance ? `${distance.toFixed(1)} km` : null,
+            distanceValue: distance,
           }
         }
       })
     )
 
-    const validTrendingParts = trendingParts.filter(p => p !== null)
+    const validTrendingParts = trendingParts
+      .filter((p) => p !== null)
+      .filter((p: any) => {
+        const dv = p?.store?.distanceValue
+        if (dv == null) return true
+        return dv >= MIN_NEARBY_KM && dv <= MAX_NEARBY_KM
+      })
+      .sort((a: any, b: any) => {
+        const aInPreferredBand =
+          typeof a?.store?.distanceValue === "number" && a.store.distanceValue >= 15 && a.store.distanceValue <= 70
+        const bInPreferredBand =
+          typeof b?.store?.distanceValue === "number" && b.store.distanceValue >= 15 && b.store.distanceValue <= 70
+        if (aInPreferredBand !== bInPreferredBand) return aInPreferredBand ? -1 : 1
+        const ad = typeof a?.store?.distanceValue === "number" ? a.store.distanceValue : Number.MAX_SAFE_INTEGER
+        const bd = typeof b?.store?.distanceValue === "number" ? b.store.distanceValue : Number.MAX_SAFE_INTEGER
+        if (ad !== bd) return ad - bd
+        return (b?.growth || 0) - (a?.growth || 0)
+      })
+      .slice(0, limit)
 
     // If no trending parts found, show featured parts
     if (validTrendingParts.length === 0) {

@@ -206,7 +206,7 @@ export async function PUT(
       }
     }
 
-    if (status === "IN_PROGRESS") {
+    if (status === "IN_PROGRESS" && user.role === "MECHANIC") {
       // Get order from metadata if exists
       const orderId = (metadata as any)?.orderId
       
@@ -256,6 +256,25 @@ export async function PUT(
           status: 'IN_PROGRESS',
         }
       })
+    } else if (status === "IN_PROGRESS" && user.role === "CUSTOMER") {
+      const mechanicUserId = (serviceRequest.mechanic as any)?.user?.id as string | undefined
+      if (mechanicUserId) {
+        await NotificationBridge.sendNotification({
+          userId: mechanicUserId,
+          title: "Customer marked job not done",
+          message: `${serviceRequest.customer?.name || "Customer"} says this job is not completed yet.`,
+          type: "MECHANIC_STATUS_UPDATE",
+          module: "AUTO_PARTS",
+          actionUrl: `/auto-parts/mechanics/service-requests/${requestId}`,
+          data: {
+            actionType: "navigate",
+            screen: "MechanicServiceRequestDetails",
+            params: [{ name: "requestId", value: requestId }],
+            status: "IN_PROGRESS",
+            source: "customer_not_done_yet",
+          },
+        })
+      }
     } else if (status === "COMPLETED") {
       // Get order from metadata if exists
       const orderId = (metadata as any)?.orderId

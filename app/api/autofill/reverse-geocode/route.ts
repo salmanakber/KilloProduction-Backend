@@ -19,11 +19,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Use Google Reverse Geocoding API to convert coordinates to address
+    // Use Google Reverse Geocoding API to convert coordinates to detailed address
     const params = new URLSearchParams({
       latlng: `${latitude},${longitude}`,
       key: apiKey,
-      result_type: 'locality|administrative_area_level_1|country' // Get city, state, country
     })
 
     const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`
@@ -46,14 +45,41 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Prefer the most specific result for precise address details.
+    const topResult = data.results[0]
+    const components = topResult.address_components || []
+
     // Extract city, state, and country from results
     let city = ''
     let state = ''
     let country = ''
-    let formattedAddress = data.results[0].formatted_address
+    let formattedAddress = topResult.formatted_address || ''
+    let streetNumber = ''
+    let route = ''
+    let neighborhood = ''
+    let premise = ''
+    let subpremise = ''
 
-    for (const component of data.results[0].address_components) {
+    for (const component of components) {
+      if (component.types.includes('street_number')) {
+        streetNumber = component.long_name
+      } else if (component.types.includes('route')) {
+        route = component.long_name
+      } else if (component.types.includes('premise')) {
+        premise = component.long_name
+      } else if (component.types.includes('subpremise')) {
+        subpremise = component.long_name
+      } else if (
+        component.types.includes('sublocality') ||
+        component.types.includes('sublocality_level_1') ||
+        component.types.includes('neighborhood')
+      ) {
+        neighborhood = component.long_name
+      }
+
       if (component.types.includes('locality')) {
+        city = component.long_name
+      } else if (component.types.includes('administrative_area_level_2') && !city) {
         city = component.long_name
       } else if (component.types.includes('administrative_area_level_1')) {
         state = component.long_name
@@ -62,22 +88,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fallback: if no city found, try to get from formatted address
+    // Fallbacks for missing city
     if (!city && formattedAddress) {
       const parts = formattedAddress.split(',')
       if (parts.length > 0) {
-        city = parts[0].trim()
+        city = parts[1]?.trim() || parts[0].trim()
       }
     }
 
-    console.log('✅ Reverse geocoded successfully:', { city, state, country, formattedAddress })
+    const streetPart = [streetNumber, route].filter(Boolean).join(' ').trim()
+    const blockOrBuilding = [premise, subpremise].filter(Boolean).join(' ').trim()
+    const exactAddress = [blockOrBuilding, streetPart, neighborhood].filter(Boolean).join(', ')
+    const addressLine = exactAddress || (formattedAddress.split(',')[0] || '').trim()
+
+    console.log('✅ Reverse geocoded successfully:', { city, state, country, addressLine, formattedAddress })
 
     return NextResponse.json({
       city,
       state,
       country,
+      addressLine,
       formattedAddress,
-      placeId: data.results[0].place_id
+      placeId: topResult.place_id
     })
 
   } catch (error) {

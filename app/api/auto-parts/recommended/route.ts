@@ -2,10 +2,32 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 
+const MIN_NEARBY_KM = 0
+const MAX_NEARBY_KM = 70
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
 export async function GET(request: NextRequest) {
   try {
     const user = await authenticateRequest(request)
     const { searchParams } = new URL(request.url)
+    const hasLat = searchParams.get("latitude") != null
+    const hasLon = searchParams.get("longitude") != null
+    const userLat = hasLat ? parseFloat(searchParams.get("latitude") as string) : null
+    const userLon = hasLon ? parseFloat(searchParams.get("longitude") as string) : null
+    const hasCoords = Number.isFinite(userLat) && Number.isFinite(userLon)
     const city = searchParams.get('city') // City filter
     const limit = parseInt(searchParams.get('limit') || '10')
 
@@ -65,7 +87,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Filter by vendor city if provided
-      if (city) {
+      if (city && !hasCoords) {
         productWhere.vendor = {
           vendorProfile: {
             city: {
@@ -97,6 +119,8 @@ export async function GET(request: NextRequest) {
                     logo: true,
                     city: true,
                     state: true,
+                    latitude: true,
+                    longitude: true,
                   }
                 }
               }
@@ -132,7 +156,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Filter by vendor city if provided
-      if (city) {
+      if (city && !hasCoords) {
         productWhere.vendor = {
           vendorProfile: {
             city: {
@@ -156,6 +180,8 @@ export async function GET(request: NextRequest) {
                   logo: true,
                   city: true,
                   state: true,
+                  latitude: true,
+                  longitude: true,
                 }
               }
             }
@@ -182,6 +208,10 @@ export async function GET(request: NextRequest) {
         : 4.5
 
       const vendorProfile = part.vendor.vendorProfile
+      const distance =
+        hasCoords && vendorProfile?.latitude && vendorProfile?.longitude
+          ? calculateDistance(userLat as number, userLon as number, vendorProfile.latitude, vendorProfile.longitude)
+          : null
 
       return {
         id: part.id,
@@ -207,12 +237,34 @@ export async function GET(request: NextRequest) {
           logo: vendorProfile?.logo || part.vendor.avatar,
           rating: 4.5,
           isVerified: part.vendor.isVerified || false,
+          city: vendorProfile?.city || "",
+          distance: distance ? `${distance.toFixed(1)} km` : null,
+          distanceValue: distance,
         }
       }
     })
 
+    const filteredParts = formattedParts
+      .filter((p: any) => {
+        const dv = p?.store?.distanceValue
+        if (dv == null) return true
+        return dv >= MIN_NEARBY_KM && dv <= MAX_NEARBY_KM
+      })
+      .sort((a: any, b: any) => {
+        const aInPreferredBand =
+          typeof a?.store?.distanceValue === "number" && a.store.distanceValue >= 15 && a.store.distanceValue <= 70
+        const bInPreferredBand =
+          typeof b?.store?.distanceValue === "number" && b.store.distanceValue >= 15 && b.store.distanceValue <= 70
+        if (aInPreferredBand !== bInPreferredBand) return aInPreferredBand ? -1 : 1
+        const ad = typeof a?.store?.distanceValue === "number" ? a.store.distanceValue : Number.MAX_SAFE_INTEGER
+        const bd = typeof b?.store?.distanceValue === "number" ? b.store.distanceValue : Number.MAX_SAFE_INTEGER
+        if (ad !== bd) return ad - bd
+        return (b?.rating || 0) - (a?.rating || 0)
+      })
+      .slice(0, limit)
+
     return NextResponse.json({
-      parts: formattedParts,
+      parts: filteredParts,
     })
   } catch (error) {
     console.error("Recommended parts fetch error:", error)

@@ -4252,6 +4252,7 @@ enum NotificationType {
   WALLET_UPDATE
   ORDER
   MECHANIC_ADDITIONAL_PARTS_REQUEST
+  REVIEW_RECEIVED
 }
 
 enum TicketPriority {

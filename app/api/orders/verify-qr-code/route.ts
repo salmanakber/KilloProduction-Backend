@@ -357,6 +357,7 @@ export async function POST(request: NextRequest) {
             groceryStoreId: true,
             restaurantId: true,
             pharmacyId: true,
+            storeName: true,
             module: true,
             orderId: true,
             status: true,
@@ -403,14 +404,18 @@ export async function POST(request: NextRequest) {
           case 'PHARMACY':
             storeId = multiplePickup.pharmacyId
             break
+          case 'AUTO_PARTS':
+            // Auto-parts pickups are stored as denormalized names in MultiplePickup.
+            // We validate vendor/store ownership below using order.vendorId + storeName.
+            storeId = null
+            break
           default:
-            console.log( "order.module is not supported", order.module)
             return NextResponse.json({ 
               error: `Unsupported module: ${order.module}` 
             }, { status: 400 })
         }
 
-        if (!storeId) {
+        if (!storeId && order.module !== 'AUTO_PARTS') {
           console.log( "storeId is null", storeId)
           return NextResponse.json({ 
             error: `Pickup point does not have a ${order.module} store ID` 
@@ -421,22 +426,62 @@ export async function POST(request: NextRequest) {
         let storeUserId: string | null = null
         if (order.module === 'GROCERY') {
           const groceryStore = await prisma.groceryStore.findUnique({
-            where: { id: storeId },
+            where: { id: storeId as string },
             select: { userId: true },
           })
           storeUserId = groceryStore?.userId || null
         } else if (order.module === 'FOOD') {
           const restaurant = await prisma.restaurant.findUnique({
-            where: { id: storeId },
+            where: { id: storeId as string },
             select: { userId: true },
           })
           storeUserId = restaurant?.userId || null
         } else if (order.module === 'PHARMACY') {
           const pharmacy = await prisma.pharmacy.findUnique({
-            where: { id: storeId },
+            where: { id: storeId as string },
             select: { userId: true },
           })
           storeUserId = pharmacy?.userId || null
+        } else if (order.module === 'AUTO_PARTS') {
+          if (!order.vendorId) {
+            console.log( "order.vendorId is null", order.vendorId)
+            return NextResponse.json(
+              { error: "Auto-parts child order is missing vendor linkage" },
+              { status: 400 },
+            )
+          }
+
+          // Prefer vendorProfile (canonical vendor identity), fallback to autoPartsStore.
+          const [vendorProfile, autoStore] = await Promise.all([
+            prisma.vendorProfile.findUnique({
+              where: { userId: order.vendorId },
+              select: { userId: true, businessName: true },
+            }),
+            prisma.autoPartsStore.findUnique({
+              where: { userId: order.vendorId },
+              select: { userId: true, storeName: true },
+            }),
+          ])
+
+          const normalize = (v: string | null | undefined) => String(v || "").trim().toLowerCase()
+          const pickupStoreName = normalize(multiplePickup.storeName)
+          const resolvedStoreName = normalize(vendorProfile?.businessName || autoStore?.storeName)
+          const resolvedUserId = vendorProfile?.userId || autoStore?.userId || null
+
+          // Keep wrong-vendor protection for multi-pickup AUTO_PARTS stops.
+          if (!resolvedUserId || !pickupStoreName || !resolvedStoreName || pickupStoreName !== resolvedStoreName) {
+            console.log( "vendorProfile", vendorProfile)
+            console.log( "autoStore", autoStore)
+            console.log( "pickupStoreName is null", pickupStoreName)
+            console.log( "resolvedStoreName is null", resolvedStoreName)
+            console.log( "pickupStoreName !== resolvedStoreName", pickupStoreName !== resolvedStoreName)
+            return NextResponse.json(
+              { error: "QR code order does not belong to this pickup point. This QR code is for a different store." },
+              { status: 400 },
+            )
+          }
+
+          storeUserId = resolvedUserId
         }
 
         if (!storeUserId) {

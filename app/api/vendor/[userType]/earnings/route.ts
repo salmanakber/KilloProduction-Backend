@@ -343,11 +343,14 @@ export async function GET(
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
 
     // Get commission rate from CommissionSetting
+    const commissionType =
+      userType === "mechanic" ? "MECHANIC_TAX" : "VENDOR_COMMISSION"
+    const commissionModule = module === "MECHANIC" ? "AUTO_PARTS" : module
     const commissionSetting = await prisma.commissionSetting.findUnique({
       where: {
         module_commissionType: {
-          module: module === "MECHANIC" ? "AUTO_PARTS" : module as any,
-          commissionType: "VENDOR_COMMISSION",
+          module: commissionModule as any,
+          commissionType: commissionType as any,
         },
         isActive: true,
       },
@@ -360,8 +363,11 @@ export async function GET(
     let totalCommission = 0
     verifiedTransactions.forEach((wt) => {
       const metadata = wt.metadata as any
-      if (metadata && metadata.vendorCommission) {
-        totalCommission += metadata.vendorCommission || 0
+      if (!metadata) return
+      if (userType === "mechanic") {
+        totalCommission += Number(metadata.mechanicTax || 0)
+      } else if (metadata.vendorCommission) {
+        totalCommission += Number(metadata.vendorCommission || 0)
       }
     })
 
@@ -369,7 +375,12 @@ export async function GET(
     if (totalCommission === 0 && totalRevenue > 0) {
       totalCommission = (totalRevenue * commissionRate) / 100
     }
-    const averageCommissionRate = totalRevenue > 0 ? (totalCommission / totalRevenue) * 100 : commissionRate
+    const averageCommissionRate =
+      userType === "mechanic"
+        ? commissionRate
+        : totalRevenue > 0
+          ? (totalCommission / totalRevenue) * 100
+          : commissionRate
 
     // Growth percentage (current period vs previous period of same length)
     let growthPercentage = 0
