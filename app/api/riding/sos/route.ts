@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getSocketServer } from "@/lib/socket-init"
+import { NotificationBridge } from "@/lib/notification-bridge"
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,9 +12,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { bookingId, customerId, riderId, latitude, longitude, timestamp, message } = body
+    const { bookingId, latitude, longitude, timestamp, message } = body
 
-    if (!bookingId || !customerId || !latitude || !longitude) {
+    if (!bookingId || typeof latitude !== "number" || typeof longitude !== "number") {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
@@ -69,6 +70,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No active booking found" }, { status: 404 })
     }
 
+    const existingActive = await prisma.sOSAlert.findFirst({
+      where: {
+        bookingId: booking.id,
+        customerId: user.id,
+        status: "ACTIVE",
+        timestamp: {
+          gte: new Date(Date.now() - 30 * 1000),
+        },
+      },
+      select: { id: true, timestamp: true },
+      orderBy: { timestamp: "desc" },
+    })
+    if (existingActive) {
+      return NextResponse.json({
+        success: true,
+        message: "SOS alert already active",
+        data: { sosId: existingActive.id, timestamp: existingActive.timestamp },
+      })
+    }
+
     // Create SOS record
     const sosRecord = await prisma.sOSAlert.create({
       data: {
@@ -78,7 +99,7 @@ export async function POST(request: NextRequest) {
         riderId: booking.riderId,
         latitude: latitude,
         longitude: longitude,
-        message: message || 'SOS Alert - Customer needs immediate assistance',
+        message: String(message || 'SOS Alert - Customer needs immediate assistance').slice(0, 500),
         status: 'ACTIVE',
         timestamp: new Date(timestamp || new Date().toISOString())
       }
@@ -103,6 +124,15 @@ export async function POST(request: NextRequest) {
           timestamp: sosRecord.timestamp
         },
         actionUrl: `/rider/sos/${sosRecord.id}`,
+      })
+      await NotificationBridge.sendNotification({
+        userId: booking.rider.user.id,
+        title: "Emergency SOS",
+        message: `Customer triggered SOS for booking #${booking.bookingNumber}. Please respond immediately.`,
+        type: "SYSTEM",
+        module: "RIDING",
+        actionUrl: `/rider/sos/${sosRecord.id}`,
+        data: { sosId: sosRecord.id, bookingId: booking.id, latitude, longitude, timestamp: sosRecord.timestamp },
       })
     }
 
@@ -129,6 +159,15 @@ export async function POST(request: NextRequest) {
           timestamp: sosRecord.timestamp
         },
         actionUrl: `/admin/sos/${sosRecord.id}`,
+      })
+      await NotificationBridge.sendNotification({
+        userId: admin.id,
+        title: "Emergency SOS Alert",
+        message: `SOS triggered on booking #${booking.bookingNumber}. Immediate review required.`,
+        type: "SYSTEM",
+        module: "ADMIN",
+        actionUrl: `/admin/sos/${sosRecord.id}`,
+        data: { sosId: sosRecord.id, bookingId: booking.id, customerId: user.id, riderId: booking.riderId, latitude, longitude, timestamp: sosRecord.timestamp },
       })
     }
 

@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
         vehicleType: true,
         category: true,
         isActive: true,
+        mediaType: true,
+        imageUrl: true,
         createdAt: true,
       },
       orderBy: [

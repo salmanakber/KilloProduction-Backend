@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { jwtVerify } from "jose"
-
-// Define routes protected by roles
-const roleProtectedRoutes: Record<string, string[]> = {
-  SUPER_ADMIN: ["/admin", "/admin/dashboard", "/admin/users"],
-  ADMIN: ["/admin", "/admin/dashboard", "/admin/users"],
-  investor: ["/investor", "/investor/dashboard"],
-  user: ["/user", "/profile"]
-}
+import { requiredFeatureForPath, resolveAdminFeatures } from "@/lib/admin-access"
 
 // Public routes (no auth required)
 const publicRoutes = [
@@ -47,21 +40,19 @@ export async function middleware(req: NextRequest) {
   try {
     // ✅ Verify token using `jose` (Edge-compatible)
     const { payload } = await jwtVerify(token, encoder.encode(JWT_SECRET))
-    const userRole = payload.role
-
-    // ✅ Check if this route is protected
-    const allRoles = Object.keys(roleProtectedRoutes)
-    const matchingRole = allRoles.find((role) =>
-      roleProtectedRoutes[role].some((route) => pathname.startsWith(route))
-    )
-
-    // ✅ If no role matches → allow
-    if (!matchingRole) return NextResponse.next()
-
-    // ✅ If user role matches the route → allow
-    if (userRole === matchingRole) return NextResponse.next()
-
-    // ❌ Role mismatch
+    const userRole = String(payload.role || "")
+    if (userRole !== "ADMIN" && userRole !== "SUPER_ADMIN") {
+      return NextResponse.redirect(new URL("/admin/unauthorized", req.url))
+    }
+    const requiredFeature = requiredFeatureForPath(pathname)
+    if (!requiredFeature) return NextResponse.next()
+    const grants = Array.isArray((payload as any)?.adminAccess?.grants)
+      ? ((payload as any).adminAccess.grants as string[])
+      : []
+    const grantedFeatures = resolveAdminFeatures(grants, userRole)
+    if (userRole === "SUPER_ADMIN" || grantedFeatures.includes(requiredFeature)) {
+      return NextResponse.next()
+    }
     return NextResponse.redirect(new URL("/admin/unauthorized", req.url))
   } catch (err) {
     console.error("Invalid token in middleware:", err)

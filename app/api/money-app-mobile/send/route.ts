@@ -4,6 +4,36 @@ import { authenticateRequest } from "@/lib/auth"
 import Stripe from "stripe"
 import { NotificationBridge } from "@/lib/notification-bridge" //@TODO: Use NotificationService instead
 
+async function initializePaystackPayment(args: {
+  secretKey: string
+  email: string
+  amount: number
+  reference: string
+  metadata: Record<string, unknown>
+  callbackUrl?: string
+}) {
+  const response = await fetch("https://api.paystack.co/transaction/initialize", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: args.email,
+      amount: Math.round(args.amount * 100),
+      currency: "NGN",
+      reference: args.reference,
+      callback_url: args.callbackUrl,
+      metadata: args.metadata,
+    }),
+  })
+  const payload = await response.json()
+  if (!response.ok || !payload?.status) {
+    throw new Error(payload?.message || "Failed to initialize Paystack payment")
+  }
+  return payload.data as { authorization_url: string; access_code: string; reference: string }
+}
+
 // Get Money Transfer Stripe config (separate from marketplace)
 // Falls back to marketplace Stripe if Money Transfer Stripe is not configured
 async function getMoneyTransferStripeConfig() {
@@ -175,30 +205,62 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Create Stripe payment intent
-    const stripe = await getMoneyTransferStripeConfig()
-    
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(totalAmount * 100), // Convert to cents
-      currency: currency.toLowerCase(),
-      description: `Money transfer: ${transfer.reference}`,
-      metadata: {
-        transferId: transfer.id,
-        senderId: user.id,
-        receiverId: receiver.id,
-        type: "MONEY_TRANSFER",
-      },
-    })
+    const settings = await prisma.systemSettings.findFirst({ select: { paymentMethods: true } })
+    const paymentMethods = (settings?.paymentMethods || {}) as any
+    const primaryGateway = String(paymentMethods?.primaryGateway || paymentMethods?.primary || "STRIPE").toUpperCase()
+    const shouldUsePaystack = primaryGateway === "PAYSTACK" && Boolean(config?.paystackSecretKey)
+    let payment: Record<string, unknown>
 
-    // Update transfer with Stripe payment intent
-    await prisma.moneyTransfer.update({
-      where: { id: transfer.id },
-      data: {
-        stripePaymentIntentId: paymentIntent.id,
-        stripeClientSecret: paymentIntent.client_secret,
-        stripeAmount: paymentIntent.amount,
-      },
-    })
+    if (shouldUsePaystack) {
+      const paystackInit = await initializePaystackPayment({
+        secretKey: config.paystackSecretKey as string,
+        email: user.email || `${user.id}@killo.local`,
+        amount: totalAmount,
+        reference: transfer.reference,
+        callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL || ""}/money-transfer/return`,
+        metadata: {
+          transferId: transfer.id,
+          senderId: user.id,
+          receiverId: receiver.id,
+          type: "MONEY_TRANSFER",
+        },
+      })
+
+      payment = {
+        gateway: "PAYSTACK",
+        authorizationUrl: paystackInit.authorization_url,
+        accessCode: paystackInit.access_code,
+        reference: paystackInit.reference,
+      }
+    } else {
+      const stripe = await getMoneyTransferStripeConfig()
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(totalAmount * 100), // Convert to cents
+        currency: currency.toLowerCase(),
+        description: `Money transfer: ${transfer.reference}`,
+        metadata: {
+          transferId: transfer.id,
+          senderId: user.id,
+          receiverId: receiver.id,
+          type: "MONEY_TRANSFER",
+        },
+      })
+
+      await prisma.moneyTransfer.update({
+        where: { id: transfer.id },
+        data: {
+          stripePaymentIntentId: paymentIntent.id,
+          stripeClientSecret: paymentIntent.client_secret,
+          stripeAmount: paymentIntent.amount,
+        },
+      })
+
+      payment = {
+        gateway: "STRIPE",
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+      }
+    }
 
     // Create notification for receiver
     await NotificationBridge.sendNotification({
@@ -228,10 +290,7 @@ export async function POST(request: NextRequest) {
         totalAmount,
         status: transfer.status,
       },
-      payment: {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-      },
+      payment,
     })
   } catch (error: any) {
     console.error("Error creating money transfer:", error)

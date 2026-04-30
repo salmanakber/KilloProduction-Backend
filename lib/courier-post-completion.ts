@@ -10,7 +10,6 @@ import {
   markCommissionsAsPaid,
 } from "@/lib/pharmacy-payment-service"
 import { markRiderEarningAsPaid, resolveRiderCommissionModule } from "@/lib/rider-earnings-helper"
-import { bumpRiderBonusOnDeliveryEarning } from "@/lib/rider-bonus-engine"
 import { splitAmountByWeights } from "@/lib/order-vendor-platform-fee-record"
 import { CommissionStatus, CommissionType, type Module } from "@prisma/client"
 import {
@@ -351,7 +350,6 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
       },
     })
     await markRiderEarningAsPaid(undefined, courierBookingId)
-    void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
   } catch (commissionError) {
     console.error("Error processing commissions on order completion:", commissionError)
     try {
@@ -360,7 +358,6 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
         data: { paymentStatus: "PAID" },
       })
       await markRiderEarningAsPaid(undefined, courierBookingId)
-      void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
     } catch (e2) {
       console.error("Error in courier completion fallback (payment + rider earning):", e2)
     }

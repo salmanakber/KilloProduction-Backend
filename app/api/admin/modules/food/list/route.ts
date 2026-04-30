@@ -119,8 +119,9 @@ export async function GET(request: NextRequest) {
     })
 
     const formattedRestaurants = restaurants.map((restaurant) => {
-      const totalRevenue = restaurant.vendorOrders?.reduce((sum, order) => sum + order.total, 0) || 0
-      const totalOrders = restaurant.vendorOrders?.length || 0
+      const deliveredOrders = (restaurant.vendorOrders || []).filter((order) => order.status === "DELIVERED")
+      const totalRevenue = deliveredOrders.reduce((sum, order) => sum + order.total, 0)
+      const totalOrders = deliveredOrders.length
       const restaurantId = restaurant.restaurant?.id || restaurant.id
       const rejections = rejectionMap.get(restaurantId) || []
 

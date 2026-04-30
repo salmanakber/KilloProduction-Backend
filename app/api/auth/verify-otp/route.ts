@@ -47,8 +47,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
     
-    // Check if account is deactivated - generate temporary token for verification center
-    if (!user.isActive || !user.isVerified) {
+    const isFirstCustomerVerification = user.role === "CUSTOMER" && !user.isVerified
+    if (isFirstCustomerVerification) {
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: userId },
+          data: {
+            isVerified: true,
+            isActive: true,
+            status: "ACTIVE",
+          },
+        }),
+        prisma.userProfile.updateMany({
+          where: { userId },
+          data: { isActive: true },
+        }),
+        prisma.otp.update({
+          where: { id: storedOtp.id },
+          data: { verified: true },
+        }),
+      ])
+    } else if (!user.isActive || !user.isVerified) {
       // Generate temporary token (valid for 1 hour) to access verification center
       const tempToken = await generateToken({
         userId: user.id,
@@ -74,16 +93,17 @@ export async function POST(request: NextRequest) {
       }, { status: 403 })
     }
 
-    // Mark user as verified
-    await prisma.user.update({
-      where: { id: userId },
-      data: { isVerified: true },
-    })
-
-    await prisma.otp.update({
-      where: { id: storedOtp.id },
-      data: { verified: true },
-    })
+    if (!isFirstCustomerVerification) {
+      // Mark user as verified for other verified-active accounts
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isVerified: true },
+      })
+      await prisma.otp.update({
+        where: { id: storedOtp.id },
+        data: { verified: true },
+      })
+    }
     // Generate JWT token
     const token = await generateToken({
       userId: user.id,
@@ -99,9 +119,9 @@ export async function POST(request: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
-        isVerified: user.isVerified,
-        isActive: user.isActive,
-        status: user.status,
+        isVerified: isFirstCustomerVerification ? true : user.isVerified,
+        isActive: isFirstCustomerVerification ? true : user.isActive,
+        status: isFirstCustomerVerification ? "ACTIVE" : user.status,
         avatar: user.avatar,
         profile: user.userProfile,
         settings: user.userSettings,

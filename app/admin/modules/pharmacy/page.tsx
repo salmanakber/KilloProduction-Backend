@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import {
   Store,
   TrendingUp,
@@ -508,6 +509,12 @@ export default function PharmacyManagement() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
+                      <Link
+                        href={`/admin/modules/vendor-performance?vendorId=${encodeURIComponent(pharmacy.userId || "")}&module=PHARMACY&label=${encodeURIComponent(pharmacy.name)}`}
+                        className="text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        Performance
+                      </Link>
                       <button
                         type="button"
                         title="Edit vendor"

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { systemSettings } from "@/lib/systemSettings"
+import { buildReportData, parseReportFilters } from "@/app/api/admin/reports/reporting-core"
 
 export async function GET(_request: NextRequest) {
   try {
@@ -19,7 +20,7 @@ export async function GET(_request: NextRequest) {
 
     const baseVendor = { role: "VENDOR" as const }
 
-    const [totalStores, activeStores, pendingApproval, ordersAgg, productCount] = await Promise.all([
+    const [totalStores, activeStores, pendingApproval, reportData, productCount] = await Promise.all([
       prisma.user.count({
         where: { ...baseVendor, groceryStore: { isNot: null } },
       }),
@@ -29,11 +30,7 @@ export async function GET(_request: NextRequest) {
       prisma.user.count({
         where: { ...baseVendor, groceryStore: { is: { isVerified: false } } },
       }),
-      prisma.order.aggregate({
-        where: { module: "GROCERY" },
-        _sum: { total: true },
-        _count: true,
-      }),
+      buildReportData(parseReportFilters(new URLSearchParams({ module: "GROCERY", includeLogs: "false" }))),
       prisma.groceryProduct.count({ where: { isActive: true } }),
     ])
 
@@ -46,8 +43,8 @@ export async function GET(_request: NextRequest) {
       totalStores,
       activeStores,
       pendingApproval,
-      totalRevenue: ordersAgg._sum.total ?? 0,
-      totalOrders: ordersAgg._count ?? 0,
+      totalRevenue: reportData.summary.grossSales ?? 0,
+      totalOrders: reportData.summary.totalOrders ?? 0,
       totalProducts: productCount,
       averageRating: reviewsAgg._avg.rating ?? 0,
       currencySymbol,

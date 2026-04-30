@@ -35,6 +35,12 @@ interface Employee {
   modules: string[]
 }
 
+interface AdminAccess {
+  accessRole: string
+  grants: string[]
+  modules: string[]
+}
+
 interface EmployeeStats {
   totalEmployees: number
   activeEmployees: number
@@ -72,7 +78,10 @@ export default function EmployeeManagement() {
   const [stats, setStats] = useState<EmployeeStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
+  const [currentAccess, setCurrentAccess] = useState<AdminAccess | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("ALL")
   const [statusFilter, setStatusFilter] = useState("ALL")
@@ -85,11 +94,29 @@ export default function EmployeeManagement() {
     department: "",
     permissions: [] as string[],
     modules: [] as string[],
+    password: "",
+  })
+  const [editEmployee, setEditEmployee] = useState({
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    role: "SUPPORT",
+    department: "",
+    permissions: [] as string[],
+    modules: [] as string[],
   })
 
   useEffect(() => {
     fetchEmployeeData()
   }, [searchTerm, roleFilter, statusFilter])
+
+  useEffect(() => {
+    fetch("/api/admin/access/me")
+      .then((r) => r.json())
+      .then((data) => setCurrentAccess(data))
+      .catch(() => setCurrentAccess(null))
+  }, [])
 
   const fetchEmployeeData = async () => {
     try {
@@ -128,12 +155,45 @@ export default function EmployeeManagement() {
           department: "",
           permissions: [],
           modules: [],
+          password: "",
         })
       }
     } catch (error) {
       console.error("Failed to create employee:", error)
     }
   }
+
+  const handleOpenEditModal = (employee: Employee) => {
+    setEditEmployee({
+      id: employee.id,
+      name: employee.name || "",
+      email: employee.email || "",
+      phone: employee.phone || "",
+      role: employee.role,
+      department: employee.department || "",
+      permissions: employee.permissions || [],
+      modules: employee.modules || [],
+    })
+    setShowEditModal(true)
+  }
+
+  const handleUpdateEmployee = async () => {
+    try {
+      const response = await fetch(`/api/admin/employees/${editEmployee.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editEmployee),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.error || "Failed to update employee")
+      setShowEditModal(false)
+      fetchEmployeeData()
+    } catch (error) {
+      alert((error as Error).message)
+    }
+  }
+
+  const canDeleteEmployees = !!currentAccess && (currentAccess.accessRole === "SUPER_ADMIN" || currentAccess.grants?.includes("settings.manage"))
 
   const handleUpdateEmployeeStatus = async (employeeId: string, status: string) => {
     try {
@@ -149,6 +209,40 @@ export default function EmployeeManagement() {
     } catch (error) {
       console.error("Failed to update employee status:", error)
     }
+  }
+
+  const handleDeleteEmployee = async (employeeId: string) => {
+    if (!confirm("Delete this employee? This action cannot be undone.")) return
+    try {
+      const response = await fetch(`/api/admin/employees/${employeeId}`, { method: "DELETE" })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.error || "Failed to delete employee")
+      setSelectedEmployee(null)
+      fetchEmployeeData()
+    } catch (error) {
+      alert((error as Error).message)
+    }
+  }
+
+  const handleExportEmployees = () => {
+    const header = ["Name", "Email", "Phone", "Role", "Department", "Status", "Joined At"]
+    const rows = employees.map((employee) => [
+      employee.name,
+      employee.email,
+      employee.phone,
+      employee.role,
+      employee.department,
+      employee.status,
+      new Date(employee.joinedAt).toISOString(),
+    ])
+    const csv = [header, ...rows].map((row) => row.map((v) => `"${String(v || "").replaceAll('"', '""')}"`).join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "employees.csv"
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const getRoleColor = (role: string) => {
@@ -186,7 +280,7 @@ export default function EmployeeManagement() {
           <p className="text-gray-600 mt-1">Manage admin staff, roles, and permissions</p>
         </div>
         <div className="flex items-center space-x-3">
-          <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button onClick={handleExportEmployees} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
             <Download className="h-4 w-4 mr-2" />
             Export
           </button>
@@ -435,13 +529,28 @@ export default function EmployeeManagement() {
                       >
                         <Eye className="h-4 w-4" />
                       </button>
-                      <button className="text-blue-600 hover:text-blue-900">
+                      <button
+                        onClick={() => handleOpenEditModal(employee)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit"
+                      >
                         <Edit className="h-4 w-4" />
                       </button>
-                      <button className="text-gray-600 hover:text-gray-900">
+                      <button
+                        onClick={() => {
+                          setSelectedEmployee(employee)
+                          setShowSettingsModal(true)
+                        }}
+                        className="text-gray-600 hover:text-gray-900"
+                        title="Settings"
+                      >
                         <Settings className="h-4 w-4" />
                       </button>
-                      <button className="text-red-600 hover:text-red-900">
+                      <button
+                        onClick={() => handleDeleteEmployee(employee.id)}
+                        className={`text-red-600 hover:text-red-900 ${!canDeleteEmployees ? "opacity-40 pointer-events-none" : ""}`}
+                        title="Delete"
+                      >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
@@ -504,6 +613,16 @@ export default function EmployeeManagement() {
                     onChange={(e) => setNewEmployee({ ...newEmployee, department: e.target.value })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
                     placeholder="Enter department"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Initial Password</label>
+                  <input
+                    type="text"
+                    value={newEmployee.password}
+                    onChange={(e) => setNewEmployee({ ...newEmployee, password: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+                    placeholder="Set temporary password"
                   />
                 </div>
               </div>
@@ -595,6 +714,88 @@ export default function EmployeeManagement() {
               >
                 Create Employee
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View/Edit Employee Modal */}
+      {selectedEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-xl w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Employee Details</h2>
+              <button onClick={() => setSelectedEmployee(null)} className="text-gray-400 hover:text-gray-600">
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="space-y-2 text-sm text-gray-700">
+              <p><strong>Name:</strong> {selectedEmployee.name}</p>
+              <p><strong>Email:</strong> {selectedEmployee.email}</p>
+              <p><strong>Phone:</strong> {selectedEmployee.phone || "N/A"}</p>
+              <p><strong>Role:</strong> {selectedEmployee.role}</p>
+              <p><strong>Department:</strong> {selectedEmployee.department || "N/A"}</p>
+              <p><strong>Status:</strong> {selectedEmployee.status}</p>
+              <p><strong>Modules:</strong> {selectedEmployee.modules.join(", ") || "None"}</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-6">
+              <button
+                onClick={() => handleUpdateEmployeeStatus(selectedEmployee.id, selectedEmployee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Toggle Status
+              </button>
+              <button
+                onClick={() => handleDeleteEmployee(selectedEmployee.id)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Edit Employee</h2>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input value={editEmployee.name} onChange={(e) => setEditEmployee({ ...editEmployee, name: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Name" />
+              <input value={editEmployee.email} onChange={(e) => setEditEmployee({ ...editEmployee, email: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Email" />
+              <input value={editEmployee.phone} onChange={(e) => setEditEmployee({ ...editEmployee, phone: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Phone" />
+              <input value={editEmployee.department} onChange={(e) => setEditEmployee({ ...editEmployee, department: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Department" />
+              <select value={editEmployee.role} onChange={(e) => setEditEmployee({ ...editEmployee, role: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 md:col-span-2">
+                {ROLES.map((role) => (
+                  <option key={role.value} value={role.value}>{role.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-6">
+              <button onClick={() => setShowEditModal(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button onClick={handleUpdateEmployee} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showSettingsModal && selectedEmployee && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-xl w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Employee Settings</h2>
+              <button onClick={() => setShowSettingsModal(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle className="h-6 w-6" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">Manage account status for {selectedEmployee.name}.</p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => handleUpdateEmployeeStatus(selectedEmployee.id, "ACTIVE")} className="px-4 py-2 bg-green-600 text-white rounded-lg">Set Active</button>
+              <button onClick={() => handleUpdateEmployeeStatus(selectedEmployee.id, "INACTIVE")} className="px-4 py-2 bg-gray-600 text-white rounded-lg">Set Inactive</button>
+              <button onClick={() => handleUpdateEmployeeStatus(selectedEmployee.id, "SUSPENDED")} className="px-4 py-2 bg-red-600 text-white rounded-lg">Suspend</button>
             </div>
           </div>
         </div>

@@ -204,16 +204,16 @@ export default function SystemSettings() {
 
   useEffect(() => {
     fetchSettings()
-    getCurrency()
   }, [])
 
-  const getCurrency = async () => setCurrency("₦")
+  
 
   const fetchSettings = async () => {
     try {
       const response = await fetch("/api/admin/settings")
       const data = await response.json()
       setSettings(data.settings)
+      setCurrency(data.defaultCurrencyCode)
     } catch (error) {
       console.error("Failed to fetch settings:", error)
     } finally {

@@ -41,6 +41,14 @@ export async function POST(request: NextRequest) {
     })
     
     if (!user) {
+      await prisma.auditLog.create({
+        data: {
+          action: "LOGIN_FAILED",
+          entityType: "AUTH",
+          entityId: email || phone || "UNKNOWN",
+          details: { reason: "USER_NOT_FOUND", email: email || null, phone: phone || null },
+        },
+      }).catch(() => {})
       return NextResponse.json(
         { error: "Invalid phone number or email" },
         { status: 404 }
@@ -54,6 +62,15 @@ export async function POST(request: NextRequest) {
     const lockMinutes = sys?.lockoutDuration ?? 30
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
+      await prisma.auditLog.create({
+        data: {
+          performedBy: user.id,
+          action: "LOGIN_FAILED",
+          entityType: "AUTH",
+          entityId: user.id,
+          details: { reason: "ACCOUNT_LOCKED", lockedUntil: user.lockedUntil.toISOString() },
+        },
+      }).catch(() => {})
       return NextResponse.json(
         {
           error: "Account temporarily locked after too many failed attempts. Try again later.",
@@ -111,6 +128,15 @@ export async function POST(request: NextRequest) {
           lockedUntil,
         },
       })
+      await prisma.auditLog.create({
+        data: {
+          performedBy: user.id,
+          action: "LOGIN_FAILED",
+          entityType: "AUTH",
+          entityId: user.id,
+          details: { reason: "INVALID_PASSWORD", failedAttempts: fails, locked: Boolean(lockedUntil) },
+        },
+      }).catch(() => {})
       return NextResponse.json(
         {
           error: "Invalid password",
@@ -129,10 +155,18 @@ export async function POST(request: NextRequest) {
         lastLoginAt: new Date(),
       },
     })
-
     // Check if OTP verification should be skipped
     // If otp parameter is false, skip OTP. Otherwise check environment variable
     const skipOTP = otp === false || process.env.SKIP_OTP_VERIFICATION === "true"
+    await prisma.auditLog.create({
+      data: {
+        performedBy: user.id,
+        action: "LOGIN_SUCCESS",
+        entityType: "AUTH",
+        entityId: user.id,
+        details: { via: email ? "EMAIL" : "PHONE", otpRequired: !skipOTP },
+      },
+    }).catch(() => {})
 
     if (skipOTP) {
       // Generate JWT token directly without OTP

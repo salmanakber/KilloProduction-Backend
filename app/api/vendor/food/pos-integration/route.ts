@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         apiKey,
         restaurantName: restaurant.name,
-        baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://your-api-domain.com'}/api/pos/food`,
+        baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://api.kilo1app.com'}/api/pos/food`,
         message: "API key generated successfully. Keep this key secure and use it for all POS integration requests.",
       })
     }
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       apiKey: restaurant.apiKey,
       restaurantName: restaurant.name,
-      baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://your-api-domain.com'}/api/pos/food`,
+      baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://api.kilo1app.com'}/api/pos/food`,
     })
   } catch (error) {
     console.error("Error fetching API key:", error)
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       apiKey: newApiKey,
       restaurantName: restaurant.name,
-      baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://your-api-domain.com'}/api/pos/food`,
+      baseUrl: `${process.env.NEXT_PUBLIC_API_URL || 'https://api.kilo1app.com'}/api/pos/food`,
       message: "API key regenerated successfully. Your old key is no longer valid.",
     })
   } catch (error) {

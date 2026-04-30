@@ -6,6 +6,7 @@ import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
 import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
+import { verifyRideStartOtp } from "@/lib/ride-start-otp"
 
 export async function PUT(
   request: NextRequest,
@@ -18,7 +19,7 @@ export async function PUT(
     }
 
     const { id: courierBookingId } = params
-    const { status } = await request.json()
+    const { status, rideStartOtp } = await request.json()
 
     // Verify user has permission to update this booking
     // Only riders who have submitted bids should be able to update status to BIDDING
@@ -63,6 +64,18 @@ export async function PUT(
 
     if (!courierBooking) {
       return NextResponse.json({ error: "Courier booking not found" }, { status: 404 })
+    }
+
+    const requiresPickupOtp = String(courierBooking.module || "").toUpperCase() === "RIDE"
+    if (
+      requiresPickupOtp &&
+      status === "PICKED_UP" &&
+      courierBooking.status === "ARRIVED_AT_PICKUP"
+    ) {
+      const otp = String(rideStartOtp || "").trim()
+      if (!otp || !(await verifyRideStartOtp(`COURIER_BOOKING:${courierBookingId}`, otp))) {
+        return NextResponse.json({ error: "Valid ride start OTP is required" }, { status: 400 })
+      }
     }
 
     // Update the status
@@ -245,6 +258,66 @@ export async function PUT(
             await notifyCourierDeliveryCompleted(courierBookingId, { terminalStatus: status })
           } catch (reviewNotifyErr) {
             console.error("notifyCourierDeliveryCompleted:", reviewNotifyErr)
+          }
+          const isRideLikeCourier = String(courierBooking.module || "").toUpperCase() === "RIDE"
+          if (isRideLikeCourier && updatedBooking.riderId) {
+            try {
+              await NotificationBridge.sendNotification({
+                userId: updatedBooking.customer.id,
+                title: "Rate Your Trip",
+                message: `Your trip is complete. Please rate your rider.`,
+                type: "REVIEW_REQUEST",
+                module: "RIDING",
+                actionUrl: `/riding/bookings/${courierBookingId}/rate`,
+                data: {
+                  actionType: "navigate",
+                  screen: "RiderFeedbackScreen",
+                  params: [{ name: "bookingId", value: courierBookingId }],
+                },
+              })
+              await socketIOServer.sendNotificationToUser(updatedBooking.customer.id, {
+                type: "review_request",
+                bookingId: courierBookingId,
+                bookingType: "courier",
+                module: "RIDING",
+                actionType: "navigate",
+                screen: "RiderFeedbackScreen",
+                params: [{ name: "bookingId", value: courierBookingId }],
+                timestamp: new Date().toISOString(),
+              })
+
+              await NotificationBridge.sendNotification({
+                userId: updatedBooking.riderId,
+                title: "Rate Your Passenger",
+                message: `Trip #${updatedBooking.bookingNumber} is complete. Please rate your customer.`,
+                type: "REVIEW_REQUEST",
+                module: "RIDING",
+                actionUrl: `/riderfeedback?bookingId=${courierBookingId}&perspective=rider`,
+                data: {
+                  actionType: "navigate",
+                  screen: "riderfeedback",
+                  params: [
+                    { name: "bookingId", value: courierBookingId },
+                    { name: "perspective", value: "rider" },
+                  ],
+                },
+              })
+              await socketIOServer.sendNotificationToUser(updatedBooking.riderId, {
+                type: "review_request",
+                bookingId: courierBookingId,
+                bookingType: "courier",
+                module: "RIDING",
+                actionType: "navigate",
+                screen: "riderfeedback",
+                params: [
+                  { name: "bookingId", value: courierBookingId },
+                  { name: "perspective", value: "rider" },
+                ],
+                timestamp: new Date().toISOString(),
+              })
+            } catch (reviewErr) {
+              console.error("courier ride-like review notifications:", reviewErr)
+            }
           }
         } else {
           // Regular status updates

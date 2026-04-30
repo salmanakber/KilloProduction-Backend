@@ -1,11 +1,13 @@
 import { CommissionType, type Module } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { createWalletTransaction } from "@/lib/wallet-transaction-service"
+import { createWalletTransaction, completeWalletTransaction } from "@/lib/wallet-transaction-service"
 import { calculateCommission } from "@/lib/commission-service"
+import { bumpRiderBonusOnDeliveryEarning } from "@/lib/rider-bonus-engine"
 interface CreateRiderEarningParams {
   riderId: string
   rideBookingId?: string
   courierBookingId?: string
+  orderId?: string
   totalAmount: number // Original amount before discount (estimatedFare)
   finalAmount?: number // Final amount after discount (finalFare) - optional, defaults to totalAmount
   description?: string
@@ -69,6 +71,7 @@ export async function createRiderEarning({
   riderId,
   rideBookingId,
   courierBookingId,
+  orderId,
   totalAmount,
   finalAmount,
   description,
@@ -124,7 +127,7 @@ export async function createRiderEarning({
       data: {
         riderId,
         rideBookingId: rideBookingId || null,
-        orderId: courierBookingId || null,
+        orderId: orderId || null,
         type: "DELIVERY_FEE",
         amount: originalAmount,
         commission: finalCommissionAmount,
@@ -151,6 +154,35 @@ export async function createRiderEarning({
     })
 
     /** Peak bonus progress is tied to completed deliveries (see markRiderEarningAsPaid), not accept time. */
+
+    const payoutReference = rideBookingId
+      ? `earning-payout:ride:${rideBookingId}`
+      : courierBookingId
+        ? `earning-payout:courier:${courierBookingId}`
+        : null
+    if (payoutReference && netAmount > 0) {
+      const existingPayout = await prisma.walletTransaction.findFirst({
+        where: { userId: riderId, reference: payoutReference },
+      })
+      if (!existingPayout) {
+        await createWalletTransaction({
+          userId: riderId,
+          type: "CREDIT",
+          amount: Math.round(netAmount * 100) / 100,
+          description: rideBookingId
+            ? `Ride payout for booking ${rideBookingId}`
+            : `Courier payout for booking ${courierBookingId}`,
+          status: "PENDING",
+          reference: payoutReference,
+          metadata: {
+            transactionType: "EARNING_PAYOUT",
+            module: commissionModule,
+            rideBookingId: rideBookingId ?? undefined,
+            courierBookingId: courierBookingId ?? undefined,
+          },
+        })
+      }
+    }
 
     return {
       ...riderEarning,
@@ -253,7 +285,16 @@ export async function markRiderEarningAsPaid(
     if (rideBookingId) {
       earningWhere.rideBookingId = rideBookingId
     } else if (courierBookingId) {
-      earningWhere.orderId = courierBookingId
+      const booking = await prisma.courierBooking.findUnique({
+        where: { id: courierBookingId },
+        select: { orderId: true },
+      })
+      if (booking?.orderId) {
+        earningWhere.orderId = booking.orderId
+      } else {
+        // Backward-compatible fallback for older malformed rows where orderId=courierBookingId
+        earningWhere.orderId = courierBookingId
+      }
     } else {
       throw new Error("Either rideBookingId or courierBookingId must be provided")
     }
@@ -262,11 +303,32 @@ export async function markRiderEarningAsPaid(
       where: { ...earningWhere, status: "PENDING" },
     })
 
+    let riderId: string | null = pendingRows[0]?.riderId || null
+    if (!riderId && rideBookingId) {
+      const ride = await prisma.rideBooking.findUnique({
+        where: { id: rideBookingId },
+        select: { riderId: true },
+      })
+      riderId = ride?.riderId || null
+    }
+    if (!riderId && courierBookingId) {
+      const booking = await prisma.courierBooking.findUnique({
+        where: { id: courierBookingId },
+        select: { riderId: true },
+      })
+      riderId = booking?.riderId || null
+    }
+
     if (pendingRows.length === 0) {
+      if (riderId) {
+        void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
+      }
       return { earning: { count: 0 }, commission: { count: 0 }, walletSkipped: true }
     }
 
-    const riderId = pendingRows[0].riderId
+    if (!riderId) {
+      throw new Error("Unable to resolve rider for earning payout.")
+    }
     const totalNet = pendingRows.reduce((s, e) => s + (e.netAmount || 0), 0)
 
     const updatedEarning = await prisma.riderEarning.updateMany({
@@ -311,13 +373,35 @@ export async function markRiderEarningAsPaid(
       }
     }
 
-    await creditNetPayoutWallet({
-      riderId,
-      totalNet,
-      rideBookingId,
-      courierBookingId,
-      skipWallet,
-    })
+    if (rideBookingId) {
+      const pendingPayout = await prisma.walletTransaction.findFirst({
+        where: {
+          userId: riderId,
+          reference: `earning-payout:ride:${rideBookingId}`,
+          status: "PENDING",
+        },
+      })
+      if (pendingPayout) {
+        await completeWalletTransaction(pendingPayout.id)
+      } else {
+        await creditNetPayoutWallet({
+          riderId,
+          totalNet,
+          rideBookingId,
+          courierBookingId,
+          skipWallet,
+        })
+      }
+    } else {
+      await creditNetPayoutWallet({
+        riderId,
+        totalNet,
+        rideBookingId,
+        courierBookingId,
+        skipWallet,
+      })
+    }
+    void bumpRiderBonusOnDeliveryEarning(riderId).catch(() => {})
 
     return {
       earning: updatedEarning,

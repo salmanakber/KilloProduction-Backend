@@ -4,6 +4,7 @@ import { authenticateRequest } from "@/lib/auth"
 import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { runRideCompletionSideEffects } from "@/lib/ride-post-completion"
+import { verifyRideStartOtp } from "@/lib/ride-start-otp"
 
 export async function PUT(
   request: NextRequest,
@@ -16,7 +17,7 @@ export async function PUT(
     }
 
     const { id: rideBookingId } = params
-    const { status } = await request.json()
+    const { status, rideStartOtp } = await request.json()
 
     // Verify user has permission to update this booking
     // Only riders who have submitted bids should be able to update status to BIDDING
@@ -43,6 +44,13 @@ export async function PUT(
 
     if (!rideBooking) {
       return NextResponse.json({ error: "Ride booking not found" }, { status: 404 })
+    }
+
+    if (status === "PICKED_UP" && rideBooking.status === "ARRIVED_AT_PICKUP") {
+      const otp = String(rideStartOtp || "").trim()
+          if (!otp || !(await verifyRideStartOtp(`RIDE_BOOKING:${rideBookingId}`, otp))) {
+        return NextResponse.json({ error: "Valid ride start OTP is required" }, { status: 400 })
+      }
     }
 
     // Update the status

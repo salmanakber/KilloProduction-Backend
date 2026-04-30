@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAdmin } from "@/lib/adminAuth"
 import { parseAdminRange, previousWindow } from "@/lib/adminDateRange"
+import { buildReportData, parseReportFilters } from "@/app/api/admin/reports/reporting-core"
 
 export async function GET(request: NextRequest) {
   const { error } = await requireAdmin()
@@ -14,6 +15,22 @@ export async function GET(request: NextRequest) {
     const prev = previousWindow(startDate, endDate)
     const dateWhere = { gte: startDate, lte: endDate }
 
+    const reportRange = range === "24h" ? "7d" : range
+    const currentReportParams = new URLSearchParams({
+      range: reportRange,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      module: "ALL",
+      includeLogs: "false",
+    })
+    const previousReportParams = new URLSearchParams({
+      range: reportRange,
+      startDate: prev.start.toISOString(),
+      endDate: prev.end.toISOString(),
+      module: "ALL",
+      includeLogs: "false",
+    })
+
     const defaultCurrency = await prisma.currency.findFirst({
       where: { isDefault: true },
       select: { symbol: true },
@@ -23,11 +40,11 @@ export async function GET(request: NextRequest) {
     const [
       totalUsers,
       totalOrders,
-      totalRevenue,
-      prevRevenue,
+      currentReport,
+      previousReport,
       activeTickets,
       resolvedTickets,
-      moduleStats,
+      moduleVendorStats,
       auditRows,
       recentOrders,
       paymentWalletVol,
@@ -36,14 +53,8 @@ export async function GET(request: NextRequest) {
     ] = await Promise.all([
       prisma.user.count(),
       prisma.order.count({ where: { createdAt: dateWhere } }),
-      prisma.order.aggregate({
-        where: { createdAt: dateWhere, status: "DELIVERED" },
-        _sum: { total: true },
-      }),
-      prisma.order.aggregate({
-        where: { createdAt: { gte: prev.start, lte: prev.end }, status: "DELIVERED" },
-        _sum: { total: true },
-      }),
+      buildReportData(parseReportFilters(currentReportParams)),
+      buildReportData(parseReportFilters(previousReportParams)),
       prisma.supportTicket.count({
         where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
       }),
@@ -56,35 +67,15 @@ export async function GET(request: NextRequest) {
       Promise.all([
         Promise.all([
           prisma.user.count({ where: { role: "VENDOR", pharmacy: { isNot: null } } }),
-          prisma.order.count({ where: { module: "PHARMACY", createdAt: dateWhere } }),
-          prisma.order.aggregate({
-            where: { module: "PHARMACY", createdAt: dateWhere, status: "DELIVERED" },
-            _sum: { total: true },
-          }),
         ]),
         Promise.all([
           prisma.user.count({ where: { role: "VENDOR", autoPartsStore: { isNot: null } } }),
-          prisma.order.count({ where: { module: "AUTO_PARTS", createdAt: dateWhere } }),
-          prisma.order.aggregate({
-            where: { module: "AUTO_PARTS", createdAt: dateWhere, status: "DELIVERED" },
-            _sum: { total: true },
-          }),
         ]),
         Promise.all([
           prisma.user.count({ where: { role: "VENDOR", restaurant: { isNot: null } } }),
-          prisma.order.count({ where: { module: "FOOD", createdAt: dateWhere } }),
-          prisma.order.aggregate({
-            where: { module: "FOOD", createdAt: dateWhere, status: "DELIVERED" },
-            _sum: { total: true },
-          }),
         ]),
         Promise.all([
           prisma.user.count({ where: { role: "VENDOR", groceryStore: { isNot: null } } }),
-          prisma.order.count({ where: { module: "GROCERY", createdAt: dateWhere } }),
-          prisma.order.aggregate({
-            where: { module: "GROCERY", createdAt: dateWhere, status: "DELIVERED" },
-            _sum: { total: true },
-          }),
         ]),
         Promise.all([
           prisma.user.count({ where: { role: "RIDER" } }),
@@ -125,28 +116,39 @@ export async function GET(request: NextRequest) {
       prisma.vendorWithdrawal.count({ where: { status: "PENDING" } }),
     ])
 
-    const [pharmacyStats, autoPartsStats, foodStats, groceryStats, ridingStats] = moduleStats
+    const [pharmacyStats, autoPartsStats, foodStats, groceryStats, ridingStats] = moduleVendorStats
+    const moduleMetrics = new Map(
+      (currentReport.breakdown.moduleMetrics || []).map((metric) => [metric.module, metric]),
+    )
+    const getModuleNumbers = (moduleKey: string) => ({
+      orders: moduleMetrics.get(moduleKey)?.orders || 0,
+      grossSales: moduleMetrics.get(moduleKey)?.grossSales || 0,
+    })
+    const pharmacyNumbers = getModuleNumbers("PHARMACY")
+    const autoPartsNumbers = getModuleNumbers("AUTO_PARTS")
+    const foodNumbers = getModuleNumbers("FOOD")
+    const groceryNumbers = getModuleNumbers("GROCERY")
 
     const processedModuleStats = {
       pharmacy: {
         users: pharmacyStats[0],
-        orders: pharmacyStats[1],
-        revenue: pharmacyStats[2]._sum.total || 0,
+        orders: pharmacyNumbers.orders,
+        revenue: pharmacyNumbers.grossSales,
       },
       autoParts: {
         users: autoPartsStats[0],
-        orders: autoPartsStats[1],
-        revenue: autoPartsStats[2]._sum.total || 0,
+        orders: autoPartsNumbers.orders,
+        revenue: autoPartsNumbers.grossSales,
       },
       food: {
         users: foodStats[0],
-        orders: foodStats[1],
-        revenue: foodStats[2]._sum.total || 0,
+        orders: foodNumbers.orders,
+        revenue: foodNumbers.grossSales,
       },
       grocery: {
         users: groceryStats[0],
-        orders: groceryStats[1],
-        revenue: groceryStats[2]._sum.total || 0,
+        orders: groceryNumbers.orders,
+        revenue: groceryNumbers.grossSales,
       },
       riding: {
         users: ridingStats[0],
@@ -183,8 +185,8 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 12)
 
-    const rev = totalRevenue._sum.total || 0
-    const prevR = prevRevenue._sum.total || 0
+    const rev = currentReport.summary.grossSales || 0
+    const prevR = previousReport.summary.grossSales || 0
     const monthlyGrowth =
       prevR > 0 ? Math.round(((rev - prevR) / prevR) * 1000) / 10 : rev > 0 ? 100 : 0
 

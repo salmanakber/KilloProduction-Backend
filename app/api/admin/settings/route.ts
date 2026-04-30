@@ -11,6 +11,12 @@ export async function GET(request: NextRequest) {
     //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     // }
 
+    const defaultCurrency = await prisma.currency.findFirst({
+      where: { isDefault: true },
+      select: { symbol: true, code: true },
+    })
+    const defaultCurrencyCode = defaultCurrency?.symbol || "₦"
+
     // Get system settings from database or return defaults
     const systemSettings = await prisma.systemSettings.findFirst()
     
@@ -216,7 +222,7 @@ export async function GET(request: NextRequest) {
 
     
 
-    return NextResponse.json({ settings })
+    return NextResponse.json({ settings, defaultCurrencyCode })
   } catch (error) {
     console.error("Error fetching system settings:", error)
     return NextResponse.json({ error: "Failed to fetch system settings" }, { status: 500 })

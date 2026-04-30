@@ -4,6 +4,25 @@ import { prisma } from "@/lib/prisma"
 import { getGlobalSocketServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { calculateFare as calculateFareService } from "@/lib/fare-calculation-service"
+import { checkoutPlatformFeeAmount } from "@/lib/commission-service"
+
+const RIDE_REQUEST_MAX_AGE_MS = 90 * 1000
+const NON_RIDE_REQUEST_MAX_AGE_MS = 90 * 60 * 1000
+const DISPATCH_LOCK_SECONDS = 18
+const DISPATCH_WAVE_SIZE = 5
+const RIDE_FIRST_WAVE_MS = 45 * 1000
+const dispatchTimers = new Map<string, NodeJS.Timeout[]>()
+const ACTIVE_ASSIGNABLE_STATUSES = ["REQUESTED", "BIDDING"] as const
+const RIDER_ACTIVE_BOOKING_STATUSES = [
+  "ACCEPTED",
+  "RIDER_ASSIGNED",
+  "EN_ROUTE_TO_PICKUP",
+  "ARRIVED_AT_PICKUP",
+  "PICKED_UP",
+  "IN_TRANSIT",
+  "EN_ROUTE_TO_DROPOFF",
+  "ARRIVED_AT_DROPOFF",
+] as const
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,9 +53,14 @@ export async function POST(request: NextRequest) {
       paymentMethod = "CASH",
       paymentData,
       promoCodeId,
-      promoCodeDiscount
-
+      promoCodeDiscount,
+      module,
+      // Optional pre-calculated estimation from client to avoid re-calling fare service
+      estimation,
     } = data
+    const normalizedModule = String(module || "").toUpperCase()
+    const courierModule =
+      normalizedModule.length > 0 ? normalizedModule : "RIDE"
 
 // console.log('💰 paymentData', paymentData)
 
@@ -63,21 +87,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid ride type" }, { status: 400 })
     }
 
-    // Calculate distance and fare using shared fare calculation service
-    const fareResult = await calculateFareService({
-      originLatitude: pickupLatitude,
-      originLongitude: pickupLongitude,
-      destinationLatitude: dropLatitude,
-      destinationLongitude: dropLongitude,
-      rideTypeId,
-    })
+    // Use existing estimation from client if provided, otherwise calculate on server
+    let distanceData: { distance: number; duration: number }
+    let estimatedFare: number
+    if (estimation && typeof estimation.distance === "number" && typeof estimation.duration === "number" && typeof estimation.fare === "number") {
+      distanceData = {
+        distance: Number(estimation.distance),
+        duration: Number(estimation.duration),
+      }
+      estimatedFare = Number(estimation.fare)
+    } else {
+      // Calculate distance and fare using shared fare calculation service
+      const fareResult = await calculateFareService({
+        originLatitude: pickupLatitude,
+        originLongitude: pickupLongitude,
+        destinationLatitude: dropLatitude,
+        destinationLongitude: dropLongitude,
+        rideTypeId,
+      })
 
-    const distanceData = {
-      distance: fareResult.distance,
-      duration: fareResult.duration,
+      distanceData = {
+        distance: fareResult.distance,
+        duration: fareResult.duration,
+      }
+
+      estimatedFare = fareResult.fare
     }
-
-    let estimatedFare = fareResult.fare
     const bookingNumber = generateBookingNumber(rideType.category)
 
     // Handle promo code validation and discount application
@@ -103,8 +138,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const platformFee = await checkoutPlatformFeeAmount("RIDING", finalFare)
+    const payableTotal = Math.round((finalFare + platformFee) * 100) / 100
+    const normalizedPaymentMethod = String(paymentMethod || "").toUpperCase()
+    if (!["CARD", "WALLET"].includes(normalizedPaymentMethod)) {
+      return NextResponse.json({
+        error: "Only card or wallet payments are supported for this booking flow",
+      }, { status: 400 })
+    }
+
     // Handle payment validation for wallet and card payments
-    if (paymentMethod === 'WALLET' || paymentMethod === 'wallet' || paymentMethod === 'CARD' || paymentMethod === 'card') {
+    if (normalizedPaymentMethod === 'WALLET' || normalizedPaymentMethod === 'CARD') {
       if (!paymentData) {
         return NextResponse.json({ 
           error: "Payment data is required" 
@@ -112,9 +156,11 @@ export async function POST(request: NextRequest) {
       }
 
       // Validate payment amount matches final fare (after promo discount)
-      if (paymentData.amount !== finalFare) {
+      const processingFee = Math.max(0, Number(paymentData.paymentProcessingFee || 0))
+      const expectedPaymentTotal = Math.round((payableTotal + processingFee) * 100) / 100
+      if (Math.abs(Number(paymentData.amount) - expectedPaymentTotal) > 0.01) {
         return NextResponse.json({ 
-          error: "Payment amount does not match final fare" 
+          error: "Payment amount does not match payable total" 
         }, { status: 400 })
       }
 
@@ -126,14 +172,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Wallet-specific validation
-      if ((paymentMethod === 'WALLET' || paymentMethod === 'wallet') && (!paymentData.walletTransaction || !paymentData.transaction)) {
+      if (normalizedPaymentMethod === 'WALLET' && (!paymentData.walletTransaction || !paymentData.transaction)) {
         return NextResponse.json({ 
           error: "Wallet transaction data is required for wallet payments" 
         }, { status: 400 })
       }
 
       // Card payment validation (saved or new)
-      if (paymentMethod === 'CARD' || paymentMethod === 'card') {
+      if (normalizedPaymentMethod === 'CARD') {
         // Saved card should have paymentId, new card should have id (PaymentIntent ID)
         if (!paymentData.paymentId && !paymentData.id) {
           return NextResponse.json({ 
@@ -172,7 +218,7 @@ export async function POST(request: NextRequest) {
               isFragile,
               recipientName,
               recipientPhone,
-              paymentMethod,
+              paymentMethod: normalizedPaymentMethod,
               scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
               status: "REQUESTED"
             },
@@ -201,7 +247,7 @@ export async function POST(request: NextRequest) {
           })
 
           // Update wallet transactions if payment method is wallet
-          if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || paymentMethod === 'WALLET' || paymentMethod === 'wallet') && paymentData) {
+          if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || normalizedPaymentMethod === 'WALLET') && paymentData) {
             // Update wallet balance to ensure it matches payment data.
             await tx.wallet.update({
               where: { id: paymentData.updatedWallet.id },
@@ -224,7 +270,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Handle card payments (saved or new card)
-          if ((paymentMethod === 'CARD' || paymentMethod === 'card') && paymentData) {
+          if (normalizedPaymentMethod === 'CARD' && paymentData) {
             // Saved card payment - update existing Payment record
             if (paymentData.paymentId) {
               await tx.payment.update({
@@ -240,7 +286,7 @@ export async function POST(request: NextRequest) {
               await tx.payment.create({
                 data: {
                   userId: user.id,
-                  amount: finalFare,
+                  amount: payableTotal,
                   currency: paymentData.currency || 'USD',
                   status: 'PAID',
                   gateway: paymentData.gateway || 'STRIPE',
@@ -250,6 +296,9 @@ export async function POST(request: NextRequest) {
                   metadata: {
                     bookingId: newBooking.id,
                     bookingNumber,
+                    fare: finalFare,
+                    platformFee,
+                    payableTotal,
                     paymentMethod: paymentData.paymentMethod || 'one_time',
                     clientSecret: paymentData.clientSecret
                   }
@@ -303,8 +352,8 @@ export async function POST(request: NextRequest) {
               packageType,
               packageWeight,
               isFragile,
-              paymentMethod,
-              module: "RIDE",
+              paymentMethod: normalizedPaymentMethod,
+              module: courierModule as any,
               scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
               status: "REQUESTED"
             },
@@ -331,7 +380,7 @@ export async function POST(request: NextRequest) {
           })
 
           // Update wallet transactions if payment method is wallet
-          if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || paymentMethod === 'WALLET' || paymentMethod === 'wallet') && paymentData) {
+          if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || normalizedPaymentMethod === 'WALLET') && paymentData) {
             // Update wallet balance to ensure it matches payment data
             await tx.wallet.update({
               where: { id: paymentData.updatedWallet.id },
@@ -354,7 +403,7 @@ export async function POST(request: NextRequest) {
           }
 
           // Handle card payments (saved or new card)
-          if ((paymentMethod === 'CARD' || paymentMethod === 'card') && paymentData) {
+          if (normalizedPaymentMethod === 'CARD' && paymentData) {
             // Saved card payment - update existing Payment record
             if (paymentData.paymentId) {
               await tx.payment.update({
@@ -370,7 +419,7 @@ export async function POST(request: NextRequest) {
               await tx.payment.create({
                 data: {
                   userId: user.id,
-                  amount: finalFare,
+                  amount: payableTotal,
                   currency: paymentData.currency || 'USD',
                   status: 'PAID',
                   gateway: paymentData.gateway || 'STRIPE',
@@ -380,6 +429,9 @@ export async function POST(request: NextRequest) {
                   metadata: {
                     bookingId: newBooking.id,
                     bookingNumber,
+                    fare: finalFare,
+                    platformFee,
+                    payableTotal,
                     paymentMethod: paymentData.paymentMethod || 'one_time',
                     clientSecret: paymentData.clientSecret
                   }
@@ -423,8 +475,8 @@ export async function POST(request: NextRequest) {
               tax: 0,
               discount: promoCodeDiscount || 0,
               total: finalFare,
-              paymentStatus: paymentMethod === 'CASH' || paymentMethod === 'cash' ? 'PENDING' : 'PAID',
-              paymentMethod: paymentMethod,
+              paymentStatus: 'PAID',
+              paymentMethod: normalizedPaymentMethod,
               notes: specialRequests || null,
               specialInstructions: specialRequests || null,
               status: 'PENDING',
@@ -455,11 +507,11 @@ export async function POST(request: NextRequest) {
       console.error("Booking creation error:", bookingError)
       
       // Handle payment reversion on booking failure
-      if (paymentData && (paymentMethod === 'WALLET' || paymentMethod === 'wallet' || paymentMethod === 'CARD' || paymentMethod === 'card')) {
+      if (paymentData && (normalizedPaymentMethod === 'WALLET' || normalizedPaymentMethod === 'CARD')) {
         try {
           await prisma.$transaction(async (tx) => {
             // Revert wallet payment if used
-            if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || paymentMethod === 'WALLET' || paymentMethod === 'wallet') && paymentData.updatedWallet) {
+            if ((paymentData?.paymentMethod === 'WALLET' || paymentData?.paymentMethod === 'wallet' || normalizedPaymentMethod === 'WALLET') && paymentData.updatedWallet) {
               const wallet = await tx.wallet.findUnique({
                 where: { id: paymentData.updatedWallet.id }
               })
@@ -481,7 +533,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Revert card payment if used
-            if ((paymentMethod === 'CARD' || paymentMethod === 'card') && paymentData) {
+            if (normalizedPaymentMethod === 'CARD' && paymentData) {
               // For saved card payments - mark Payment as FAILED
               if (paymentData.paymentId) {
                 await tx.payment.update({
@@ -539,67 +591,35 @@ export async function POST(request: NextRequest) {
     const nearbyRiders = await findNearbyRiders(pickupLatitude, pickupLongitude, 10) // 10km radius
     
 
-    // Send notifications to nearby riders
-    for (const rider of nearbyRiders) {
-      const riderData = {
-        bookingId: booking.id,
-        riderId: rider.id,
-        bookingType: rideType.category === 'RIDE' ? 'RIDE' : 'COURIER',
-        pickup: { 
-          lat: pickupLatitude, 
-          lng: pickupLongitude,
-          address: pickupAddress
-        },
-        dropoff: { 
-          lat: dropLatitude, 
-          lng: dropLongitude,
-          address: dropAddress
-        },
-        fare: estimatedFare,
-        distanceKm: distanceData.distance,
-        estimatedArrivalMinutes: Math.ceil(distanceData.duration / 60),
-        customerName: user.name || 'Customer',
-        customerPhone: user.phone,
-        rideType: rideType.name,
-        vehicleType: rideType.vehicleType,
-        passengerCount: passengerCount,
-        specialRequests: specialRequests,
-        packageType: packageType,
-        packageWeight: packageWeight,
-        isFragile: isFragile,
-        recipientName: recipientName,
-        recipientPhone: recipientPhone,
-        scheduledAt: scheduledAt,
-        createdAt: new Date().toISOString()
-      }
-
-      // Send socket notification
-      await socketServer.sendNewRideToUser((rider as any).user.id, riderData)
-            // Send notification to rider
-    await NotificationBridge.sendNotification({
-      userId: (rider as any).user.id,
-      title: "New Ride Request",
-      message: `New ${rideType.category === 'RIDE' ? 'ride' : 'delivery'} request from ${user.name || 'Customer'}. Distance: ${distanceData.distance.toFixed(1)}km, Fare: ${estimatedFare.toFixed(0)}`,
-      type: rideType.category === 'RIDE' ? 'RIDE' : 'DELIVERY',
-      module: "RIDING",
-      data: riderData,
-      actionUrl: `AvailableRides`
+    await dispatchBookingInWaves({
+      bookingId: booking.id,
+      bookingType: rideType.category === 'RIDE' ? 'RIDE' : 'COURIER',
+      bookingModule: rideType.category === 'RIDE' ? 'RIDING' : courierModule,
+      customerId: user.id,
+      customerName: user.name || "Customer",
+      customerPhone: user.phone || null,
+      nearbyRiders,
+      pickupLatitude,
+      pickupLongitude,
+      pickupAddress,
+      dropLatitude,
+      dropLongitude,
+      dropAddress,
+      fare: estimatedFare,
+      distanceKm: distanceData.distance,
+      estimatedArrivalMinutes: Math.ceil(distanceData.duration / 60),
+      rideTypeName: rideType.name,
+      vehicleType: rideType.vehicleType,
+      passengerCount,
+      specialRequests,
+      packageType,
+      packageWeight,
+      isFragile,
+      recipientName,
+      recipientPhone,
+      scheduledAt,
+      socketServer,
     })
-
-      // Send push notification
-      await socketServer.sendNotificationToUser((rider as any).user.id, {
-        userId: (rider as any).user.id,
-        title: "New Ride Request",
-        message: `New ${rideType.category === 'RIDE' ? 'ride' : 'delivery'} request from ${user.name || 'Customer'}. Distance: ${distanceData.distance.toFixed(1)}km, Fare: ₦${estimatedFare.toFixed(0)}`,
-        type: "RIDE_REQUEST",
-        module: "RIDING",
-        data: riderData,
-        actionUrl: `/rider/requests/${booking.id}`
-      })
-
-
-      
-    }
 
    
     return NextResponse.json({
@@ -673,7 +693,9 @@ async function findNearbyRiders(latitude: number, longitude: number, radiusKm: n
       const locationB = b.currentLocation as any
       const distanceA = calculateDistance(latitude, longitude, locationA.latitude, locationA.longitude)
       const distanceB = calculateDistance(latitude, longitude, locationB.latitude, locationB.longitude)
-      return distanceA - distanceB
+      const scoreA = distanceA - (a.completionRate * 0.05) + (a.cancellationRate * 0.03) - (a.rating * 0.02)
+      const scoreB = distanceB - (b.completionRate * 0.05) + (b.cancellationRate * 0.03) - (b.rating * 0.02)
+      return scoreA - scoreB
     })
   } catch (error) {
     console.error('Error finding nearby riders:', error)
@@ -691,4 +713,221 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
+}
+
+async function dispatchBookingInWaves(params: {
+  bookingId: string
+  bookingType: "RIDE" | "COURIER"
+  bookingModule?: string | null
+  customerId: string
+  customerName: string
+  customerPhone: string | null
+  nearbyRiders: any[]
+  pickupLatitude: number
+  pickupLongitude: number
+  pickupAddress: string
+  dropLatitude: number
+  dropLongitude: number
+  dropAddress: string
+  fare: number
+  distanceKm: number
+  estimatedArrivalMinutes: number
+  rideTypeName: string
+  vehicleType: string
+  passengerCount: number
+  specialRequests?: string | null
+  packageType?: string | null
+  packageWeight?: number | null
+  isFragile?: boolean
+  recipientName?: string | null
+  recipientPhone?: string | null
+  scheduledAt?: string | null
+  socketServer: ReturnType<typeof getGlobalSocketServer>
+}) {
+  const isRideTimedRequest =
+    params.bookingType === "RIDE" ||
+    String(params.bookingModule || "").toUpperCase() === "RIDE" ||
+    String(params.bookingModule || "").toUpperCase() === "RIDING"
+  const maxAgeMs = isRideTimedRequest ? RIDE_REQUEST_MAX_AGE_MS : NON_RIDE_REQUEST_MAX_AGE_MS
+  const expiresAt = new Date(Date.now() + maxAgeMs).toISOString()
+  const createdAt = new Date().toISOString()
+  const bookingKey = `${params.bookingType}:${params.bookingId}`
+  const ridersWithoutActiveBooking = await filterRidersWithoutActiveBooking(params.nearbyRiders)
+  const timers: NodeJS.Timeout[] = []
+  dispatchTimers.set(bookingKey, timers)
+
+  const runWave = async (waveStart: number, waveSize = DISPATCH_WAVE_SIZE) => {
+    const stillPending = await isBookingStillPending(params.bookingId, params.bookingType)
+    if (!stillPending) {
+      clearDispatchTimers(bookingKey)
+      return
+    }
+
+    const batch = ridersWithoutActiveBooking.slice(waveStart, waveStart + waveSize)
+    if (!batch.length) return
+
+    const lockUntil = new Date(Date.now() + DISPATCH_LOCK_SECONDS * 1000).toISOString()
+    for (const rider of batch) {
+      const riderUserId = (rider as any).user.id as string
+      const riderData = {
+        bookingId: params.bookingId,
+        riderId: rider.id,
+        bookingType: params.bookingType,
+        type: params.bookingType === "RIDE" ? "ride" : "courier",
+        status: "REQUESTED",
+        pickup: { lat: params.pickupLatitude, lng: params.pickupLongitude, address: params.pickupAddress },
+        dropoff: { lat: params.dropLatitude, lng: params.dropLongitude, address: params.dropAddress },
+        pickupLatitude: params.pickupLatitude,
+        pickupLongitude: params.pickupLongitude,
+        dropLatitude: params.dropLatitude,
+        dropLongitude: params.dropLongitude,
+        pickupAddress: params.pickupAddress,
+        dropAddress: params.dropAddress,
+        estimatedFare: params.fare,
+        fare: params.fare,
+        distanceKm: params.distanceKm,
+        distance: params.distanceKm,
+        estimatedArrivalMinutes: params.estimatedArrivalMinutes,
+        estimatedTime: params.estimatedArrivalMinutes,
+        customerName: params.customerName,
+        customerPhone: params.customerPhone,
+        rideType: params.rideTypeName,
+        vehicleType: params.vehicleType,
+        passengerCount: params.passengerCount,
+        specialRequests: params.specialRequests,
+        packageType: params.packageType,
+        packageWeight: params.packageWeight,
+        isFragile: params.isFragile,
+        recipientName: params.recipientName,
+        recipientPhone: params.recipientPhone,
+        scheduledAt: params.scheduledAt,
+        createdAt,
+        expiresAt,
+        dispatchLockSeconds: DISPATCH_LOCK_SECONDS,
+        lockUntil,
+        waveIndex: Math.floor(waveStart / DISPATCH_WAVE_SIZE),
+      }
+
+      await params.socketServer.sendNewRideToUser(riderUserId, riderData)
+      await NotificationBridge.sendNotification({
+        userId: riderUserId,
+        title: "New Ride Request",
+        message: `New ${params.bookingType === "RIDE" ? "ride" : "delivery"} request from ${params.customerName}. Distance: ${params.distanceKm.toFixed(1)}km, Fare: ${params.fare.toFixed(0)}`,
+        type: params.bookingType === "RIDE" ? "RIDE" : "DELIVERY",
+        module: "RIDING",
+        data: riderData,
+        actionUrl: "AvailableRides",
+      })
+    }
+  }
+
+  await runWave(0, DISPATCH_WAVE_SIZE)
+
+  if (isRideTimedRequest) {
+    const expansionTimer = setTimeout(() => {
+      void runWave(DISPATCH_WAVE_SIZE, DISPATCH_WAVE_SIZE)
+    }, RIDE_FIRST_WAVE_MS)
+    timers.push(expansionTimer)
+  } else {
+    for (let waveStart = DISPATCH_WAVE_SIZE; waveStart < ridersWithoutActiveBooking.length; waveStart += DISPATCH_WAVE_SIZE) {
+      const timer = setTimeout(() => {
+        void runWave(waveStart)
+      }, Math.floor(waveStart / DISPATCH_WAVE_SIZE) * DISPATCH_LOCK_SECONDS * 1000)
+      timers.push(timer)
+    }
+  }
+
+  const expiryTimer = setTimeout(async () => {
+    try {
+      const stillPending = await isBookingStillPending(params.bookingId, params.bookingType)
+      if (!stillPending) return
+
+      if (params.bookingType !== "RIDE") {
+        await prisma.courierBooking.update({
+          where: { id: params.bookingId },
+          data: { status: "EXPIRED" },
+        })
+      }
+
+      for (const rider of ridersWithoutActiveBooking) {
+        const riderUserId = (rider as any).user.id as string
+        await params.socketServer.sendNotificationToUser(riderUserId, {
+          type: "request_removed",
+          requestId: params.bookingId,
+          reason: params.bookingType === "RIDE" ? "BROADCAST_WINDOW_ENDED" : "EXPIRED",
+        })
+      }
+
+      await params.socketServer.sendNotificationToUser(params.customerId, {
+        type: "request_status_change",
+        requestId: params.bookingId,
+        newStatus: params.bookingType === "RIDE" ? "BROADCAST_ENDED" : "EXPIRED",
+        message:
+          params.bookingType === "RIDE"
+            ? "No rider accepted in this round. You can broadcast again to more riders."
+            : "No rider accepted your request in time. Please try again.",
+      })
+    } catch (error) {
+      console.error("Error expiring request:", error)
+    } finally {
+      clearDispatchTimers(bookingKey)
+    }
+  }, maxAgeMs)
+  timers.push(expiryTimer)
+}
+
+async function filterRidersWithoutActiveBooking(riders: any[]) {
+  const riderUserIds = riders.map((r) => (r as any).user.id as string)
+  if (!riderUserIds.length) return riders
+
+  const [activeRides, activeCourier] = await Promise.all([
+    prisma.rideBooking.findMany({
+      where: {
+        riderId: { in: riderUserIds },
+        status: { in: RIDER_ACTIVE_BOOKING_STATUSES as any },
+      },
+      select: { riderId: true },
+    }),
+    prisma.courierBooking.findMany({
+      where: {
+        riderId: { in: riderUserIds },
+        status: { in: RIDER_ACTIVE_BOOKING_STATUSES as any },
+      },
+      select: { riderId: true },
+    }),
+  ])
+
+  const blockedRiders = new Set(
+    [...activeRides, ...activeCourier]
+      .map((b) => b.riderId)
+      .filter((id): id is string => Boolean(id))
+  )
+  return riders.filter((r) => !blockedRiders.has((r as any).user.id))
+}
+
+async function isBookingStillPending(bookingId: string, bookingType: "RIDE" | "COURIER") {
+  if (bookingType === "RIDE") {
+    const booking = await prisma.rideBooking.findUnique({
+      where: { id: bookingId },
+      select: { status: true },
+    })
+    return booking
+      ? ACTIVE_ASSIGNABLE_STATUSES.includes(booking.status as (typeof ACTIVE_ASSIGNABLE_STATUSES)[number])
+      : false
+  }
+
+  const booking = await prisma.courierBooking.findUnique({
+    where: { id: bookingId },
+    select: { status: true },
+  })
+  return booking
+    ? ACTIVE_ASSIGNABLE_STATUSES.includes(booking.status as (typeof ACTIVE_ASSIGNABLE_STATUSES)[number])
+    : false
+}
+
+function clearDispatchTimers(bookingKey: string) {
+  const timers = dispatchTimers.get(bookingKey)
+  if (!timers) return
+  for (const timer of timers) clearTimeout(timer)
+  dispatchTimers.delete(bookingKey)
 }

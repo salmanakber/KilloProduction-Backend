@@ -60,11 +60,21 @@ export async function POST(request: NextRequest) {
       ? data.weightRanges 
       : null
 
+    const mediaType = String(data.mediaType || "ICON").toUpperCase()
+    const imageUrl = typeof data.imageUrl === "string" ? data.imageUrl.trim() : ""
+    if (!["ICON", "IMAGE"].includes(mediaType)) {
+      return NextResponse.json({
+        error: "Invalid media type. Use ICON or IMAGE",
+      }, { status: 400 })
+    }
+
     // Prepare create data
     const createData: any = {
       name: data.name,
       description: data.description || null,
       icon: data.icon || "🚗",
+      mediaType,
+      imageUrl: mediaType === "IMAGE" ? imageUrl || null : null,
       basePrice: parseFloat(data.basePrice),
       pricePerKm: parseFloat(data.pricePerKm),
       pricePerMinute: parseFloat(data.pricePerMinute) || 0,
@@ -147,11 +157,21 @@ export async function PUT(request: NextRequest) {
       ? data.weightRanges 
       : null
 
+    const mediaType = String(data.mediaType || "ICON").toUpperCase()
+    const imageUrl = typeof data.imageUrl === "string" ? data.imageUrl.trim() : ""
+    if (!["ICON", "IMAGE"].includes(mediaType)) {
+      return NextResponse.json({
+        error: "Invalid media type. Use ICON or IMAGE",
+      }, { status: 400 })
+    }
+
     // Prepare update data
     const updateData: any = {
       name: data.name,
       description: data.description || null,
       icon: data.icon || "🚗",
+      mediaType,
+      imageUrl: mediaType === "IMAGE" ? imageUrl || null : null,
       basePrice: parseFloat(data.basePrice),
       pricePerKm: parseFloat(data.pricePerKm),
       pricePerMinute: parseFloat(data.pricePerMinute) || 0,

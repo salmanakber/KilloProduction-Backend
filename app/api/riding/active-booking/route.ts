@@ -234,6 +234,7 @@ export async function GET(request: NextRequest) {
     )
 
     // Transform the booking data
+    const broadcastWindowSeconds = 90
     const transformedBooking = {
       id: activeBooking.id,
       bookingNumber: activeBooking.bookingNumber,
@@ -251,7 +252,16 @@ export async function GET(request: NextRequest) {
       finalFare: bookingType === 'RIDE' ? activeBooking.finalFare : activeBooking.fare,
       paymentStatus: (activeBooking as any).paymentStatus || 'PENDING',
       paymentMethod: (activeBooking as any).paymentMethod || null,
+      module: (activeBooking as any).module || null,
       createdAt: activeBooking.createdAt.toISOString(),
+      requestedAt: (activeBooking as any).requestedAt
+        ? (activeBooking as any).requestedAt.toISOString()
+        : activeBooking.createdAt.toISOString(),
+      broadcastExpiresAt: new Date(
+        (((activeBooking as any).requestedAt
+          ? (activeBooking as any).requestedAt.getTime()
+          : activeBooking.createdAt.getTime()) + broadcastWindowSeconds * 1000)
+      ).toISOString(),
       rider: activeBooking.rider ? {
         id: activeBooking.rider.id,
         name: activeBooking.rider.name || 'Unknown Rider',

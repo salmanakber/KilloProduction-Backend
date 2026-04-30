@@ -1,17 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
+import { buildCsvExport, buildReportData, parseReportFilters } from "../../reporting-core"
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const actor = await authenticateRequest(request)
+    if (!actor?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: actor.id },
     })
 
     if (user?.role !== "ADMIN" && user?.role !== "SUPER_ADMIN") {
@@ -20,42 +20,21 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const reportId = params.id
     const { searchParams } = new URL(request.url)
-    const format = searchParams.get("format") || "PDF"
+    const format = (searchParams.get("format") || "CSV").toUpperCase()
 
-    // In a real implementation, you would:
-    // 1. Fetch the report data from the database
-    // 2. Generate the file in the requested format (PDF, CSV, Excel)
-    // 3. Return the file as a blob
-    // 4. Create audit log entry for the export
-
-    // Mock file generation
-    let content: string
-    let contentType: string
-    let filename: string
-
-    switch (format.toUpperCase()) {
-      case "CSV":
-        content = "Date,Revenue,Orders,Users\n2024-01-01,45000,120,890\n2024-01-02,52000,145,920"
-        contentType = "text/csv"
-        filename = `report-${reportId}.csv`
-        break
-      case "EXCEL":
-        // In a real implementation, you would generate actual Excel file
-        content = "Excel file content would go here"
-        contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = `report-${reportId}.xlsx`
-        break
-      default: // PDF
-        content = "PDF file content would go here"
-        contentType = "application/pdf"
-        filename = `report-${reportId}.pdf`
-        break
+    if (!["CSV", "EXCEL", "XLSX"].includes(format)) {
+      return NextResponse.json({ error: "Unsupported format. Use CSV or EXCEL." }, { status: 400 })
     }
 
-    return new NextResponse(content, {
+    const filters = parseReportFilters(searchParams)
+    const reportData = await buildReportData(filters)
+    const csv = buildCsvExport(reportData)
+    const isCsv = format === "CSV"
+
+    return new NextResponse(csv, {
       headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Type": isCsv ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="report-${reportId}.${isCsv ? "csv" : "xlsx"}"`,
       },
     })
   } catch (error) {

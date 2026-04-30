@@ -151,6 +151,7 @@ export async function GET(request: NextRequest) {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
+          customizations: item.customizations,
         })),
         status: order.status.toLowerCase(),
         /** Customer-paid merchandise (after line discounts); unchanged for reporting. */

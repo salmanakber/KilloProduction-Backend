@@ -16,6 +16,7 @@ import {
   Trophy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { requiredFeatureForPath, resolveAdminFeatures, type AdminFeature } from "@/lib/admin-access"
 
 // --- Helper: Check if item or its children are active ---
 const isItemActive = (item: any, pathname: string): boolean => {
@@ -240,6 +241,9 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
   const effectiveCollapsed = isCollapsed && !isMobileOpen;
 
   const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({})
+  const [grants, setGrants] = useState<string[] | null>(null)
+  const [modules, setModules] = useState<string[] | null>(null)
+  const [accessRole, setAccessRole] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -263,31 +267,52 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    const loadAccess = async () => {
+      try {
+        const res = await fetch("/api/admin/access/me", { credentials: "include" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data?.grants)) {
+          setGrants(data.grants.map((x: any) => String(x)))
+          setModules(Array.isArray(data?.modules) ? data.modules.map((x: any) => String(x).toUpperCase()) : [])
+          setAccessRole(typeof data?.accessRole === "string" ? data.accessRole.toUpperCase() : null)
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadAccess()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const navItems = [
-    { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
-    { name: "User Management", href: "/admin/users", icon: Users },
-    { name: "KYC Management", href: "/admin/kyc", icon: ClipboardCheck },
-    { name: "Orders", href: "/admin/orders", icon: ShoppingCart },
-    { name: "Payments", href: "/admin/payments", icon: DollarSign },
+    { name: "Dashboard", href: "/admin", icon: LayoutDashboard, feature: "dashboard.view" as AdminFeature },
+    { name: "User Management", href: "/admin/users", icon: Users, feature: "users.manage" as AdminFeature },
+    { name: "KYC Management", href: "/admin/kyc", icon: ClipboardCheck, permission: "VENDOR_APPROVAL" },
+    { name: "Orders", href: "/admin/orders", icon: ShoppingCart, feature: "orders.view" as AdminFeature },
+    { name: "Payments", href: "/admin/payments", icon: DollarSign, feature: "payments.manage" as AdminFeature },
     {
       name: "Vendor Management",
       href: "/admin/modules/vendor",
       icon: BuildingStorefront,
+      feature: "vendors.manage" as AdminFeature,
       subItems: [
-        { name: "Auto Parts", href: "/admin/modules/auto-parts", icon: Car },
-        { name: "Pharmacy", href: "/admin/modules/pharmacy", icon: Pill },
+        { name: "Auto Parts", href: "/admin/modules/auto-parts", icon: Car, module: "AUTO_PARTS" },
+        { name: "Pharmacy", href: "/admin/modules/pharmacy", icon: Pill, module: "PHARMACY" },
         { 
           name: "Food Service", 
-          href: "#", 
+          href: "/admin/modules/food/", 
           icon: Utensils,  
           subItems: [
-            { name: "All Restaurants", href: "/admin/modules/food/all", icon: Utensils },
-            { name: "Menu Items", href: "/admin/modules/food/menu", icon: FileText },
-            { name: "Cuisine Types", href: "/admin/modules/food/cuisines", icon: Utensils },
-            { name: "Settings", href: "/admin/modules/food/settings", icon: Settings },
+            { name: "All Restaurants", href: "/admin/modules/food/", icon: Utensils, module: "FOOD" },
+            { name: "Settings", href: "/admin/modules/food/settings", icon: Settings, module: "FOOD" },
           ]
         },
-        { name: "Grocery", href: "/admin/modules/grocery", icon: ShoppingBag },
+        { name: "Grocery", href: "/admin/modules/grocery", icon: ShoppingBag, module: "GROCERY" },
         { name: "Categories", href: "/admin/categories", icon: FolderTree },
       ],
     },
@@ -295,9 +320,8 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Riders",
       href: "/admin/modules/rider",
       icon: Truck,
+      feature: "riders.manage" as AdminFeature,
       subItems: [
-        { name: "All Riders", href: "/admin/modules/rider/all", icon: Car },
-        { name: "Pending Approval", href: "/admin/modules/rider/pending", icon: ClipboardCheck },
         { name: "Peak bonus analytics", href: "/admin/modules/rider/bonus-analytics", icon: Trophy },
         { name: "Ride Settings", href: "/admin/ride-types", icon: Settings },
       ],
@@ -306,16 +330,19 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Mechanics",
       href: "/admin/modules/mechanic",
       icon: Wrench,
+      permission: "VENDOR_APPROVAL",
     },
     {
       name: "Promo Codes",
       href: "/admin/promo-codes",
       icon: Tag,
+      feature: "promos.manage" as AdminFeature,
     },
     {
       name: "Commission Management",
       href: "/admin/commission",
       icon: DollarSign,
+      feature: "commission.manage" as AdminFeature,
     },
     {
       name: "Medicine Management",
@@ -337,9 +364,10 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Hr Management",
       href: "/admin/hr",
       icon: User,
+      feature: "hr.manage" as AdminFeature,
       subItems: [
-        { name: "Staff Management", href: "/admin/hr", icon: User },
-        { name: "All Employees", href: "/admin/employees", icon: User },
+        { name: "Staff Management", href: "/admin/hr", icon: User, feature: "hr.manage" as AdminFeature },
+        { name: "All Employees", href: "/admin/employees", icon: User, feature: "employees.manage" as AdminFeature },
         
       ]
     },
@@ -347,6 +375,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Money Transfer",
       href: "/admin/money-app-admin",
       icon: DollarSign,
+      permission: "PAYMENT_MANAGEMENT",
       subItems: [
         { name: "Dashboard", href: "/admin/money-app-admin", icon: LayoutDashboard },
         { name: "Transactions", href: "/admin/money-app-admin/transactions", icon: ScrollText },
@@ -359,6 +388,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Special Offers",
       href: "/admin/special-offers",
       icon: Tag,
+      permission: "MARKETING_CAMPAIGNS",
       subItems: [
         { name: "All Offers", href: "/admin/special-offers", icon: Tag },
         { name: "Pending Approval", href: "/admin/special-offers/pending", icon: ClipboardCheck },
@@ -368,6 +398,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Vendor Offers",
       href: "/admin/vendor-offers",
       icon: ClipboardCheck,
+      permission: "VENDOR_APPROVAL",
       subItems: [
         { name: "Pending Mystery/Flash", href: "/admin/vendor-offers", icon: ClipboardCheck },
       ]
@@ -376,16 +407,18 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       name: "Support", 
       href: "/admin/complaints", 
       icon: MessageSquare, 
+      permission: "COMPLAINT_HANDLING",
+      feature: "complaints.manage" as AdminFeature,
       subItems: [
-        { name: "Complaints", href: "/admin/complaints", icon: MessageSquare },
-        { name: "FAQs", href: "/admin/faqs", icon: HelpCircle },
+        { name: "Complaints", href: "/admin/complaints", icon: MessageSquare, permission: "COMPLAINT_HANDLING", feature: "complaints.manage" as AdminFeature },
+        { name: "FAQs", href: "/admin/faqs", icon: HelpCircle, permission: "COMPLAINT_HANDLING", feature: "complaints.manage" as AdminFeature },
       ]
     },
     
-    { name: "Reports", href: "/admin/reports", icon: BarChart },
+    { name: "Reports", href: "/admin/reports", icon: BarChart, feature: "reports.view" as AdminFeature },
     {
       name: "Developer",
-      href: "#",
+      href: "/admin/developer/pos",
       icon: Code2,
       subItems: [
         {
@@ -408,6 +441,46 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         ],
     },
   ]
+
+  const grantedFeatures = resolveAdminFeatures(grants || [], undefined)
+  const moduleSet = new Set((modules || []).map((m) => String(m).toUpperCase()))
+  const LEGACY_PERMISSION_TO_FEATURE: Record<string, AdminFeature> = {
+    USER_MANAGEMENT: "users.manage",
+    VENDOR_APPROVAL: "vendors.manage",
+    PAYMENT_MANAGEMENT: "payments.manage",
+    COMPLAINT_HANDLING: "complaints.manage",
+    MARKETING_CAMPAIGNS: "promos.manage",
+    ANALYTICS_VIEW: "reports.view",
+    SYSTEM_SETTINGS: "settings.manage",
+    COMMISSION_SETTINGS: "commission.manage",
+  }
+  const canAccess = (item: any) => {
+    if (!grants) return true
+    if (accessRole === "SUPER_ADMIN") return true
+    if (item.permission && !grants.includes(item.permission)) return false
+    if (item.permission && LEGACY_PERMISSION_TO_FEATURE[item.permission]) {
+      const mappedFeature = LEGACY_PERMISSION_TO_FEATURE[item.permission]
+      if (!grants.includes(item.permission) && !grantedFeatures.includes(mappedFeature)) return false
+    }
+    if (item.module && !moduleSet.has(String(item.module).toUpperCase())) return false
+    const routeFeature = item.feature || (item.href ? requiredFeatureForPath(item.href) : null)
+    if (routeFeature && !grantedFeatures.includes(routeFeature)) return false
+    return true
+  }
+
+  const filterByAccess = (items: any[]): any[] =>
+    items
+      .map((item) => ({
+        ...item,
+        subItems: item.subItems ? filterByAccess(item.subItems) : undefined,
+      }))
+      .filter((item) => {
+        const ownAllowed = canAccess(item)
+        if (!item.subItems) return ownAllowed
+        return ownAllowed || item.subItems.length > 0
+      })
+
+  const visibleNavItems = filterByAccess(navItems)
 
   return (
     <aside 
@@ -445,7 +518,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       {/* Scrollable Navigation - Invisible sleek scrollbar */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-6 px-4 hover:overflow-y-auto [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
         <ul className="flex flex-col pb-24">
-          {navItems.map((item, idx) => (
+          {visibleNavItems.map((item, idx) => (
             <MenuItem 
               key={idx} 
               item={item} 

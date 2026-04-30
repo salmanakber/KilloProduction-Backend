@@ -18,7 +18,8 @@ import {
   Fuel,
   Gauge,
   Package,
-  ArrowRight
+  ArrowRight,
+  Upload
 } from "lucide-react"
 import { systemSettings } from "@/lib/systemSettings"
 
@@ -33,6 +34,8 @@ interface RideType {
   name: string
   description?: string
   icon: string
+  mediaType?: "ICON" | "IMAGE"
+  imageUrl?: string
   basePrice: number
   pricePerKm: number
   pricePerMinute: number
@@ -88,6 +91,8 @@ useEffect(() => {
     name: "",
     description: "",
     icon: "🚗",
+    mediaType: "ICON",
+    imageUrl: "",
     basePrice: 0,
     pricePerKm: 0,
     pricePerMinute: 0,
@@ -101,6 +106,7 @@ useEffect(() => {
   })
   
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
 
   useEffect(() => {
     fetchRideTypes()
@@ -134,6 +140,8 @@ useEffect(() => {
       name: "",
       description: "",
       icon: "🚗",
+      mediaType: "ICON",
+      imageUrl: "",
       basePrice: 0,
       pricePerKm: 0,
       pricePerMinute: 0,
@@ -235,6 +243,26 @@ useEffect(() => {
     }
   }
 
+  const uploadRideTypeImageFile = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      setImageUploading(true)
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/admin/ride-types/upload-image", { method: "POST", body: fd })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Image upload failed")
+      if (json.url) {
+        setFormData((prev) => ({ ...prev, mediaType: "IMAGE", imageUrl: String(json.url) }))
+        showMessage("success", "Ride type image uploaded successfully")
+      }
+    } catch (error: any) {
+      showMessage("error", error?.message || "Failed to upload ride type image")
+    } finally {
+      setImageUploading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center">
@@ -329,9 +357,63 @@ useEffect(() => {
                       onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
                       className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:border-[#2E8B57] focus:ring-4 focus:ring-green-500/10 outline-none transition-all text-center text-xl"
                       placeholder="🚗"
+                      disabled={formData.mediaType === "IMAGE"}
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Display Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: "ICON", label: "Icon" },
+                      { value: "IMAGE", label: "Image" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, mediaType: opt.value as "ICON" | "IMAGE" })}
+                        className={`py-2 px-4 text-sm font-medium rounded-lg border transition-all ${
+                          formData.mediaType === opt.value
+                            ? "bg-[#2E8B57] text-white border-[#2E8B57]"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {formData.mediaType === "IMAGE" && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Image URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={formData.imageUrl || ""}
+                        onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                        className="flex-1 px-4 py-2.5 rounded-lg border border-gray-200 focus:border-[#2E8B57] focus:ring-4 focus:ring-green-500/10 outline-none transition-all"
+                        placeholder="https://example.com/ride-type-image.png"
+                      />
+                      <label className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium cursor-pointer transition-colors ${imageUploading ? "bg-gray-100 text-gray-500 border-gray-200" : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"}`}>
+                        <Upload className="h-4 w-4" />
+                        {imageUploading ? "Uploading..." : "Upload"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={imageUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            void uploadRideTypeImageFile(file)
+                            e.currentTarget.value = ""
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
@@ -619,8 +701,12 @@ useEffect(() => {
               {/* Card Header */}
               <div className="p-6 pb-4">
                 <div className="flex justify-between items-start mb-4">
-                  <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-gray-100 group-hover:scale-110 transition-transform duration-300">
-                    {ride.icon}
+                  <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-3xl shadow-inner border border-gray-100 group-hover:scale-110 transition-transform duration-300 overflow-hidden">
+                    {ride.mediaType === "IMAGE" && ride.imageUrl ? (
+                      <img src={ride.imageUrl} alt={ride.name} className="w-full h-full object-cover" />
+                    ) : (
+                      ride.icon
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${

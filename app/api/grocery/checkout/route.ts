@@ -259,6 +259,15 @@ export async function POST(request: NextRequest) {
 
     // Calculate total
     const total = Math.max(0, subtotal - promoDiscount) + deliveryFee + platformCommission
+    const loyaltyMeta =
+      loyaltyPointsRedeemed && loyaltyPointsRedeemed > 0
+        ? {
+            loyalty: {
+              pointsRedeemed: Number(loyaltyPointsRedeemed),
+              discountAmount: Number(paymentData?.loyaltyDiscount || 0),
+            },
+          }
+        : null
 
     // Group items by store for multi-store orders
     const itemsByStore: Record<string, typeof items> = {}
@@ -321,6 +330,10 @@ export async function POST(request: NextRequest) {
 
         const childOrderNumber = generateOrderNumber()
         const groceryChildOfferMeta = buildOrderSpecialOffersMetadata(storeItems as Record<string, unknown>[])
+        const childOrderMetadata =
+          groceryChildOfferMeta || loyaltyMeta
+            ? { ...(groceryChildOfferMeta ? { specialOffers: groceryChildOfferMeta } : {}), ...(loyaltyMeta || {}) }
+            : null
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -342,7 +355,7 @@ export async function POST(request: NextRequest) {
             notes: notes ?? null,
             groceryId: store.id,
             isChildOrder: true as any,
-            ...(groceryChildOfferMeta ? { metadata: { specialOffers: groceryChildOfferMeta } as object } : {}),
+            ...(childOrderMetadata ? { metadata: childOrderMetadata as object } : {}),
             orderItems: {
               create: storeItems.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
                 const c = (it.customizations as any) || undefined
@@ -373,6 +386,10 @@ export async function POST(request: NextRequest) {
       // Create parent order that aggregates all child orders
       const parentOrderNumber = generateOrderNumber()
       const groceryParentOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+      const parentOrderMetadata =
+        groceryParentOfferMeta || loyaltyMeta
+          ? { ...(groceryParentOfferMeta ? { specialOffers: groceryParentOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -395,7 +412,7 @@ export async function POST(request: NextRequest) {
           groceryId: null,
           isChildOrder: false as any,
           childId: null as any,
-          ...(groceryParentOfferMeta ? { metadata: { specialOffers: groceryParentOfferMeta } as object } : {}),
+          ...(parentOrderMetadata ? { metadata: parentOrderMetadata as object } : {}),
           orderItems: {
             create: items.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
               const c = (it.customizations as any) || undefined
@@ -433,6 +450,10 @@ export async function POST(request: NextRequest) {
       // Single store: Create regular order (no parent-child relationship)
       const orderNumber = generateOrderNumber()
       const grocerySingleOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+      const singleOrderMetadata =
+        grocerySingleOfferMeta || loyaltyMeta
+          ? { ...(grocerySingleOfferMeta ? { specialOffers: grocerySingleOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -455,7 +476,7 @@ export async function POST(request: NextRequest) {
           groceryId: primaryStore.id,
           isChildOrder: false as any,
           childId: null as any,
-          ...(grocerySingleOfferMeta ? { metadata: { specialOffers: grocerySingleOfferMeta } as object } : {}),
+          ...(singleOrderMetadata ? { metadata: singleOrderMetadata as object } : {}),
           orderItems: {
             create: items.map((it: { productId: string; id?: string; name: string; price: number; quantity: number; notes?: string; customizations?: unknown }) => {
               const c = (it.customizations as any) || undefined

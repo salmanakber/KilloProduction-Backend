@@ -4,6 +4,8 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { useSession, signOut } from "next-auth/react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Bell, Search, Settings, User, LogOut, Shield, ChevronDown, Menu, X } from "lucide-react"
 
 interface Notification {
@@ -30,7 +32,7 @@ const getAllNavItems = () => {
     { name: "Payment & Finance", href: "/admin/payments", icon: "DollarSign" },
     { name: "Rider Management", href: "/admin/modules/rider", icon: "Truck" },
     { name: "Ride Type Management", href: "/admin/ride-types", icon: "Car" },
-    { name: "Vendor Management", href: "/admin/modules/vendor", icon: "BuildingStorefront" },
+    { name: "Vendor Management", href: "/admin/modules/pharmacy", icon: "BuildingStorefront" },
     { name: "Auto Parts", href: "/admin/modules/auto-parts", icon: "Car" },
     { name: "Pharmacy", href: "/admin/modules/pharmacy", icon: "Pill" },
     { name: "Food", href: "/admin/modules/food", icon: "Utensils" },
@@ -58,6 +60,8 @@ const getAllNavItems = () => {
 
 export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHeaderProps) {
   const { data: session } = useSession()
+  const router = useRouter()
+  const [profileImage, setProfileImage] = useState<string>("")
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
@@ -67,6 +71,20 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
 
   useEffect(() => {
     fetchNotifications()
+  }, [])
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const res = await fetch("/api/admin/profile")
+        if (!res.ok) return
+        const data = await res.json()
+        if (typeof data.avatar === "string") setProfileImage(data.avatar)
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadProfile()
   }, [])
 
   const fetchNotifications = async () => {
@@ -117,9 +135,9 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
         (item) => item.name.toLowerCase() === searchQuery.toLowerCase(),
       )
       if (matchedItem) {
-        window.location.href = matchedItem.href
+        router.push(matchedItem.href)
       } else {
-        window.location.href = `/admin/search?q=${encodeURIComponent(searchQuery)}`
+        router.push(`/admin/search?q=${encodeURIComponent(searchQuery)}`)
       }
       setShowSearchSuggestions(false)
     }
@@ -130,7 +148,7 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
   )
 
   const handleSuggestionClick = (href: string) => {
-    window.location.href = href
+    router.push(href)
     setShowSearchSuggestions(false)
     setSearchQuery("")
   }
@@ -250,9 +268,13 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100"
             >
-              <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                <User className="h-4 w-4 text-green-600" />
-              </div>
+              {profileImage ? (
+                <img src={profileImage} alt="Admin avatar" className="h-8 w-8 rounded-full object-cover border border-gray-200" />
+              ) : (
+                <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
+                  <User className="h-4 w-4 text-green-600" />
+                </div>
+              )}
               <div className="hidden md:block text-left">
                 <p className="text-sm font-medium text-gray-900">{session?.user?.name || "Admin"}</p>
                 <p className="text-xs text-gray-500">{session?.user?.email}</p>
@@ -263,18 +285,18 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
             {showUserMenu && (
               <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                 <div className="p-2">
-                  <button className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+                  <Link href="/admin/profile" className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
                     <User className="h-4 w-4" />
                     <span>Profile</span>
-                  </button>
-                  <button className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+                  </Link>
+                  <Link href="/admin/settings" className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
                     <Settings className="h-4 w-4" />
                     <span>Settings</span>
-                  </button>
-                  <button className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+                  </Link>
+                  <Link href="/admin/security" className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
                     <Shield className="h-4 w-4" />
                     <span>Security</span>
-                  </button>
+                  </Link>
                   <hr className="my-2" />
                   <button
                     onClick={() => signOut()}

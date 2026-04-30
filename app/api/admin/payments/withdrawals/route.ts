@@ -39,6 +39,12 @@ export async function GET(request: NextRequest) {
               name: true,
               email: true,
               phone: true,
+              wallet: {
+                select: {
+                  balance: true,
+                  currency: true,
+                },
+              },
             },
           },
           bankAccount: {
@@ -63,6 +69,8 @@ export async function GET(request: NextRequest) {
       vendorPhone: withdrawal.vendor.phone,
       amount: withdrawal.amount,
       currency: withdrawal.currency,
+      vendorWalletBalance: withdrawal.vendor.wallet?.balance ?? 0,
+      vendorWalletCurrency: withdrawal.vendor.wallet?.currency ?? withdrawal.currency,
       bankDetails: withdrawal.bankAccount
         ? {
             accountName: withdrawal.bankAccount.accountName,

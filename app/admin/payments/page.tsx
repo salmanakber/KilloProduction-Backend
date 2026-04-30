@@ -19,9 +19,19 @@ import {
   Building,
   ChevronLeft,
   ChevronRight,
+  Wallet,
+  Settings,
+  X,
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
+  CheckCircle2,
+  XCircle,
+  Info
 } from "lucide-react"
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, ComposedChart } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid, ComposedChart, Cell } from "recharts"
 
+// --- Interfaces (Kept Exactly as Original) ---
 interface Payment {
   id: string
   transactionId: string
@@ -52,6 +62,9 @@ interface WithdrawalRequest {
   vendorId: string
   vendorName: string
   amount: number
+  currency?: string
+  vendorWalletBalance?: number
+  vendorWalletCurrency?: string
   bankDetails: {
     accountName: string
     accountNumber: string
@@ -154,6 +167,7 @@ export default function PaymentManagement() {
   const [gatewayTotalPages, setGatewayTotalPages] = useState(1)
   const [actionBanner, setActionBanner] = useState<{ type: "ok" | "err"; text: string } | null>(null)
   const [walletDetail, setWalletDetail] = useState<Payment | null>(null)
+  const [withdrawalDetail, setWithdrawalDetail] = useState<WithdrawalRequest | null>(null)
   const [riderClearanceDays, setRiderClearanceDays] = useState(4)
   const [savingClearance, setSavingClearance] = useState(false)
 
@@ -178,7 +192,7 @@ export default function PaymentManagement() {
       const res = await fetch("/api/admin/payments/rider-wallet-clearance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ riderWalletClearanceDays }),
+        body: JSON.stringify({ riderWalletClearanceDays: riderClearanceDays }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Save failed")
@@ -392,66 +406,85 @@ export default function PaymentManagement() {
     }
   }
 
+  // --- Enhanced UI Helpers ---
   const getStatusColor = (status: string) => {
     switch (status) {
       case "COMPLETED":
       case "PAID":
-        return "bg-green-100 text-green-800"
+      case "APPROVED":
+        return "bg-emerald-100 text-emerald-700 border-emerald-200"
       case "PENDING":
-        return "bg-yellow-100 text-yellow-800"
+      case "PROCESSING":
+        return "bg-amber-100 text-amber-700 border-amber-200"
       case "FAILED":
-        return "bg-red-100 text-red-800"
+      case "REJECTED":
+        return "bg-rose-100 text-rose-700 border-rose-200"
       case "REFUNDED":
       case "PARTIALLY_REFUNDED":
-        return "bg-blue-100 text-blue-800"
+        return "bg-blue-100 text-blue-700 border-blue-200"
       case "DISPUTED":
-        return "bg-purple-100 text-purple-800"
+        return "bg-purple-100 text-purple-700 border-purple-200"
       case "CANCELLED":
-        return "bg-gray-200 text-gray-800"
+        return "bg-slate-100 text-slate-700 border-slate-200"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "bg-slate-100 text-slate-700 border-slate-200"
     }
   }
 
   const getPaymentMethodIcon = (method: string) => {
     switch (method) {
       case "CARD":
-        return <CreditCard className="h-4 w-4" />
+        return <div className="h-8 w-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><CreditCard className="h-4 w-4" /></div>
       case "BANK_TRANSFER":
-        return <Building className="h-4 w-4" />
+        return <div className="h-8 w-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center"><Building className="h-4 w-4" /></div>
       case "WALLET":
-        return <DollarSign className="h-4 w-4" />
+        return <div className="h-8 w-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center"><Wallet className="h-4 w-4" /></div>
       case "MOBILE_MONEY":
-        return <CreditCard className="h-4 w-4" />
+        return <div className="h-8 w-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center"><CreditCard className="h-4 w-4" /></div>
       default:
-        return <CreditCard className="h-4 w-4" />
+        return <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center"><DollarSign className="h-4 w-4" /></div>
     }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+      <div className="space-y-8 animate-pulse p-4">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <div className="h-8 w-64 bg-slate-200 rounded-lg mb-2"></div>
+            <div className="h-4 w-96 bg-slate-200 rounded-lg"></div>
+          </div>
+          <div className="h-10 w-40 bg-slate-200 rounded-xl"></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-36 bg-white border border-slate-100 rounded-2xl shadow-sm"></div>
+          ))}
+        </div>
+        <div className="h-14 bg-slate-200 rounded-xl w-1/3 mt-6"></div>
+        <div className="h-96 bg-white border border-slate-100 rounded-2xl shadow-sm mt-6"></div>
       </div>
     )
   }
 
   const cur = stats?.currencySymbol ?? "₦"
   const volDelta = stats?.volumeChangePercent ?? 0
+  const isPositiveVol = volDelta >= 0
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-16">
+      
+      {/* HEADER */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Payment Management</h1>
-          <p className="text-gray-600 mt-1">Monitor transactions, process withdrawals, and manage payment flows</p>
+          <h1 className="text-2xl font-bold text-slate-900">Payment Center</h1>
+          <p className="text-sm text-slate-500 mt-1">Monitor transactions, process withdrawals, and manage system liquidity.</p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+            className="h-10 text-xs border border-slate-300 bg-slate-50 rounded-xl px-3 focus:ring-2 focus:ring-emerald-500 outline-none font-semibold text-slate-700 cursor-pointer"
           >
             <option value="24h">Last 24 Hours</option>
             <option value="7d">Last 7 Days</option>
@@ -461,7 +494,7 @@ export default function PaymentManagement() {
           <button
             type="button"
             onClick={() => handleExport()}
-            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="flex items-center h-10 px-4 text-white text-sm font-semibold rounded-xl bg-gradient-to-tr from-green-500 to-emerald-600 shadow-md shadow-green-200 hover:shadow-green-300 transition-all"
           >
             <Download className="h-4 w-4 mr-2" />
             Export CSV
@@ -469,29 +502,39 @@ export default function PaymentManagement() {
         </div>
       </div>
 
+      {/* ACTION BANNER */}
       {actionBanner && (
         <div
-          className={`rounded-lg px-4 py-3 text-sm ${
-            actionBanner.type === "ok" ? "bg-emerald-50 text-emerald-900 border border-emerald-200" : "bg-red-50 text-red-900 border border-red-200"
+          className={`flex items-center justify-between p-4 rounded-xl border animate-in slide-in-from-top-4 shadow-sm ${
+            actionBanner.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"
           }`}
         >
-          {actionBanner.text}
-          <button type="button" className="ml-3 underline" onClick={() => setActionBanner(null)}>
-            Dismiss
+          <div className="flex items-center gap-3">
+            {actionBanner.type === "ok" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <XCircle className="h-5 w-5 text-rose-600" />}
+            <span className="text-sm font-semibold">{actionBanner.text}</span>
+          </div>
+          <button type="button" className="p-1 rounded-lg hover:bg-black/5 transition-colors" onClick={() => setActionBanner(null)}>
+            <X size={16} />
           </button>
         </div>
       )}
 
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row sm:items-end gap-4">
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold text-gray-900">Rider wallet payment clearance</h2>
-          <p className="text-xs text-gray-500 mt-1">
-            Calendar days before delivery earnings appear in the rider&apos;s withdrawable balance (processed by the dispatch worker).
-          </p>
+      {/* RIDER CLEARANCE SETTING */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-6 group hover:border-emerald-200 transition-colors">
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-emerald-50 group-hover:text-emerald-600 group-hover:border-emerald-100 transition-colors">
+            <Settings className="h-6 w-6 text-slate-600 group-hover:text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Rider/Vendor Wallet Clearance Window</h2>
+            <p className="text-sm text-slate-500 mt-1 max-w-xl">
+              Set the number of calendar days before a rider/vendor&apos;s delivery earnings transition into their available, withdrawable balance.
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="riderClearanceDays" className="text-sm text-gray-600 whitespace-nowrap">
-            Days (1–14)
+        <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <label htmlFor="riderClearanceDays" className="text-sm font-semibold text-slate-600 pl-2">
+            Days
           </label>
           <input
             id="riderClearanceDays"
@@ -500,200 +543,167 @@ export default function PaymentManagement() {
             max={14}
             value={riderClearanceDays}
             onChange={(e) => setRiderClearanceDays(Math.min(14, Math.max(1, Number(e.target.value) || 4)))}
-            className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
+            className="w-16 text-center border border-slate-300 rounded-lg px-2 py-1.5 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
           />
           <button
             type="button"
             disabled={savingClearance}
             onClick={() => void saveRiderClearanceDays()}
-            className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+            className="px-5 py-2 text-white text-sm font-bold rounded-lg bg-gradient-to-tr from-green-500 to-emerald-600 shadow-md shadow-green-200 hover:shadow-green-300 transition-colors disabled:opacity-50"
           >
-            {savingClearance ? "Saving…" : "Save"}
+            {savingClearance ? "Saving..." : "Save"}
           </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* KPI GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Wallet volume (completed)</p>
-              <p className="text-3xl font-bold text-gray-900">
-                {cur}
-                {(stats?.totalVolume ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </p>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-emerald-50 rounded-xl flex items-center justify-center border border-emerald-100 group-hover:bg-emerald-100 transition-colors">
+              <Wallet className="h-6 w-6 text-emerald-600" />
             </div>
-            <div className="h-12 w-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="h-6 w-6 text-green-600" />
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-bold ${isPositiveVol ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+              {isPositiveVol ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
+              {Math.abs(volDelta)}%
             </div>
           </div>
-          <div className="mt-4 flex items-center">
-            <TrendingUp className={`h-4 w-4 mr-1 ${volDelta >= 0 ? "text-green-500" : "text-red-500"}`} />
-            <span className={`text-sm font-medium ${volDelta >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {volDelta >= 0 ? "+" : ""}
-              {volDelta}% vs previous period
-            </span>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Wallet Volume</p>
+            <p className="text-3xl font-black text-slate-900">
+              {cur}{(stats?.totalVolume ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <p className="text-xs text-slate-500 mt-2 font-medium">Gateway Paid: {cur}{(stats?.gatewayPaidVolume ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Gateway paid: {cur}
-            {(stats?.gatewayPaidVolume ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Wallet transactions</p>
-              <p className="text-3xl font-bold text-gray-900">{stats?.totalTransactions?.toLocaleString() ?? "0"}</p>
-            </div>
-            <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <CreditCard className="h-6 w-6 text-blue-600" />
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100 group-hover:bg-blue-100 transition-colors">
+              <Activity className="h-6 w-6 text-blue-600" />
             </div>
           </div>
-          <div className="mt-4 flex items-center">
-            <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
-            <span className="text-sm text-green-600 font-medium">{stats?.successRate ?? 0}% completed share</span>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Transactions</p>
+            <p className="text-3xl font-black text-slate-900">{stats?.totalTransactions?.toLocaleString() ?? "0"}</p>
+            <div className="mt-2 flex items-center">
+              <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mr-1.5" />
+              <span className="text-xs text-emerald-600 font-bold">{stats?.successRate ?? 0}% success rate</span>
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">Cancelled in range: {stats?.cancelledWalletTx ?? 0}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Pending / failed</p>
-              <p className="text-3xl font-bold text-gray-900">{stats?.pendingPayments ?? 0}</p>
-            </div>
-            <div className="h-12 w-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <Clock className="h-6 w-6 text-yellow-600" />
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-amber-50 rounded-xl flex items-center justify-center border border-amber-100 group-hover:bg-amber-100 transition-colors">
+              <AlertTriangle className="h-6 w-6 text-amber-600" />
             </div>
           </div>
-          <div className="mt-4 flex items-center">
-            <AlertTriangle className="h-4 w-4 text-red-500 mr-1" />
-            <span className="text-sm text-red-600 font-medium">{stats?.failedPayments ?? 0} wallet failed</span>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Pending / Failed</p>
+            <p className="text-3xl font-black text-slate-900">{stats?.pendingPayments ?? 0}</p>
+            <div className="mt-2 flex items-center">
+              <span className="text-xs text-rose-600 font-bold">{stats?.failedPayments ?? 0} wallet failed</span>
+              <span className="mx-2 text-slate-300">•</span>
+              <span className="text-xs text-slate-500 font-medium">GW: {stats?.gatewayFailedCount ?? 0} fail</span>
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Gateway: {stats?.gatewayPendingCount ?? 0} pending · {stats?.gatewayFailedCount ?? 0} failed
-          </p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Commission (paid)</p>
-              <p className="text-3xl font-bold text-gray-900">
-                {cur}
-                {(stats?.totalCommission ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </p>
-            </div>
-            <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-purple-50 rounded-xl flex items-center justify-center border border-purple-100 group-hover:bg-purple-100 transition-colors">
               <TrendingUp className="h-6 w-6 text-purple-600" />
             </div>
           </div>
-          <div className="mt-4 flex items-center">
-            <span className="text-sm text-gray-600">{stats?.pendingWithdrawals ?? 0} pending withdrawals</span>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Paid Commission</p>
+            <p className="text-3xl font-black text-slate-900">
+              {cur}{(stats?.totalCommission ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
+            <div className="mt-2 flex items-center justify-between text-xs font-medium">
+              <span className="text-amber-600 font-bold">{stats?.pendingWithdrawals ?? 0} pending w/d</span>
+              <span className="text-slate-500">Ref: {cur}{(stats?.totalRefunds ?? 0).toLocaleString()}</span>
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Refunds (wallet type): {cur}
-            {(stats?.totalRefunds ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
-            <button
-              onClick={() => setActiveTab("payments")}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === "payments"
-                  ? "border-green-500 text-green-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              Payments
-            </button>
-            <button
-              onClick={() => setActiveTab("withdrawals")}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === "withdrawals"
-                  ? "border-green-500 text-green-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              Withdrawals
-            </button>
-            <button
-              onClick={() => setActiveTab("disputes")}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === "disputes"
-                  ? "border-green-500 text-green-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              Disputes
-            </button>
-            <button
-              onClick={() => setActiveTab("analytics")}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === "analytics"
-                  ? "border-green-500 text-green-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              Analytics
-            </button>
-          </nav>
+      {/* MAIN CONTENT AREA */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        
+        {/* Sleek Tabs */}
+        <div className="border-b border-slate-100 bg-slate-50/50 p-4">
+          <div className="flex space-x-2 bg-slate-200/50 p-1.5 rounded-xl w-max overflow-x-auto">
+            {[
+              { id: "payments", label: "Payments Ledger" },
+              { id: "withdrawals", label: "Withdrawal Requests" },
+              { id: "disputes", label: "Disputes" },
+              { id: "analytics", label: "Financial Analytics" }
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`px-5 py-2.5 rounded-lg text-sm font-bold capitalize transition-all duration-200 ${
+                  activeTab === t.id
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 min-h-[500px]">
+          
+          {/* TAB: PAYMENTS */}
           {activeTab === "payments" && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
+            <div className="space-y-6 animate-in fade-in">
+              {/* Payment Type Pill Toggle */}
+              <div className="flex flex-wrap gap-2 pb-4">
                 <button
                   type="button"
                   onClick={() => setPaymentSource("wallet")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                    paymentSource === "wallet" ? "bg-green-100 text-green-800" : "text-gray-600 hover:bg-gray-50"
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                    paymentSource === "wallet" ? "bg-gradient-to-tr from-green-500 to-emerald-600 text-white shadow-md" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  Wallet ledger
+                  Internal Wallet Ledger
                 </button>
                 <button
                   type="button"
                   onClick={() => setPaymentSource("gateway")}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
-                    paymentSource === "gateway" ? "bg-green-100 text-green-800" : "text-gray-600 hover:bg-gray-50"
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                    paymentSource === "gateway" ? "bg-gradient-to-tr from-green-500 to-emerald-600 text-white shadow-md" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  Gateway (Payment records)
+                  External Gateway Records
                 </button>
               </div>
 
+              {/* Wallet Ledger View */}
               {paymentSource === "wallet" && (
-                <>
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                    <div className="flex-1 max-w-lg">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                        <input
-                          type="text"
-                          placeholder="Search ref, user, email, order id…"
-                          value={walletSearch}
-                          onChange={(e) => setWalletSearch(e.target.value)}
-                          className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        />
-                      </div>
+                <div className="space-y-4">
+                  <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+                    <div className="relative w-full max-w-md">
+                      <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
+                      <input
+                        type="text"
+                        placeholder="Search ref, user, order id..."
+                        value={walletSearch}
+                        onChange={(e) => setWalletSearch(e.target.value)}
+                        className="pl-10 pr-4 py-2.5 w-full border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm font-medium outline-none transition-all"
+                      />
                     </div>
-
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center gap-3 w-full lg:w-auto">
                       <select
                         value={selectedStatus}
                         onChange={(e) => setSelectedStatus(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+                        className="border border-slate-300 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 flex-1 lg:flex-none cursor-pointer"
                       >
-                        <option value="ALL">All Status</option>
+                        <option value="ALL">All Statuses</option>
                         <option value="PENDING">Pending</option>
                         <option value="COMPLETED">Completed</option>
                         <option value="FAILED">Failed</option>
@@ -702,7 +712,7 @@ export default function PaymentManagement() {
                       <select
                         value={selectedType}
                         onChange={(e) => setSelectedType(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+                        className="border border-slate-300 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 flex-1 lg:flex-none cursor-pointer"
                       >
                         <option value="ALL">All Types</option>
                         <option value="CREDIT">Credit</option>
@@ -713,501 +723,412 @@ export default function PaymentManagement() {
                         <option value="WITHDRAWAL">Withdrawal</option>
                         <option value="DEPOSIT">Deposit</option>
                       </select>
-                      <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                        <Filter className="h-4 w-4 mr-2" />
-                        More Filters
-                      </button>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Transaction
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            User
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Amount
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Method
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Date
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {payments?.map((payment) => (
-                            <tr key={payment.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4">
-                                <div>
-                                  <div className="text-sm font-medium text-gray-900">{payment.transactionId}</div>
-                                  <div className="text-sm text-gray-500">{String(payment.type).replace(/_/g, " ")}</div>
-                                  {payment.orderId && (
-                                    <div className="text-xs text-gray-400">Order: {payment.orderId}</div>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center">
-                                  <div className="h-8 w-8 bg-gray-200 rounded-full flex items-center justify-center">
-                                    <User className="h-4 w-4 text-gray-500" />
+                  <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Transaction Info</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Entity Involved</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Financials</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status & Method</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Timestamp</th>
+                            <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {payments.length > 0 ? (
+                            payments.map((payment) => (
+                              <tr key={payment.id} className="hover:bg-slate-50 transition-colors group">
+                                <td className="px-6 py-4">
+                                  <div className="font-mono text-sm font-bold text-indigo-600 mb-1">{payment.transactionId}</div>
+                                  <div className="text-xs font-semibold text-slate-500 bg-slate-100 w-max px-2 py-0.5 rounded uppercase tracking-wider">
+                                    {String(payment.type).replace(/_/g, " ")}
                                   </div>
-                                  <div className="ml-3">
-                                    <div className="text-sm font-medium text-gray-900">{payment.userName}</div>
-                                    <div className="text-sm text-gray-500">{payment.userType}</div>
+                                  {payment.orderId && <div className="text-xs text-slate-400 mt-1 font-medium">Ord: {payment.orderId}</div>}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
+                                      <User className="h-5 w-5 text-slate-500" />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-bold text-slate-900">{payment.userName || "Unknown User"}</p>
+                                      <p className="text-xs font-medium text-slate-500">{payment.userType}</p>
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div>
-                                  <div className="text-sm font-medium text-gray-900">
-                                    {payment.amount.toFixed(2)} {payment.currency}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="text-sm font-black text-slate-900">{payment.currency} {payment.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                                  <div className="text-xs font-medium text-slate-500 mt-0.5">Fee: {payment.fees.total.toFixed(2)}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex flex-col gap-2 items-start">
+                                    <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${getStatusColor(payment.status)}`}>
+                                      {payment.status}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                                      {getPaymentMethodIcon(payment.method)} {payment.method.replace("_", " ")}
+                                    </div>
+                                    {payment.failureReason && <div className="text-[10px] text-rose-600 font-semibold max-w-[150px] truncate" title={payment.failureReason}>{payment.failureReason}</div>}
                                   </div>
-                                  <div className="text-xs text-gray-500">Fee: {payment.fees.total.toFixed(2)}</div>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center">
-                                  {getPaymentMethodIcon(payment.method)}
-                                  <span className="ml-2 text-sm text-gray-900">{payment.method.replace("_", " ")}</span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span
-                                  className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(payment.status)}`}
-                                >
-                                  {payment.status}
-                                </span>
-                                {payment.failureReason && (
-                                  <div className="text-xs text-red-600 mt-1">{payment.failureReason}</div>
-                                )}
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="text-sm text-gray-900">
-                                  {new Date(payment.createdAt).toLocaleDateString()}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {new Date(payment.createdAt).toLocaleTimeString()}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center space-x-2">
-                                  <button
-                                    type="button"
-                                    title="View details"
-                                    onClick={() => setWalletDetail(payment)}
-                                    className="text-green-600 hover:text-green-900"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </button>
-                                  {payment.status === "FAILED" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handlePaymentAction(payment.id, "retry")}
-                                      className="text-blue-600 hover:text-blue-900"
-                                    >
-                                      <RefreshCw className="h-4 w-4" />
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="text-sm font-bold text-slate-700">{new Date(payment.createdAt).toLocaleDateString()}</div>
+                                  <div className="text-xs font-medium text-slate-500">{new Date(payment.createdAt).toLocaleTimeString()}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => setWalletDetail(payment)} className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 transition-colors" title="View Detail">
+                                      <Eye size={16} />
                                     </button>
-                                  )}
-                                  {payment.status === "COMPLETED" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handlePaymentAction(payment.id, "refund")}
-                                      className="text-orange-600 hover:text-orange-900"
-                                    >
-                                      <RefreshCw className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {payment.status === "PENDING" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handlePaymentAction(payment.id, "cancel")}
-                                      className="text-red-600 hover:text-red-900"
-                                    >
-                                      <Ban className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </div>
+                                    {payment.status === "FAILED" && (
+                                      <button onClick={() => handlePaymentAction(payment.id, "retry")} className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-700 transition-colors" title="Retry">
+                                        <RefreshCw size={16} />
+                                      </button>
+                                    )}
+                                    {payment.status === "COMPLETED" && (
+                                      <button onClick={() => handlePaymentAction(payment.id, "refund")} className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 transition-colors" title="Refund">
+                                        <RefreshCw size={16} />
+                                      </button>
+                                    )}
+                                    {payment.status === "PENDING" && (
+                                      <button onClick={() => handlePaymentAction(payment.id, "cancel")} className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 transition-colors" title="Cancel">
+                                        <Ban size={16} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="px-6 py-12 text-center text-slate-500 font-medium">
+                                No wallet transactions match your current filters.
                               </td>
                             </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <p className="text-sm text-gray-500">
-                      Page {walletPage} of {walletTotalPages}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={walletPage <= 1}
-                        onClick={() => setWalletPage((p) => Math.max(1, p - 1))}
-                        className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                        Prev
-                      </button>
-                      <button
-                        type="button"
-                        disabled={walletPage >= walletTotalPages}
-                        onClick={() => setWalletPage((p) => p + 1)}
-                        className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Pagination */}
+                    <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-200">
+                      <p className="text-sm font-medium text-slate-500">Page <span className="font-bold text-slate-900">{walletPage}</span> of <span className="font-bold text-slate-900">{walletTotalPages}</span></p>
+                      <div className="flex gap-2">
+                        <button disabled={walletPage <= 1} onClick={() => setWalletPage((p) => Math.max(1, p - 1))} className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                          <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                        </button>
+                        <button disabled={walletPage >= walletTotalPages} onClick={() => setWalletPage((p) => p + 1)} className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                          Next <ChevronRight className="h-4 w-4 ml-1" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </>
+                </div>
               )}
 
+              {/* Gateway View */}
               {paymentSource === "gateway" && (
-                <>
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                    <div className="flex-1 max-w-lg relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <div className="space-y-4">
+                  <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+                    <div className="relative w-full max-w-md">
+                      <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
                       <input
                         type="text"
-                        placeholder="Search id, order, gateway ref, user email…"
+                        placeholder="Search gateway ref, email, order..."
                         value={gatewaySearch}
                         onChange={(e) => setGatewaySearch(e.target.value)}
-                        className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        className="pl-10 pr-4 py-2.5 w-full border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm font-medium outline-none transition-all"
                       />
                     </div>
                     <select
                       value={gatewayStatus}
                       onChange={(e) => setGatewayStatus(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500"
+                      className="border border-slate-300 bg-slate-50 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 w-full lg:w-auto cursor-pointer"
                     >
-                      <option value="ALL">All status</option>
+                      <option value="ALL">All Statuses</option>
                       <option value="PENDING">Pending</option>
                       <option value="PAID">Paid</option>
                       <option value="FAILED">Failed</option>
                       <option value="REFUNDED">Refunded</option>
-                      <option value="PARTIALLY_REFUNDED">Partially refunded</option>
+                      <option value="PARTIALLY_REFUNDED">Partially Refunded</option>
                     </select>
                   </div>
 
-                  {gatewayLoading ? (
-                    <p className="text-gray-500 text-sm py-8 text-center">Loading gateway payments…</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gateway</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {gatewayPayments.map((p) => (
-                            <tr key={p.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm">
-                                <div className="font-mono text-xs text-gray-800">{p.id.slice(0, 12)}…</div>
-                                {p.gatewayTransactionId && (
-                                  <div className="text-xs text-gray-500">Ref: {p.gatewayTransactionId}</div>
-                                )}
-                                {p.orderNumber && <div className="text-xs text-gray-500">Order #{p.orderNumber}</div>}
-                                {p.description && <div className="text-xs text-gray-400 mt-1">{p.description}</div>}
-                              </td>
-                              <td className="px-6 py-4 text-sm">
-                                <div className="font-medium text-gray-900">{p.userName || "—"}</div>
-                                <div className="text-gray-500 text-xs">{p.userEmail}</div>
-                                <div className="text-gray-400 text-xs">{p.userRole}</div>
-                              </td>
-                              <td className="px-6 py-4 text-sm font-medium">
-                                {p.amount.toFixed(2)} {p.currency}
-                              </td>
-                              <td className="px-6 py-4 text-sm">
-                                <div className="font-medium">{p.gateway}</div>
-                                {p.paymentMethod && (
-                                  <div className="text-xs text-gray-500">
-                                    {p.paymentMethod.provider} {p.paymentMethod.brand || ""}{" "}
-                                    {p.paymentMethod.lastFour ? `••••${p.paymentMethod.lastFour}` : ""}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-6 py-4">
-                                <span
-                                  className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(p.status)}`}
-                                >
-                                  {p.status}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-600">
-                                {new Date(p.createdAt).toLocaleString()}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {!gatewayLoading && gatewayPayments.length === 0 && (
-                        <p className="text-center text-gray-500 py-8 text-sm">No Payment rows match your filters.</p>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                    <p className="text-sm text-gray-500">
-                      Page {gatewayPage} of {gatewayTotalPages}
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={gatewayPage <= 1}
-                        onClick={() => setGatewayPage((p) => Math.max(1, p - 1))}
-                        className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                        Prev
-                      </button>
-                      <button
-                        type="button"
-                        disabled={gatewayPage >= gatewayTotalPages}
-                        onClick={() => setGatewayPage((p) => p + 1)}
-                        className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
+                  <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    {gatewayLoading ? (
+                      <div className="py-24 flex flex-col items-center justify-center text-slate-400 gap-3">
+                        <RefreshCw className="h-6 w-6 animate-spin text-emerald-500" />
+                        <p className="font-medium">Fetching gateway ledgers...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead className="bg-slate-50 border-b border-slate-200">
+                              <tr>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Gateway Ref & Order</th>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Customer Details</th>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount Paid</th>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Method</th>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Processed On</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {gatewayPayments.length > 0 ? gatewayPayments.map((p) => (
+                                <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-6 py-4">
+                                    <div className="font-mono text-sm font-bold text-slate-900 mb-1" title={p.id}>{p.id.slice(0, 10)}...</div>
+                                    {p.gatewayTransactionId && <div className="text-xs font-semibold text-slate-500 flex items-center gap-1"><Building size={12}/> {p.gatewayTransactionId}</div>}
+                                    {p.orderNumber && <div className="text-xs font-semibold text-indigo-600 mt-1">Ord: #{p.orderNumber}</div>}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <p className="font-bold text-sm text-slate-900">{p.userName || "Guest"}</p>
+                                    <p className="text-xs font-medium text-slate-500">{p.userEmail}</p>
+                                  </td>
+                                  <td className="px-6 py-4 font-black text-sm text-slate-900">
+                                    {p.currency} {p.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div className="font-bold text-sm text-slate-900">{p.gateway}</div>
+                                    {p.paymentMethod && (
+                                      <div className="text-xs font-medium text-slate-500 mt-0.5">
+                                        {p.paymentMethod.provider} {p.paymentMethod.brand ? `· ${p.paymentMethod.brand}` : ""}
+                                        {p.paymentMethod.lastFour ? ` · ***${p.paymentMethod.lastFour}` : ""}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${getStatusColor(p.status)}`}>
+                                      {p.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-sm font-medium text-slate-600">
+                                    {new Date(p.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                                  </td>
+                                </tr>
+                              )) : (
+                                <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-500 font-medium">No gateway records found.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-200">
+                          <p className="text-sm font-medium text-slate-500">Page <span className="font-bold text-slate-900">{gatewayPage}</span> of <span className="font-bold text-slate-900">{gatewayTotalPages}</span></p>
+                          <div className="flex gap-2">
+                            <button disabled={gatewayPage <= 1} onClick={() => setGatewayPage((p) => Math.max(1, p - 1))} className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                              <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                            </button>
+                            <button disabled={gatewayPage >= gatewayTotalPages} onClick={() => setGatewayPage((p) => p + 1)} className="flex items-center px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                              Next <ChevronRight className="h-4 w-4 ml-1" />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
 
+          {/* TAB: WITHDRAWALS */}
           {activeTab === "withdrawals" && (
-            <div className="space-y-4">
-              {withdrawals?.map((withdrawal) => (
-                <div key={withdrawal.id} className="bg-gray-50 p-6 rounded-lg border">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-3">
-                        <h4 className="text-lg font-medium text-gray-900">{withdrawal.vendorName}</h4>
-                        <span
-                          className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(withdrawal.status)}`}
-                        >
-                          {withdrawal.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Amount</p>
-                          <p className="text-lg font-semibold text-gray-900">
-                            {cur}
-                            {withdrawal.amount.toLocaleString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Bank Account</p>
-                          {withdrawal.bankDetails ? (
-                            <>
-                              <p className="text-sm text-gray-900">{withdrawal.bankDetails.accountName}</p>
-                              <p className="text-sm text-gray-500">
-                                {withdrawal.bankDetails.bankName} - ****
-                                {withdrawal.bankDetails.accountNumber?.slice(-4) ?? "—"}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-sm text-gray-500">No bank account on file</p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Requested</p>
-                          <p className="text-sm text-gray-900">
-                            {new Date(withdrawal.requestedAt).toLocaleDateString()}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            {new Date(withdrawal.requestedAt).toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      {withdrawal.rejectionReason && (
-                        <div className="bg-red-50 border border-red-200 p-3 rounded mb-4">
-                          <p className="text-sm text-red-800">
-                            <strong>Rejection Reason:</strong> {withdrawal.rejectionReason}
-                          </p>
-                        </div>
-                      )}
-
-                      {(() => {
-                        const meta = parseWithdrawalNotes(withdrawal.notes)
-                        if (!meta.scheduledProcessDate && !meta.clearingBusinessDays && !meta.message) return null
-                        return (
-                          <div className="bg-amber-50 border border-amber-200 p-3 rounded mb-4">
-                            <p className="text-sm font-semibold text-amber-900 mb-1">Clearing &amp; scheduling</p>
-                            {meta.clearingBusinessDays != null && (
-                              <p className="text-sm text-amber-900">
-                                Business-day clearing window: {meta.clearingBusinessDays} days (weekends/holidays excluded).
-                              </p>
-                            )}
-                            {meta.scheduledProcessDate && (
-                              <p className="text-sm text-amber-900">
-                                Earliest indicated payout date:{" "}
-                                {new Date(meta.scheduledProcessDate).toLocaleString(undefined, {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                })}
-                              </p>
-                            )}
-                            {meta.message && <p className="text-xs text-amber-800 mt-1">{meta.message}</p>}
-                          </div>
-                        )
-                      })()}
+            <div className="space-y-4 animate-in fade-in">
+              {withdrawals.length > 0 ? withdrawals.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => setWithdrawalDetail(w)}
+                  className={`w-full text-left bg-white p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row md:items-start justify-between gap-6 transition-all hover:shadow-md ${w.status === "PENDING" ? "border-amber-200 border-l-4" : "border-slate-200"}`}
+                >
+                  <div className="flex-1 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <h4 className="text-xl font-bold text-slate-900">{w.vendorName}</h4>
+                      <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${getStatusColor(w.status)}`}>
+                        {w.status}
+                      </span>
                     </div>
 
-                    {withdrawal.status === "PENDING" && (
-                      <div className="flex items-center space-x-2 ml-4">
-                        <button
-                          onClick={() => handleWithdrawalAction(withdrawal.id, "approve")}
-                          className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleWithdrawalAction(withdrawal.id, "reject", "Insufficient documentation")}
-                          className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                        >
-                          Reject
-                        </button>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Amount Requested</p>
+                        <p className="text-xl font-black text-slate-900">{cur}{w.amount.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Destination Bank</p>
+                        {w.bankDetails ? (
+                          <>
+                            <p className="text-sm font-bold text-slate-900">{w.bankDetails.accountName}</p>
+                            <p className="text-xs font-medium text-slate-500 mt-0.5">{w.bankDetails.bankName} •••• {w.bankDetails.accountNumber?.slice(-4) ?? ""}</p>
+                          </>
+                        ) : (
+                          <p className="text-sm text-slate-400 italic">No bank provided</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Date Requested</p>
+                        <p className="text-sm font-bold text-slate-900">{new Date(w.requestedAt).toLocaleDateString()}</p>
+                        <p className="text-xs font-medium text-slate-500 mt-0.5">{new Date(w.requestedAt).toLocaleTimeString()}</p>
+                      </div>
+                    </div>
+
+                    {w.rejectionReason && (
+                      <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-start gap-2 text-rose-800 text-sm">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <p><strong>Rejected:</strong> {w.rejectionReason}</p>
                       </div>
                     )}
+
+                    {(() => {
+                      const meta = parseWithdrawalNotes(w.notes)
+                      if (!meta.scheduledProcessDate && !meta.clearingBusinessDays && !meta.message) return null
+                      return (
+                        <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-2">
+                          <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-sm font-bold text-amber-900">Clearing & Schedule</p>
+                            {meta.clearingBusinessDays != null && <p className="text-xs font-medium text-amber-800 mt-1">Clearing window: {meta.clearingBusinessDays} business days.</p>}
+                            {meta.scheduledProcessDate && <p className="text-xs font-medium text-amber-800 mt-0.5">Est. Payout Date: {new Date(meta.scheduledProcessDate).toLocaleString()}</p>}
+                            {meta.message && <p className="text-xs font-medium text-amber-800 mt-1 italic">{meta.message}</p>}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                  
+                  {w.status === "PENDING" && (
+                    <div className="flex md:flex-col items-center justify-end gap-3 shrink-0">
+                      <button onClick={(e) => { e.stopPropagation(); handleWithdrawalAction(w.id, "approve") }} className="w-full flex items-center justify-center px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-colors shadow-sm">
+                        Approve
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); handleWithdrawalAction(w.id, "reject", "Insufficient documentation or invalid banking detail.") }} className="w-full flex items-center justify-center px-6 py-2.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold text-sm rounded-xl transition-colors shadow-sm">
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </button>
+              )) : (
+                <div className="py-24 text-center">
+                  <Wallet className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 font-medium text-lg">No withdrawals to process in this range.</p>
+                </div>
+              )}
+              
+              {withdrawals.length > 0 && (
+                <div className="flex items-center justify-between pt-4 mt-6">
+                  <p className="text-sm font-medium text-slate-500">Page <span className="font-bold">{withdrawPage}</span> of <span className="font-bold">{withdrawTotalPages}</span></p>
+                  <div className="flex gap-2">
+                    <button disabled={withdrawPage <= 1} onClick={() => setWithdrawPage(p => Math.max(1, p - 1))} className="flex items-center px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 disabled:opacity-40">
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                    </button>
+                    <button disabled={withdrawPage >= withdrawTotalPages} onClick={() => setWithdrawPage(p => p + 1)} className="flex items-center px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 disabled:opacity-40">
+                      Next <ChevronRight className="h-4 w-4 ml-1" />
+                    </button>
                   </div>
                 </div>
-              ))}
-              <div className="flex items-center justify-between pt-2">
-                <p className="text-sm text-gray-500">
-                  Page {withdrawPage} of {withdrawTotalPages}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={withdrawPage <= 1}
-                    onClick={() => setWithdrawPage((p) => Math.max(1, p - 1))}
-                    className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Prev
-                  </button>
-                  <button
-                    type="button"
-                    disabled={withdrawPage >= withdrawTotalPages}
-                    onClick={() => setWithdrawPage((p) => p + 1)}
-                    className="inline-flex items-center px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40"
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           )}
 
+          {/* TAB: DISPUTES */}
           {activeTab === "disputes" && (
-            <div className="text-center py-12">
-              <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Payment Disputes</h3>
-              <p className="text-gray-600 mb-4">Manage and resolve payment disputes and chargebacks</p>
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                View All Disputes
+            <div className="py-24 flex flex-col items-center justify-center text-center animate-in fade-in">
+              <div className="h-20 w-20 bg-slate-100 rounded-full flex items-center justify-center mb-6 border border-slate-200">
+                <AlertTriangle className="h-10 w-10 text-slate-400" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Dispute Resolution Center</h3>
+              <p className="text-slate-500 mb-8 max-w-md">Manage chargebacks, frozen funds, and user transaction disputes centrally.</p>
+              <button className="px-6 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-sm transition-all">
+                Access Dispute Dashboard
               </button>
             </div>
           )}
 
+          {/* TAB: ANALYTICS */}
           {activeTab === "analytics" && (
-            <div className="space-y-8">
-              <p className="text-sm text-gray-500">
-                Analytics use the selected date range ({dateRange}) and the same data as the stat cards above.
-              </p>
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Volume over time (wallet vs gateway)</h3>
-                <div className="h-72 w-full">
+            <div className="space-y-8 animate-in fade-in">
+              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex items-start gap-3">
+                <Info className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-indigo-900 font-medium">Financial analytics are strictly bound to the globally selected date range ({dateRange}) mapping to live system data.</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-900 mb-6">Volume Trend: Wallet vs Gateway</h3>
+                <div className="h-80 w-full">
                   {stats?.timeSeries && stats.timeSeries.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={stats.timeSeries}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="walletVolume" name="Wallet (completed)" fill="#059669" stackId="a" />
-                        <Bar dataKey="gatewayVolume" name="Gateway (paid)" fill="#2563eb" stackId="a" />
+                      <ComposedChart data={stats.timeSeries} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} dy={10} />
+                        <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={v => `${cur}${v >= 1000 ? v/1000+'k' : v}`}/>
+                        <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                        <Legend wrapperStyle={{paddingTop: '20px', fontSize: '12px'}}/>
+                        <Bar dataKey="walletVolume" name="Wallet Volume" fill="#10b981" stackId="a" radius={[0, 0, 4, 4]} />
+                        <Bar dataKey="gatewayVolume" name="Gateway Volume" fill="#6366f1" stackId="a" radius={[4, 4, 0, 0]} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   ) : (
-                    <p className="text-gray-500 text-sm py-12 text-center">No time-series data for this range.</p>
+                    <div className="h-full flex items-center justify-center text-slate-400 font-medium text-sm">No time-series data available.</div>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Wallet transactions by type</h3>
-                  <div className="h-64">
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-6">Transactions Count by Ledger Type</h3>
+                  <div className="h-[250px] w-full">
                     {stats?.walletByType && stats.walletByType.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={stats.walletByType}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="type" tick={{ fontSize: 10 }} />
-                          <YAxis allowDecimals={false} />
-                          <Tooltip />
-                          <Bar dataKey="count" name="Count" fill="#0d9488" />
+                        <BarChart data={stats.walletByType} layout="vertical" margin={{ top: 0, right: 20, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                          <XAxis type="number" hide />
+                          <YAxis dataKey="type" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                          <Bar dataKey="count" name="Count" fill="#0ea5e9" radius={[0, 6, 6, 0]} barSize={24} />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <p className="text-gray-500 text-sm text-center py-10">No wallet activity in range.</p>
+                      <div className="h-full flex items-center justify-center text-slate-400 font-medium text-sm">No transaction count data.</div>
                     )}
                   </div>
                 </div>
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Wallet volume by type</h3>
-                  <div className="h-64">
+
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-6">Financial Volume by Ledger Type</h3>
+                  <div className="h-[250px] w-full">
                     {stats?.walletByType && stats.walletByType.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={stats.walletByType}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="type" tick={{ fontSize: 10 }} />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="volume" name={`Volume (${cur})`} fill="#7c3aed" />
+                        <BarChart data={stats.walletByType} layout="vertical" margin={{ top: 0, right: 20, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                          <XAxis type="number" hide />
+                          <YAxis dataKey="type" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                          <Tooltip cursor={{fill: '#f8fafc'}} formatter={(v: number) => `${cur}${v.toLocaleString()}`} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                          <Bar dataKey="volume" name="Volume" fill="#8b5cf6" radius={[0, 6, 6, 0]} barSize={24} />
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <p className="text-gray-500 text-sm text-center py-10">No data.</p>
+                      <div className="h-full flex items-center justify-center text-slate-400 font-medium text-sm">No volume data.</div>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Status breakdown (wallet)</h3>
-                <div className="flex flex-wrap gap-3">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">Status Distribution (Wallet Matrix)</h3>
+                <div className="flex flex-wrap gap-4">
                   {(stats?.walletByStatus ?? []).map((s) => (
-                    <div key={s.status} className="px-3 py-2 bg-white rounded-lg border text-sm">
-                      <span className="font-medium text-gray-900">{s.status}</span>
-                      <span className="text-gray-500 ml-2">{s.count}</span>
+                    <div key={s.status} className="flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 shadow-sm">
+                      <div className={`h-3 w-3 rounded-full ${s.status === 'COMPLETED' ? 'bg-emerald-500' : s.status === 'FAILED' ? 'bg-rose-500' : s.status === 'PENDING' ? 'bg-amber-500' : 'bg-slate-400'}`}></div>
+                      <span className="font-bold text-slate-700 text-sm">{s.status}</span>
+                      <span className="bg-white px-2 py-0.5 rounded text-xs font-black text-slate-500 border border-slate-200">{s.count.toLocaleString()}</span>
                     </div>
                   ))}
-                  {!stats?.walletByStatus?.length && <p className="text-gray-500 text-sm">No rows in range.</p>}
+                  {!stats?.walletByStatus?.length && <p className="text-slate-500 text-sm font-medium">No state matrices generated for this range.</p>}
                 </div>
               </div>
             </div>
@@ -1215,22 +1136,91 @@ export default function PaymentManagement() {
         </div>
       </div>
 
+      {/* JSON MODAL (WALLET DETAIL) */}
       {walletDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Wallet transaction</h3>
-              <button type="button" className="text-gray-500 hover:text-gray-800" onClick={() => setWalletDetail(null)}>
-                ✕
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-500">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Transaction Raw Data</h3>
+                <p className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wider">{walletDetail.transactionId}</p>
+              </div>
+              <button onClick={() => setWalletDetail(null)} className="h-10 w-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors">
+                <X size={18} />
               </button>
             </div>
-            <pre className="text-xs bg-gray-50 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-              {JSON.stringify(walletDetail, null, 2)}
-            </pre>
-            <p className="text-xs text-gray-500 mt-3">
-              Use Retry / Cancel / Refund in the table for actions. Refund records a review flag on the row (no automatic
-              payout).
-            </p>
+            <div className="p-6 overflow-y-auto bg-slate-50">
+              <div className="bg-slate-900 rounded-xl p-4 shadow-inner overflow-x-auto custom-scrollbar">
+                <pre className="text-xs text-emerald-400 font-mono">
+                  {JSON.stringify(walletDetail, null, 2)}
+                </pre>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-start gap-3">
+              <Info className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                Use the quick action buttons (Retry / Cancel / Refund) directly on the transaction ledger table. Submitting a refund applies an administrative flag for review and freezes automated payouts for that specific transaction.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {withdrawalDetail && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-4 duration-500">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Withdrawal Request Details</h3>
+                <p className="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wider">{withdrawalDetail.id}</p>
+              </div>
+              <button onClick={() => setWithdrawalDetail(null)} className="h-10 w-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-5 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Vendor</p>
+                  <p className="text-base font-bold text-slate-900 mt-1">{withdrawalDetail.vendorName}</p>
+                  <p className="text-sm text-slate-500 mt-1">{withdrawalDetail.vendorId}</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Requested Withdrawal</p>
+                  <p className="text-2xl font-black text-slate-900 mt-1">
+                    {cur}
+                    {withdrawalDetail.amount.toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Current Wallet Balance</p>
+                  <p className="text-xl font-black text-emerald-900 mt-1">
+                    {withdrawalDetail.vendorWalletCurrency || cur}
+                    {(withdrawalDetail.vendorWalletBalance ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Request Date</p>
+                  <p className="text-base font-bold text-slate-900 mt-1">{new Date(withdrawalDetail.requestedAt).toLocaleString()}</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Bank Details</p>
+                {withdrawalDetail.bankDetails ? (
+                  <div className="space-y-1 text-sm">
+                    <p className="text-slate-900 font-semibold">{withdrawalDetail.bankDetails.accountName}</p>
+                    <p className="text-slate-700">Bank: {withdrawalDetail.bankDetails.bankName}</p>
+                    <p className="text-slate-700">Account: {withdrawalDetail.bankDetails.accountNumber}</p>
+                    {withdrawalDetail.bankDetails.routingNumber && (
+                      <p className="text-slate-700">Routing: {withdrawalDetail.bankDetails.routingNumber}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 italic">No bank details provided.</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

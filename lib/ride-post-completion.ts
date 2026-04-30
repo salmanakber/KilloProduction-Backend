@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma"
 import { markRiderEarningAsPaid } from "@/lib/rider-earnings-helper"
-import { bumpRiderBonusOnDeliveryEarning } from "@/lib/rider-bonus-engine"
 
 /**
  * After a ride is COMPLETED: settle customer payment state and mark rider earning + wallet payout.
@@ -25,5 +24,4 @@ export async function runRideCompletionSideEffects(rideBookingId: string): Promi
   })
 
   await markRiderEarningAsPaid(rideBookingId)
-  void bumpRiderBonusOnDeliveryEarning(booking.riderId).catch(() => {})
 }

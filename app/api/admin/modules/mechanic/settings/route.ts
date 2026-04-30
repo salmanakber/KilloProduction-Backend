@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { systemSettings } from "@/lib/systemSettings"
 
 async function requireAdmin() {
   const session = await authenticateRequest()
@@ -16,6 +17,8 @@ async function requireAdmin() {
 
 export async function GET() {
   const gate = await requireAdmin()
+  const settings = await systemSettings()
+  const currencySymbol = typeof settings.currency === "string" ? settings.currency : "₦"
   if ("error" in gate && gate.error) return gate.error
 
   const row = await prisma.autoPartsMechanicPickupSettings.upsert({
@@ -27,6 +30,7 @@ export async function GET() {
   return NextResponse.json({
     pickupPricePerKm: row.pricePerKm,
     updatedAt: row.updatedAt.toISOString(),
+    currencySymbol,
   })
 }
 

@@ -1,48 +1,41 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const user = await authenticateRequest(request)
+    if (!user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-    })
-
-    if (user?.role !== "ADMIN" && user?.role !== "SUPER_ADMIN") {
+    if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
-
-    // Mock security settings
+    const row = await prisma.systemSettings.findFirst()
     const settings = {
       passwordPolicy: {
-        minLength: 8,
-        requireUppercase: true,
-        requireLowercase: true,
-        requireNumbers: true,
-        requireSpecialChars: true,
-        maxAge: 90,
+        minLength: row?.passwordMinLength ?? 8,
+        requireUppercase: row?.passwordRequireUppercase ?? true,
+        requireLowercase: row?.passwordRequireLowercase ?? true,
+        requireNumbers: row?.passwordRequireNumbers ?? true,
+        requireSpecialChars: row?.passwordRequireSpecialChars ?? true,
+        maxAge: row?.passwordMaxAge ?? 90,
       },
       sessionSettings: {
-        maxDuration: 480, // 8 hours in minutes
-        idleTimeout: 30, // 30 minutes
+        maxDuration: row?.sessionTimeout ?? 480,
+        idleTimeout: row?.lockoutDuration ?? 30,
         maxConcurrentSessions: 3,
       },
       twoFactorAuth: {
-        enabled: true,
-        required: false,
+        enabled: row?.twoFactorRequired ?? false,
+        required: row?.twoFactorRequired ?? false,
         methods: ["SMS", "EMAIL", "AUTHENTICATOR_APP"],
       },
-      ipWhitelist: ["192.168.1.0/24", "10.0.0.0/8", "172.16.0.0/12"],
+      ipWhitelist: (row?.ipWhitelist as string[]) || [],
       suspiciousActivityThresholds: {
-        failedLoginAttempts: 5,
-        timeWindow: 15, // minutes
-        blockDuration: 60, // minutes
+        failedLoginAttempts: row?.maxLoginAttempts ?? 5,
+        timeWindow: 15,
+        blockDuration: row?.lockoutDuration ?? 30,
       },
     }
 
@@ -55,26 +48,44 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const user = await authenticateRequest(request)
+    if (!user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-    })
-
-    if (user?.role !== "ADMIN" && user?.role !== "SUPER_ADMIN") {
+    if (user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
     const newSettings = await request.json()
-
-    // In a real implementation, you would:
-    // 1. Validate the settings
-    // 2. Update the settings in the database
-    // 3. Create audit log entry
-    // 4. Apply the new settings to the system
+    await prisma.systemSettings.upsert({
+      where: { id: 1 },
+      update: {
+        passwordMinLength: Number(newSettings?.passwordPolicy?.minLength || 8),
+        passwordRequireUppercase: Boolean(newSettings?.passwordPolicy?.requireUppercase),
+        passwordRequireLowercase: Boolean(newSettings?.passwordPolicy?.requireLowercase),
+        passwordRequireNumbers: Boolean(newSettings?.passwordPolicy?.requireNumbers),
+        passwordRequireSpecialChars: Boolean(newSettings?.passwordPolicy?.requireSpecialChars),
+        passwordMaxAge: Number(newSettings?.passwordPolicy?.maxAge || 90),
+        sessionTimeout: Number(newSettings?.sessionSettings?.maxDuration || 480),
+        lockoutDuration: Number(newSettings?.suspiciousActivityThresholds?.blockDuration || 30),
+        maxLoginAttempts: Number(newSettings?.suspiciousActivityThresholds?.failedLoginAttempts || 5),
+        twoFactorRequired: Boolean(newSettings?.twoFactorAuth?.required || newSettings?.twoFactorAuth?.enabled),
+        ipWhitelist: newSettings?.ipWhitelist || [],
+      },
+      create: {
+        id: 1,
+        passwordMinLength: Number(newSettings?.passwordPolicy?.minLength || 8),
+      },
+    })
+    await prisma.auditLog.create({
+      data: {
+        performedBy: user.id,
+        action: "UPDATE_SECURITY_SETTINGS",
+        entityType: "SYSTEM_SETTINGS",
+        entityId: "1",
+        details: newSettings,
+      },
+    })
 
     return NextResponse.json({
       success: true,

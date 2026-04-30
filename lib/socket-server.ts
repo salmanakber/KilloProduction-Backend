@@ -84,6 +84,11 @@ class SocketIOServer {
       this.clients.set(socket.id, socket); 
 
       if (socket.data?.userId) {
+        if (socket.data.role === "RIDER") {
+          // Keep riders presence room, but do NOT auto-join dispatch room.
+          // Dispatch room must be joined explicitly from frontend.
+          socket.join("riders:online");
+        }
         // Ensure user is in userSockets map (in case handshake auth already added them)
         if (!this.userSockets.has(socket.data.userId)) {
           this.addUserSocket(socket.data.userId, socket);
@@ -144,6 +149,25 @@ class SocketIOServer {
       socket.on("auto_parts_unsubscribe_quote", (payload: { quoteId?: string }) => {
         const qid = typeof payload?.quoteId === "string" ? payload.quoteId : null;
         if (qid) socket.leave(`ap_quote:${qid}`);
+      });
+
+      socket.on("join_rider_dispatch", (payload: { riderUserId?: string }) => {
+        const riderUserId = payload?.riderUserId || socket.data?.userId;
+        if (
+          socket.data?.role === "RIDER" &&
+          riderUserId &&
+          riderUserId === socket.data?.userId
+        ) {
+          socket.join(`rider_dispatch:${socket.data.userId}`);
+          socket.join("riders:online");
+        }
+      });
+
+      socket.on("leave_rider_dispatch", (payload: { riderUserId?: string }) => {
+        const riderUserId = payload?.riderUserId || socket.data?.userId;
+        if (riderUserId && riderUserId === socket.data?.userId) {
+          socket.leave(`rider_dispatch:${socket.data.userId}`);
+        }
       });
 
       /**
@@ -1262,11 +1286,16 @@ class SocketIOServer {
       console.log("🚗 All connected users:", this.listConnectedUsers());
       return;
     }
-    sockets.forEach((s) =>
-      s.emit("new_requests", ride, (ack: any) =>
-        console.log(`🚗 new_requests ack from ${s.id}:`, ack)
-      )
-    );
+
+    const dispatchRoom = `rider_dispatch:${userId}`
+    const roomMembers = this.io?.sockets.adapter.rooms.get(dispatchRoom)
+    if (!roomMembers || roomMembers.size === 0) {
+      console.warn(`⚠️ Rider ${userId} not in dispatch room; skipping new request emit`);
+      return;
+    }
+
+    this.io?.to(dispatchRoom).emit("new_request", ride)
+    this.io?.to(dispatchRoom).emit("new_requests", ride)
   }
 
   async sendNotificationToUser(userId: string, notification: any) {

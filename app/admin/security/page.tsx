@@ -102,12 +102,12 @@ export default function SecurityAudit() {
 
   useEffect(() => {
     fetchSecurityData()
-  }, [selectedTimeRange, selectedSeverity])
+  }, [selectedTimeRange, selectedSeverity, searchTerm])
 
   const fetchSecurityData = async () => {
     try {
       const [eventsResponse, auditResponse, settingsResponse, statsResponse] = await Promise.all([
-        fetch(`/api/admin/security/events?range=${selectedTimeRange}&severity=${selectedSeverity}`),
+        fetch(`/api/admin/security/events?range=${selectedTimeRange}&severity=${selectedSeverity}&search=${encodeURIComponent(searchTerm)}`),
         fetch(`/api/admin/security/audit-logs?range=${selectedTimeRange}`),
         fetch("/api/admin/security/settings"),
         fetch("/api/admin/security/stats"),
@@ -157,6 +157,27 @@ export default function SecurityAudit() {
     } catch (error) {
       console.error("Failed to update security settings:", error)
     }
+  }
+
+  const exportLogs = () => {
+    const header = ["Type", "Severity", "User", "Description", "IP", "Timestamp", "Status"]
+    const rows = securityEvents.map((item) => [
+      item.type,
+      item.severity,
+      item.userName,
+      item.description,
+      item.ipAddress,
+      item.timestamp,
+      item.status,
+    ])
+    const csv = [header, ...rows].map((row) => row.map((v) => `"${String(v || "").replaceAll('"', '""')}"`).join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "security-events.csv"
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const getSeverityColor = (severity: string) => {
@@ -229,7 +250,7 @@ export default function SecurityAudit() {
             <option value="7d">Last 7 Days</option>
             <option value="30d">Last 30 Days</option>
           </select>
-          <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button onClick={exportLogs} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
             <Download className="h-4 w-4 mr-2" />
             Export Logs
           </button>
@@ -388,7 +409,7 @@ export default function SecurityAudit() {
                     <option value="MEDIUM">Medium</option>
                     <option value="LOW">Low</option>
                   </select>
-                  <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                  <button onClick={fetchSecurityData} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
                     <Filter className="h-4 w-4 mr-2" />
                     More Filters
                   </button>

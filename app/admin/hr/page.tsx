@@ -59,23 +59,67 @@ interface HRStats {
   totalTicketsResolved: number
 }
 
+interface AttendanceRecord {
+  staffId: string
+  name: string
+  email: string
+  department: string
+  status: "PRESENT" | "ABSENT" | "ON_LEAVE"
+  lastLoginAt: string | null
+}
+
+interface AttendanceSummary {
+  total: number
+  present: number
+  absent: number
+  onLeave: number
+}
+
 export default function HRManagement() {
   const [staff, setStaff] = useState<Staff[]>([])
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([])
+  const [attendanceSummary, setAttendanceSummary] = useState<AttendanceSummary | null>(null)
   const [stats, setStats] = useState<HRStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("staff")
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedDepartment, setSelectedDepartment] = useState("ALL")
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10))
+  const [leaveForm, setLeaveForm] = useState({
+    staffId: "",
+    type: "PERSONAL",
+    startDate: "",
+    endDate: "",
+    reason: "",
+  })
+  const sortedLeaveRequests = [...leaveRequests].sort((a, b) => {
+    const statusPriority: Record<LeaveRequest["status"], number> = {
+      PENDING: 0,
+      APPROVED: 1,
+      REJECTED: 2,
+    }
+    const statusDiff = statusPriority[a.status] - statusPriority[b.status]
+    if (statusDiff !== 0) return statusDiff
+    return new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime()
+  })
 
   useEffect(() => {
     fetchHRData()
-  }, [])
+  }, [searchTerm, selectedDepartment])
+
+  useEffect(() => {
+    fetchAttendanceData(attendanceDate)
+  }, [attendanceDate])
 
   const fetchHRData = async () => {
     try {
+      const params = new URLSearchParams({
+        search: searchTerm,
+        department: selectedDepartment,
+      })
       const [staffResponse, leaveResponse, statsResponse] = await Promise.all([
-        fetch("/api/admin/hr/staff"),
+        fetch(`/api/admin/hr/staff?${params.toString()}`),
         fetch("/api/admin/hr/leave-requests"),
         fetch("/api/admin/hr/stats"),
       ])
@@ -96,6 +140,18 @@ export default function HRManagement() {
     }
   }
 
+  const fetchAttendanceData = async (date: string) => {
+    try {
+      const response = await fetch(`/api/admin/hr/attendance?date=${encodeURIComponent(date)}`)
+      if (!response.ok) return
+      const data = await response.json()
+      setAttendance(data.records || [])
+      setAttendanceSummary(data.summary || null)
+    } catch (error) {
+      console.error("Failed to fetch attendance data:", error)
+    }
+  }
+
   const handleLeaveAction = async (requestId: string, action: "approve" | "reject") => {
     try {
       const response = await fetch(`/api/admin/hr/leave-requests/${requestId}/${action}`, {
@@ -107,6 +163,64 @@ export default function HRManagement() {
     } catch (error) {
       console.error(`Failed to ${action} leave request:`, error)
     }
+  }
+
+  const handleDeleteStaff = async (id: string) => {
+    if (!confirm("Delete this staff member?")) return
+    const response = await fetch(`/api/admin/employees/${id}`, { method: "DELETE" })
+    if (response.ok) fetchHRData()
+  }
+
+  const handleCreateLeaveRequest = async () => {
+    if (!leaveForm.staffId || !leaveForm.startDate || !leaveForm.endDate || !leaveForm.reason.trim()) {
+      alert("Please fill all leave request fields")
+      return
+    }
+    try {
+      const response = await fetch("/api/admin/hr/leave-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(leaveForm),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || "Failed to create leave request")
+        return
+      }
+      setLeaveForm({ staffId: "", type: "PERSONAL", startDate: "", endDate: "", reason: "" })
+      fetchHRData()
+    } catch (error) {
+      console.error("Failed to create leave request:", error)
+    }
+  }
+
+  const markAttendance = async (staffId: string, status: "PRESENT" | "ABSENT" | "ON_LEAVE") => {
+    try {
+      const response = await fetch("/api/admin/hr/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId, status, date: attendanceDate }),
+      })
+      if (response.ok) {
+        fetchAttendanceData(attendanceDate)
+        fetchHRData()
+      }
+    } catch (error) {
+      console.error("Failed to mark attendance:", error)
+    }
+  }
+
+  const exportStaffCsv = () => {
+    const header = ["Name", "Email", "Phone", "Role", "Department", "Status", "Last Login"]
+    const rows = staff.map((member) => [member.name, member.email, member.phone, member.role, member.department, member.status, member.lastLogin])
+    const csv = [header, ...rows].map((row) => row.map((v) => `"${String(v || "").replaceAll('"', '""')}"`).join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "hr-staff-report.csv"
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const getStatusColor = (status: string) => {
@@ -150,6 +264,19 @@ export default function HRManagement() {
     }
   }
 
+  const getAttendanceColor = (status: AttendanceRecord["status"]) => {
+    if (status === "PRESENT") return "bg-green-100 text-green-800"
+    if (status === "ON_LEAVE") return "bg-yellow-100 text-yellow-800"
+    return "bg-red-100 text-red-800"
+  }
+
+  const formatLastLogin = (value: string) => {
+    if (!value || value === "Never") return "Never"
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return "Never"
+    return date.toLocaleString()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -167,11 +294,11 @@ export default function HRManagement() {
           <p className="text-gray-600 mt-1">Manage internal staff, attendance, and operations</p>
         </div>
         <div className="flex items-center space-x-3">
-          <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button onClick={exportStaffCsv} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
             <Download className="h-4 w-4 mr-2" />
             Export Report
           </button>
-          <button className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+          <button onClick={() => (window.location.href = "/admin/employees")} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
             <UserPlus className="h-4 w-4 mr-2" />
             Add Staff
           </button>
@@ -187,7 +314,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Total Staff</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.totalStaff}</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.totalStaff ?? 0}</p>
             </div>
           </div>
         </div>
@@ -199,7 +326,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Active</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.activeStaff}</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.activeStaff ?? 0}</p>
             </div>
           </div>
         </div>
@@ -211,7 +338,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">On Leave</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.onLeave}</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.onLeave ?? 0}</p>
             </div>
           </div>
         </div>
@@ -223,7 +350,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Pending Requests</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.pendingLeaveRequests}</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.pendingLeaveRequests ?? 0}</p>
             </div>
           </div>
         </div>
@@ -235,7 +362,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Avg Response</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.averageResponseTime}m</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.averageResponseTime ?? 0}m</p>
             </div>
           </div>
         </div>
@@ -247,7 +374,7 @@ export default function HRManagement() {
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-600">Tickets Resolved</p>
-              <p className="text-xl font-bold text-gray-900">{stats?.totalTicketsResolved}</p>
+              <p className="text-xl font-bold text-gray-900">{stats?.totalTicketsResolved ?? 0}</p>
             </div>
           </div>
         </div>
@@ -330,7 +457,7 @@ export default function HRManagement() {
                     <option value="MARKETING">Marketing</option>
                     <option value="FINANCE">Finance</option>
                   </select>
-                  <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                  <button onClick={fetchHRData} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
                     <Filter className="h-4 w-4 mr-2" />
                     More Filters
                   </button>
@@ -410,17 +537,17 @@ export default function HRManagement() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900">{member.lastLogin}</div>
+                          <div className="text-sm text-gray-900">{formatLastLogin(member.lastLogin)}</div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center space-x-2">
-                            <button className="text-green-600 hover:text-green-900">
+                            <button onClick={() => alert(`${member.name}\n${member.email}\n${member.phone || "N/A"}`)} className="text-green-600 hover:text-green-900">
                               <Eye className="h-4 w-4" />
                             </button>
-                            <button className="text-blue-600 hover:text-blue-900">
+                            <button onClick={() => (window.location.href = "/admin/employees")} className="text-blue-600 hover:text-blue-900">
                               <Edit className="h-4 w-4" />
                             </button>
-                            <button className="text-red-600 hover:text-red-900">
+                            <button onClick={() => handleDeleteStaff(member.id)} className="text-red-600 hover:text-red-900">
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
@@ -435,7 +562,57 @@ export default function HRManagement() {
 
           {activeTab === "leave" && (
             <div className="space-y-4">
-              {leaveRequests?.map((request) => (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Create Leave Request</h3>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <select
+                    value={leaveForm.staffId}
+                    onChange={(e) => setLeaveForm((prev) => ({ ...prev, staffId: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  >
+                    <option value="">Select staff</option>
+                    {staff.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name} ({member.department})
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={leaveForm.type}
+                    onChange={(e) => setLeaveForm((prev) => ({ ...prev, type: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  >
+                    <option value="SICK">Sick</option>
+                    <option value="VACATION">Vacation</option>
+                    <option value="PERSONAL">Personal</option>
+                    <option value="EMERGENCY">Emergency</option>
+                  </select>
+                  <input
+                    type="date"
+                    value={leaveForm.startDate}
+                    onChange={(e) => setLeaveForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                  <input
+                    type="date"
+                    value={leaveForm.endDate}
+                    onChange={(e) => setLeaveForm((prev) => ({ ...prev, endDate: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                  <button onClick={handleCreateLeaveRequest} className="bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700">
+                    Submit
+                  </button>
+                </div>
+                <textarea
+                  placeholder="Reason for leave..."
+                  value={leaveForm.reason}
+                  onChange={(e) => setLeaveForm((prev) => ({ ...prev, reason: e.target.value }))}
+                  className="mt-3 w-full border border-gray-300 rounded-lg px-3 py-2"
+                  rows={3}
+                />
+              </div>
+
+              {sortedLeaveRequests.map((request) => (
                 <div key={request.id} className="border border-gray-200 rounded-lg p-6">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -497,24 +674,63 @@ export default function HRManagement() {
           )}
 
           {activeTab === "attendance" && (
-            <div className="text-center py-12">
-              <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Attendance Tracking</h3>
-              <p className="text-gray-600 mb-4">Track staff clock-in/clock-out times and attendance patterns</p>
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                View Attendance Records
-              </button>
+            <div className="space-y-3">
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-gray-900">Daily Attendance</h3>
+                  <input
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-sm">
+                  <div className="bg-gray-50 rounded-lg p-3">Total: {attendanceSummary?.total ?? 0}</div>
+                  <div className="bg-green-50 text-green-700 rounded-lg p-3">Present: {attendanceSummary?.present ?? 0}</div>
+                  <div className="bg-red-50 text-red-700 rounded-lg p-3">Absent: {attendanceSummary?.absent ?? 0}</div>
+                  <div className="bg-yellow-50 text-yellow-700 rounded-lg p-3">On Leave: {attendanceSummary?.onLeave ?? 0}</div>
+                </div>
+              </div>
+              {attendance.map((member) => (
+                <div key={member.staffId} className="p-4 border border-gray-200 rounded-lg flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-gray-900">{member.name}</p>
+                    <p className="text-sm text-gray-500">{member.department}</p>
+                    <p className="text-sm text-gray-500">Last login: {member.lastLoginAt ? new Date(member.lastLoginAt).toLocaleString() : "Never"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getAttendanceColor(member.status)}`}>
+                      {member.status}
+                    </span>
+                    <button onClick={() => markAttendance(member.staffId, "PRESENT")} className="px-2 py-1 text-xs rounded bg-green-600 text-white">
+                      Present
+                    </button>
+                    <button onClick={() => markAttendance(member.staffId, "ABSENT")} className="px-2 py-1 text-xs rounded bg-red-600 text-white">
+                      Absent
+                    </button>
+                    <button onClick={() => markAttendance(member.staffId, "ON_LEAVE")} className="px-2 py-1 text-xs rounded bg-yellow-600 text-white">
+                      Leave
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
           {activeTab === "performance" && (
-            <div className="text-center py-12">
-              <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Performance Analytics</h3>
-              <p className="text-gray-600 mb-4">Detailed performance metrics and analytics for all staff members</p>
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                View Performance Reports
-              </button>
+            <div className="space-y-3">
+              {staff.map((member) => (
+                <div key={member.id} className="p-4 border border-gray-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-gray-900">{member.name}</p>
+                    <p className="text-sm text-gray-500">⭐ {member.performance.rating.toFixed(1)}</p>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {member.performance.ticketsResolved} tickets resolved • {member.performance.responseTime}m avg response
+                  </p>
+                </div>
+              ))}
             </div>
           )}
         </div>

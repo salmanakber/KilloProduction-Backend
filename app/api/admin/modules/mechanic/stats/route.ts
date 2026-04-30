@@ -17,16 +17,19 @@ export async function GET(_request: NextRequest) {
     const settings = await systemSettings()
     const currencySymbol = typeof settings.currency === "string" ? settings.currency : "₦"
 
-    const [totalMechanics, pendingApprovals, activeMechanics, suspendedMechanics, ordersAgg, reviewsAgg] =
+    const [totalMechanics, pendingApprovals, activeMechanics, suspendedMechanics, serviceRequestsAgg, offersAgg, reviewsAgg] =
       await Promise.all([
         prisma.mechanicProfile.count(),
         prisma.mechanicProfile.count({ where: { isVerified: false } }),
         prisma.mechanicProfile.count({ where: { isVerified: true, isActive: true } }),
         prisma.mechanicProfile.count({ where: { isActive: false } }),
-        prisma.order.aggregate({
-          where: { module: "AUTO_PARTS" },
-          _sum: { total: true },
+        prisma.mechanicServiceRequest.aggregate({
           _count: true,
+          where: { status: "COMPLETED" },
+        }),
+        prisma.mechanicOffer.aggregate({
+          where: { status: "ACCEPTED" },
+          _sum: { totalAmount: true },
         }),
         prisma.review.aggregate({
           where: { mechanicId: { not: null } },
@@ -39,8 +42,8 @@ export async function GET(_request: NextRequest) {
       pendingApprovals,
       activeMechanics,
       suspendedMechanics,
-      totalRevenue: ordersAgg._sum.total ?? 0,
-      totalOrders: ordersAgg._count ?? 0,
+      totalRevenue: offersAgg._sum.totalAmount ?? 0,
+      totalOrders: serviceRequestsAgg._count ?? 0,
       averageRating: reviewsAgg._avg.rating ?? 0,
       currencySymbol,
     })

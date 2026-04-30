@@ -107,7 +107,8 @@ export async function POST(request: NextRequest) {
       paymentData,
       calculatedAmounts,
       notes,
-      promoCodeId
+      promoCodeId,
+      loyaltyPointsRedeemed
     } = body
 
     if (!items || items.length === 0) {
@@ -530,6 +531,15 @@ export async function POST(request: NextRequest) {
 
     // Customer total: items (after promo) + delivery + platform fee
     const total = discountedSubtotalAuto + deliveryFee + platformCommission
+    const loyaltyMeta =
+      loyaltyPointsRedeemed && loyaltyPointsRedeemed > 0
+        ? {
+            loyalty: {
+              pointsRedeemed: Number(loyaltyPointsRedeemed),
+              discountAmount: Number(paymentData?.loyaltyDiscount || 0),
+            },
+          }
+        : null
 
     // Group items by store for multi-store orders
     const itemsByStoreFinal: Record<string, typeof items> = {}
@@ -598,6 +608,10 @@ export async function POST(request: NextRequest) {
 
         const childOrderNumber = generateOrderNumber()
         const apChildOfferMeta = buildOrderSpecialOffersMetadata(storeItems as Record<string, unknown>[])
+        const childOrderMetadata =
+          apChildOfferMeta || loyaltyMeta
+            ? { ...(apChildOfferMeta ? { specialOffers: apChildOfferMeta } : {}), ...(loyaltyMeta || {}) }
+            : null
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -618,7 +632,7 @@ export async function POST(request: NextRequest) {
             paymentMethod: paymentMethod || 'CARD',
             notes: notes ?? null,
             isChildOrder: true as any,
-            ...(apChildOfferMeta ? { metadata: { specialOffers: apChildOfferMeta } as object } : {}),
+            ...(childOrderMetadata ? { metadata: childOrderMetadata as object } : {}),
             orderItems: {
               create: storeItems.map((it: any) => {
                 const c = mergeAutoPartsItemCustomizations(it)
@@ -649,6 +663,10 @@ export async function POST(request: NextRequest) {
       // Create parent order
       const parentOrderNumber = generateOrderNumber()
       const apParentOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+      const parentOrderMetadata =
+        apParentOfferMeta || loyaltyMeta
+          ? { ...(apParentOfferMeta ? { specialOffers: apParentOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -670,7 +688,7 @@ export async function POST(request: NextRequest) {
           notes: notes ?? `Multi-store order from ${stores.length} stores`,
           isChildOrder: false as any,
           childId: null as any,
-          ...(apParentOfferMeta ? { metadata: { specialOffers: apParentOfferMeta } as object } : {}),
+          ...(parentOrderMetadata ? { metadata: parentOrderMetadata as object } : {}),
           orderItems: {
             create: items.map((it: any) => {
               const c = mergeAutoPartsItemCustomizations(it)
@@ -704,6 +722,10 @@ export async function POST(request: NextRequest) {
       // Single store: Create regular order
       const orderNumber = generateOrderNumber()
       const apSingleOfferMeta = buildOrderSpecialOffersMetadata(items as Record<string, unknown>[])
+      const singleOrderMetadata =
+        apSingleOfferMeta || loyaltyMeta
+          ? { ...(apSingleOfferMeta ? { specialOffers: apSingleOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -726,7 +748,7 @@ export async function POST(request: NextRequest) {
           autoPartId: null as string | null,
           isChildOrder: false as any,
           childId: null as any,
-          ...(apSingleOfferMeta ? { metadata: { specialOffers: apSingleOfferMeta } as object } : {}),
+          ...(singleOrderMetadata ? { metadata: singleOrderMetadata as object } : {}),
           orderItems: {
             create: items.map((item: any) => {
               const c = mergeAutoPartsItemCustomizations(item)

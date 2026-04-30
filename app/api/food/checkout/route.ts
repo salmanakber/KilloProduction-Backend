@@ -383,6 +383,15 @@ export async function POST(request: NextRequest) {
     deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
 
     const total = Math.max(0, subtotal - promoDiscount) + deliveryFee + platformCommission
+    const loyaltyMeta =
+      loyaltyPointsRedeemed && loyaltyPointsRedeemed > 0
+        ? {
+            loyalty: {
+              pointsRedeemed: Number(loyaltyPointsRedeemed),
+              discountAmount: Number(paymentData?.loyaltyDiscount || 0),
+            },
+          }
+        : {}
 
     let parentOrder: any = null
     const childOrders: any[] = []
@@ -439,6 +448,7 @@ export async function POST(request: NextRequest) {
             return m ? { specialOffers: m } : {}
           })(),
         )
+        const foodMetaChildWithLoyalty = mergeOrderMetadata(foodMetaChild, loyaltyMeta)
         const childOrder = await prisma.order.create({
           data: {
             orderNumber: childOrderNumber,
@@ -458,7 +468,7 @@ export async function POST(request: NextRequest) {
             paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
             paymentMethod: paymentMethod || 'CARD',
             notes,
-            metadata: foodMetaChild as any,
+            metadata: foodMetaChildWithLoyalty as any,
             foodId: restaurant.id,
             isChildOrder: true as any,
             orderItems: {
@@ -503,6 +513,7 @@ export async function POST(request: NextRequest) {
           return m ? { specialOffers: m } : {}
         })(),
       )
+      const foodMetaParentWithLoyalty = mergeOrderMetadata(foodMetaParent, loyaltyMeta)
       parentOrder = await prisma.order.create({
         data: {
           orderNumber: parentOrderNumber,
@@ -522,7 +533,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes: notes || `Multi-restaurant order from ${restaurantIds.length} restaurants`,
-          metadata: foodMetaParent as any,
+          metadata: foodMetaParentWithLoyalty as any,
           foodId: null,
           isChildOrder: false as any,
           childId: null as any,
@@ -575,6 +586,7 @@ export async function POST(request: NextRequest) {
           return m ? { specialOffers: m } : {}
         })(),
       )
+      const foodMetaSingleWithLoyalty = mergeOrderMetadata(foodMetaSingle, loyaltyMeta)
       parentOrder = await prisma.order.create({
         data: {
           orderNumber,
@@ -594,7 +606,7 @@ export async function POST(request: NextRequest) {
           paymentStatus: paymentData?.status === 'succeeded' ? 'PAID' : 'PENDING',
           paymentMethod: paymentMethod || 'CARD',
           notes,
-          metadata: foodMetaSingle as any,
+          metadata: foodMetaSingleWithLoyalty as any,
           foodId: restaurantIds[0],
           isChildOrder: false as any,
           childId: null as any,

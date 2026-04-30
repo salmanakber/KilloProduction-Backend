@@ -36,6 +36,61 @@ export interface FareCalculationResult {
   }
 }
 
+type VehicleRoutingProfile = {
+  routesTravelMode: 'DRIVE' | 'BICYCLE' | 'TWO_WHEELER'
+  directionsMode: 'driving' | 'bicycling'
+  fallbackSpeedKmh: number
+  durationMultiplier: number
+}
+
+function getVehicleRoutingProfile(vehicleType?: string): VehicleRoutingProfile {
+  switch (String(vehicleType || '').toUpperCase()) {
+    case 'BICYCLE':
+      return {
+        routesTravelMode: 'BICYCLE',
+        directionsMode: 'bicycling',
+        fallbackSpeedKmh: 14,
+        durationMultiplier: 1,
+      }
+    case 'MOTORCYCLE':
+      return {
+        routesTravelMode: 'TWO_WHEELER',
+        directionsMode: 'driving',
+        fallbackSpeedKmh: 38,
+        durationMultiplier: 0.92,
+      }
+    case 'SCOOTER':
+      return {
+        routesTravelMode: 'TWO_WHEELER',
+        directionsMode: 'driving',
+        fallbackSpeedKmh: 30,
+        durationMultiplier: 0.98,
+      }
+    case 'VAN':
+      return {
+        routesTravelMode: 'DRIVE',
+        directionsMode: 'driving',
+        fallbackSpeedKmh: 26,
+        durationMultiplier: 1.18,
+      }
+    case 'TRUCK':
+      return {
+        routesTravelMode: 'DRIVE',
+        directionsMode: 'driving',
+        fallbackSpeedKmh: 20,
+        durationMultiplier: 1.38,
+      }
+    case 'CAR':
+    default:
+      return {
+        routesTravelMode: 'DRIVE',
+        directionsMode: 'driving',
+        fallbackSpeedKmh: 34,
+        durationMultiplier: 1,
+      }
+  }
+}
+
 /**
  * Calculate fare using Google Maps APIs
  * Uses Distance Matrix API for simple calculations
@@ -113,6 +168,7 @@ function calculateFareMultiLegHaversine(
   params: FareCalculationParams,
   rideType: any
 ): FareCalculationResult {
+  const routingProfile = getVehicleRoutingProfile(rideType?.vehicleType)
   let lat = params.originLatitude
   let lon = params.originLongitude
   let totalDist = 0
@@ -122,7 +178,7 @@ function calculateFareMultiLegHaversine(
   for (const p of points) {
     const d = haversineKm(lat, lon, p.latitude, p.longitude)
     totalDist += d
-    totalDur += (d / 30) * 3600
+    totalDur += (d / routingProfile.fallbackSpeedKmh) * 3600
     lat = p.latitude
     lon = p.longitude
   }
@@ -149,62 +205,81 @@ async function calculateFareWithDistanceMatrix(
   rideType: any,
   apiKey: string
 ): Promise<FareCalculationResult> {
-  const paramsObj = new URLSearchParams({
-    origins: `${params.originLatitude},${params.originLongitude}`,
-    destinations: `${params.destinationLatitude},${params.destinationLongitude}`,
-    key: apiKey,
-    mode: 'driving',
-    units: 'metric',
-  })
-
-  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?${paramsObj.toString()}`
-  const res = await fetch(url)
-  
-  if (!res.ok) {
-    // Fallback to Haversine calculation
-    console.warn('Distance Matrix API unavailable, using Haversine fallback')
-    return calculateFareWithHaversine(params, rideType)
-  }
-
-  const data = await res.json()
-  
-  // Handle various API response statuses
-  if (data.status === 'ZERO_RESULTS' || data.status === 'NOT_FOUND') {
-    console.warn('No route found in Distance Matrix API, using Haversine fallback')
-    return calculateFareWithHaversine(params, rideType)
-  }
-
-  if (data.status !== 'OK' || !data.rows?.[0]?.elements?.[0]) {
-    console.warn(`Distance Matrix API returned status: ${data.status}, using Haversine fallback`)
-    return calculateFareWithHaversine(params, rideType)
-  }
-
-  const element = data.rows[0].elements[0]
-  if (element.status !== 'OK') {
-    // Handle element-level errors (ZERO_RESULTS, NOT_FOUND, etc.)
-    if (element.status === 'ZERO_RESULTS' || element.status === 'NOT_FOUND') {
-      console.warn('Route not found in Distance Matrix API, using Haversine fallback')
+  const routingProfile = getVehicleRoutingProfile(rideType?.vehicleType)
+  try {
+    const res = await fetch(
+      'https://routes.googleapis.com/directions/v2:computeRoutes',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          // Only request fields you need (saves cost + improves speed)
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration'
+        },
+        body: JSON.stringify({
+          origin: {
+            location: {
+              latLng: {
+                latitude: params.originLatitude,
+                longitude: params.originLongitude,
+              },
+            },
+          },
+          destination: {
+            location: {
+              latLng: {
+                latitude: params.destinationLatitude,
+                longitude: params.destinationLongitude,
+              },
+            },
+          },
+          travelMode: routingProfile.routesTravelMode,
+        }),
+      }
+    )
+    
+    if (!res.ok) {
+      console.warn('Routes API failed, using Haversine fallback')
       return calculateFareWithHaversine(params, rideType)
     }
-    console.warn(`Distance Matrix element status: ${element.status}, using Haversine fallback`)
-    return calculateFareWithHaversine(params, rideType)
-  }
 
-  const distanceKm = element.distance.value / 1000
-  const durationSeconds = element.duration.value
-  const fare = calculateFareAmount(rideType, distanceKm, durationSeconds)
+    const data = await res.json()
 
-  return {
-    distance: distanceKm,
-    duration: durationSeconds,
-    fare,
-    rideType: {
-      id: rideType.id,
-      name: rideType.name,
-      basePrice: rideType.basePrice,
-      pricePerKm: rideType.pricePerKm,
-      pricePerMinute: rideType.pricePerMinute,
+    if (!data.routes || data.routes.length === 0) {
+      console.warn('No routes found, using Haversine fallback')
+      return calculateFareWithHaversine(params, rideType)
     }
+
+    const route = data.routes[0]
+
+    const distanceKm = route.distanceMeters / 1000
+
+    // duration comes as string like "1234s"
+    const rawDurationSeconds = parseInt(route.duration.replace('s', ''), 10)
+    const durationSeconds = rawDurationSeconds * routingProfile.durationMultiplier
+
+    const fare = calculateFareAmount(rideType, distanceKm, durationSeconds)
+    console.log("data", data)
+    console.log("distanceKm", distanceKm)
+    console.log("durationSeconds", durationSeconds)
+    console.log("fare", fare)
+
+    return {
+      distance: distanceKm,
+      duration: durationSeconds,
+      fare,
+      rideType: {
+        id: rideType.id,
+        name: rideType.name,
+        basePrice: rideType.basePrice,
+        pricePerKm: rideType.pricePerKm,
+        pricePerMinute: rideType.pricePerMinute,
+      },
+    }
+  } catch (error) {
+    console.warn('Routes API exception, using Haversine fallback', error)
+    return calculateFareWithHaversine(params, rideType)
   }
 }
 
@@ -215,6 +290,7 @@ function calculateFareWithHaversine(
   params: FareCalculationParams,
   rideType: any
 ): FareCalculationResult {
+  const routingProfile = getVehicleRoutingProfile(rideType?.vehicleType)
   const distanceKm = haversineKm(
     params.originLatitude,
     params.originLongitude,
@@ -222,8 +298,8 @@ function calculateFareWithHaversine(
     params.destinationLongitude
   )
   
-  // Estimate duration: assume average speed of 30 km/h in urban areas
-  const estimatedSpeedKmh = 30
+  // Estimate duration with vehicle-type-specific average speed.
+  const estimatedSpeedKmh = routingProfile.fallbackSpeedKmh
   const durationSeconds = (distanceKm / estimatedSpeedKmh) * 3600
   
   const fare = calculateFareAmount(rideType, distanceKm, durationSeconds)
@@ -250,11 +326,12 @@ async function calculateFareWithDirections(
   rideType: any,
   apiKey: string
 ): Promise<FareCalculationResult> {
+  const routingProfile = getVehicleRoutingProfile(rideType?.vehicleType)
   const paramsObj = new URLSearchParams({
     origin: `${params.originLatitude},${params.originLongitude}`,
     destination: `${params.destinationLatitude},${params.destinationLongitude}`,
     key: apiKey,
-    mode: 'driving',
+    mode: routingProfile.directionsMode,
     units: 'metric',
     alternatives: 'false',
   })
@@ -316,7 +393,7 @@ async function calculateFareWithDirections(
   }
 
   const distanceKm = totalDistance / 1000
-  const durationSeconds = totalDuration
+  const durationSeconds = totalDuration * routingProfile.durationMultiplier
   const fare = calculateFareAmount(rideType, distanceKm, durationSeconds)
 
   return {

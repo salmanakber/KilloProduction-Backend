@@ -240,8 +240,14 @@ export async function GET(request: NextRequest) {
       rideBookingMatchesRider(riderFilter, b.rideType.vehicleType)
     )
 
+    const nowTs = Date.now()
+    const rideMaxAgeMs = 90 * 1000
+    const nonRideMaxAgeMs = 90 * 60 * 1000
+
     // Process courier bookings - NO distance calculations here
     const processedCourierBookings = courierFiltered.map((booking) => {
+      const ttlMs = (booking.module || "RIDE") === "RIDE" ? rideMaxAgeMs : nonRideMaxAgeMs
+      const expiresAt = new Date(new Date(booking.createdAt).getTime() + ttlMs)
       return {
         id: booking.id,
         type: 'courier' as const,
@@ -276,6 +282,8 @@ export async function GET(request: NextRequest) {
         hasCoordinates: !!(booking.pickupLatitude && booking.pickupLongitude && booking.dropLatitude && booking.dropLongitude),
         orderId: (booking as any).orderId || null,
         module: booking.module ?? null,
+        expiresAt: expiresAt.toISOString(),
+        isExpiredByTime: nowTs >= expiresAt.getTime(),
         multiplePickups: booking.multiplePickups?.map((mp: any) => ({
           id: mp.id,
           sequence: mp.sequence,
@@ -294,6 +302,7 @@ export async function GET(request: NextRequest) {
 
     // Process ride bookings - NO distance calculations here
     const processedRideBookings = rideFiltered.map((booking) => {
+      const expiresAt = new Date(new Date(booking.createdAt).getTime() + rideMaxAgeMs)
       return {
         id: booking.id,
         type: 'ride' as const,
@@ -326,6 +335,8 @@ export async function GET(request: NextRequest) {
         hasCoordinates: !!(booking.pickupLatitude && booking.pickupLongitude && booking.dropLatitude && booking.dropLongitude),
         testing: 'testing',
         module: "CUSTOMER",
+        expiresAt: expiresAt.toISOString(),
+        isExpiredByTime: nowTs >= expiresAt.getTime(),
       }
     })
 
@@ -360,11 +371,15 @@ const withDistances = await Promise.all(
 
 console.log("3232 withDistances", withDistances)
 // Now filter based on calculated flag
-const filteredRequests = withDistances.filter(req => req.isWithinRange)
+const filteredRequests = withDistances.filter(req => req.isWithinRange && !req.isExpiredByTime)
 
-// Sort by creation date
+// Sort by closest first, then newest
 const sortedRequests = filteredRequests.sort(
-  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  (a, b) => {
+    const distanceDelta = Number(a.distance || 0) - Number(b.distance || 0)
+    if (Math.abs(distanceDelta) > 0.001) return distanceDelta
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  }
 )
 
     const uniqueCustomerIds = Array.from(new Set(sortedRequests.map((r) => r.customer.id)))

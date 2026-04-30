@@ -128,22 +128,34 @@ export async function PUT(
     //   )
     // }
 
-    // Update the courier booking
-    const updatedBooking = await prisma.courierBooking.update({
-      where: { id },
+    const lockResult = await prisma.courierBooking.updateMany({
+      where: {
+        id,
+        status: { in: ["REQUESTED", "BIDDING", "RIDER_ASSIGNED"] as any },
+        OR: [{ riderId: null }, { riderId }],
+      },
       data: {
         status: "RIDER_ASSIGNED",
         riderId: riderId,
         updatedAt: new Date(),
       },
+    })
+    if (lockResult.count === 0) {
+      return NextResponse.json({ error: "Request already assigned to another rider" }, { status: 409 })
+    }
+    const updatedBooking = await prisma.courierBooking.findUnique({
+      where: { id },
       include: {
         customer: true,
-        bids: {
-          include: {
-            rider: true
-          }
-        }
+        bids: { include: { rider: true } },
       },
+    })
+    if (!updatedBooking) {
+      return NextResponse.json({ error: "Booking not found after assignment" }, { status: 404 })
+    }
+    await prisma.courierBid.updateMany({
+      where: { courierBookingId: id, status: "PENDING", riderId: { not: riderId } },
+      data: { status: "REJECTED" },
     })
 
     // Get promo code info from booking if applied
@@ -201,6 +213,7 @@ export async function PUT(
         await createRiderEarning({
           riderId: riderId,
           courierBookingId: id,
+          orderId: updatedBooking.orderId || undefined,
           totalAmount: originalAmount, // Original amount before discount (calculated)
           finalAmount: finalAmount, // Final amount after discount (fare)
           description: `Earning from courier booking #${updatedBooking.bookingNumber}`,
@@ -240,8 +253,13 @@ export async function PUT(
 
       // Send to all riders who have bids on this booking
       for (const bid of updatedBooking.bids) {
-        if (bid.rider) {
+        if (bid.rider && bid.rider.id !== riderId) {
           await socketIOServer.sendNotificationToUser(bid.rider.id, bidUpdateMessage.payload)
+          await socketIOServer.sendNotificationToUser(bid.rider.id, {
+            type: "request_removed",
+            requestId: updatedBooking.id,
+            reason: "RIDER_ASSIGNED",
+          })
         }
       }
     }
@@ -285,16 +303,26 @@ export async function PUT(
 
     // Send auto message to customer when rider accepts
     try {
-      await prisma.rideMessage.create({
+      const autoText = `Hello ${updatedBooking.customer?.name || "there"}, I have accepted your request and I am on my way.`
+      const autoMessage = await prisma.rideMessage.create({
         data: {
           courierBookingId: id,
           senderId: riderId,
-          senderName: rider.user?.name || 'Rider',
-          senderRole: 'RIDER',
-          message: "I'm on my way to pick up your order! 🚗",
+          message: autoText,
           messageType: 'TEXT',
-          isRead: false,
-        } as any,
+        },
+      })
+      await socketIOServer.sendNotificationToUser(updatedBooking.customerId, {
+        type: 'chat_message',
+        chatId: id,
+        bookingId: id,
+        id: autoMessage.id,
+        senderId: riderId,
+        senderName: rider.user?.name || 'Rider',
+        senderRole: 'RIDER',
+        message: autoText,
+        messageType: 'TEXT',
+        timestamp: autoMessage.createdAt.toISOString(),
       })
     } catch (msgError) {
       console.error('Failed to send auto message:', msgError)

@@ -2639,6 +2639,8 @@ model RideType {
   name            String
   description     String?
   icon            String
+  mediaType       RideMediaType    @default(ICON)
+  imageUrl        String?
   basePrice       Float
   pricePerKm      Float
   pricePerKg      Float            @default(0)
@@ -4167,6 +4169,11 @@ enum VehicleType {
 enum RideTypeCategory {
   RIDE
   COURIER
+}
+
+enum RideMediaType {
+  ICON
+  IMAGE
 }
 
 enum EarningType {

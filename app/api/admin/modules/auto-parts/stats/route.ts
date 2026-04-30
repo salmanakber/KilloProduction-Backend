@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { systemSettings } from "@/lib/systemSettings"
+import { buildReportData, parseReportFilters } from "@/app/api/admin/reports/reporting-core"
 
 export async function GET(_request: NextRequest) {
   try {
@@ -17,17 +18,13 @@ export async function GET(_request: NextRequest) {
     const settings = await systemSettings()
     const currencySymbol = typeof settings.currency === "string" ? settings.currency : "₦"
 
-    const [totalStores, pendingApprovals, activeStores, suspendedStores, ordersAgg, reviewsAgg] =
+    const [totalStores, pendingApprovals, activeStores, suspendedStores, reportData, reviewsAgg] =
       await Promise.all([
         prisma.autoPartsStore.count(),
         prisma.autoPartsStore.count({ where: { isVerified: false } }),
         prisma.autoPartsStore.count({ where: { isVerified: true, isActive: true } }),
         prisma.autoPartsStore.count({ where: { isActive: false } }),
-        prisma.order.aggregate({
-          where: { module: "AUTO_PARTS" },
-          _sum: { total: true },
-          _count: true,
-        }),
+        buildReportData(parseReportFilters(new URLSearchParams({ module: "AUTO_PARTS", includeLogs: "false" }))),
         prisma.review.aggregate({
           where: { order: { module: "AUTO_PARTS" } },
           _avg: { rating: true },
@@ -39,8 +36,8 @@ export async function GET(_request: NextRequest) {
       pendingApprovals,
       activeStores,
       suspendedStores,
-      totalRevenue: ordersAgg._sum.total ?? 0,
-      totalOrders: ordersAgg._count ?? 0,
+      totalRevenue: reportData.summary.grossSales ?? 0,
+      totalOrders: reportData.summary.totalOrders ?? 0,
       averageRating: reviewsAgg._avg.rating ?? 0,
       currencySymbol,
     })

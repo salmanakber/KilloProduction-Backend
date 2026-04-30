@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { SignJWT } from "jose"
 import { serialize } from "cookie"
+import { firstGrantedAdminPath, parseAdminAccess } from "@/lib/admin-access"
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,10 +48,13 @@ export async function POST(request: NextRequest) {
 
     // Create JWT using `jose`
     const secret = new TextEncoder().encode(process.env.JWT_SECRET!)
+    const adminAccess = parseAdminAccess(user.adminProfile?.permissions, user.role)
+    const redirectPath = firstGrantedAdminPath(adminAccess.grants || [], adminAccess.modules || [])
     const token = await new SignJWT({
       userId: user.id,
       email: user.email,
       role: user.role,
+      adminAccess,
     })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
@@ -84,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({
       message: "Login successful",
+      redirectPath,
       user: {
         id: user.id,
         name: user.name,

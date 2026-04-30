@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { systemSettings } from "@/lib/systemSettings"
+import { buildReportData, parseReportFilters } from "@/app/api/admin/reports/reporting-core"
 
 export async function GET(_request: NextRequest) {
   try {
@@ -23,11 +24,7 @@ export async function GET(_request: NextRequest) {
         prisma.pharmacy.count({ where: { status: "PENDING" } }),
         prisma.pharmacy.count({ where: { status: "APPROVED" } }),
         prisma.pharmacy.count({ where: { status: "SUSPENDED" } }),
-        prisma.order.aggregate({
-          where: { module: "PHARMACY" },
-          _sum: { total: true },
-          _count: true,
-        }),
+        buildReportData(parseReportFilters(new URLSearchParams({ module: "PHARMACY", includeLogs: "false" }))),
         prisma.review.aggregate({
           where: {
             order: { module: "PHARMACY" },
@@ -41,8 +38,8 @@ export async function GET(_request: NextRequest) {
       pendingApprovals,
       activePharmacies,
       suspendedPharmacies,
-      totalRevenue: ordersData?._sum?.total || 0,
-      totalOrders: ordersData._count || 0,
+      totalRevenue: ordersData.summary.grossSales || 0,
+      totalOrders: ordersData.summary.totalOrders || 0,
       averageRating: reviewsData._avg.rating || 0,
       currencySymbol,
     }

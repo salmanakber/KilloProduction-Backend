@@ -12,6 +12,7 @@ import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
 import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
 import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
+import { prisma } from "@/lib/prisma";
 
 const url = process.env.REDIS_URL;
 
@@ -107,6 +108,7 @@ const MARKETING_CATCHUP_MS = Number(process.env.MARKETING_SCHEDULED_CATCHUP_MS |
 const WALLET_CLEARANCE_MS = Number(process.env.RIDER_WALLET_CLEARANCE_TICK_MS || 15 * 60 * 1000);
 /** Same logic as GET /api/cron/pill-reminders — keeps reminders firing if external cron is misconfigured. */
 const PILL_REMINDERS_MS = Number(process.env.PILL_REMINDERS_TICK_MS || 60 * 1000);
+const BOOKING_CLEANUP_MS = Number(process.env.BOOKING_CLEANUP_TICK_MS || 15 * 60 * 1000);
 
 setInterval(() => {
   processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
@@ -159,6 +161,37 @@ setInterval(() => {
 }, PILL_REMINDERS_MS);
 
 void runPillRemindersJob().catch((e) => console.error("[pill-reminders] boot", e));
+
+async function cleanupOldBookingRequests() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const removableStatuses = ["EXPIRED", "WITHDRAWN", "CANCELLED"] as const;
+
+  const [courier, ride] = await Promise.all([
+    prisma.courierBooking.deleteMany({
+      where: {
+        status: { in: removableStatuses as unknown as string[] },
+        updatedAt: { lt: cutoff },
+      },
+    }),
+    prisma.rideBooking.deleteMany({
+      where: {
+        status: { in: removableStatuses as unknown as string[] },
+        updatedAt: { lt: cutoff },
+      },
+    }),
+  ]);
+
+  const deleted = courier.count + ride.count;
+  if (deleted > 0) {
+    console.log(`[booking-cleanup] deleted=${deleted} courier=${courier.count} ride=${ride.count}`);
+  }
+}
+
+setInterval(() => {
+  cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup]", e));
+}, BOOKING_CLEANUP_MS);
+
+void cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup] boot", e));
 
 // Graceful shutdown (IMPORTANT)
 process.on("SIGINT", async () => {

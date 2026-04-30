@@ -77,21 +77,45 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const paymentShell = await resolvePendingCheckoutPayment({
-      userId: session.id,
-      clientRef: String(orderId),
-      amount: Number(amount),
-      currency: String(currency),
-      gateway: String(gateway),
-      description: description ?? null,
-      baseMetadata: {
-        loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
-        module: module ?? undefined,
-        commissionBaseAmount: commissionBaseAmount ?? undefined,
-        paymentProcessingFee: processingFee,
-        paymentProcessingRate: processingRate,
-      },
-    })
+    const rawClientRef = String(orderId || "")
+    const clientRef = rawClientRef.trim().length > 0 ? rawClientRef : `pending-${session.id}-${Date.now()}`
+    let paymentShell
+    try {
+      paymentShell = await resolvePendingCheckoutPayment({
+        userId: session.id,
+        clientRef,
+        amount: Number(amount),
+        currency: String(currency),
+        gateway: String(gateway),
+        description: description ?? null,
+        baseMetadata: {
+          loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+          module: module ?? undefined,
+          commissionBaseAmount: commissionBaseAmount ?? undefined,
+          paymentProcessingFee: processingFee,
+          paymentProcessingRate: processingRate,
+        },
+      })
+    } catch (resolveError: any) {
+      if (!resolveError?.message?.includes("Invalid payment reference")) {
+        throw resolveError
+      }
+      paymentShell = await resolvePendingCheckoutPayment({
+        userId: session.id,
+        clientRef: `pending-${session.id}-${Date.now()}`,
+        amount: Number(amount),
+        currency: String(currency),
+        gateway: String(gateway),
+        description: description ?? null,
+        baseMetadata: {
+          loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+          module: module ?? undefined,
+          commissionBaseAmount: commissionBaseAmount ?? undefined,
+          paymentProcessingFee: processingFee,
+          paymentProcessingRate: processingRate,
+        },
+      })
+    }
 
     const payment = await prisma.payment.update({
       where: { id: paymentShell.id },

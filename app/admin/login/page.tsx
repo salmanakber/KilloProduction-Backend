@@ -48,13 +48,9 @@ export default function AdminLoginPage() {
 
       const data = await response.json()
       if (response.ok) {
-        // Store admin token
-        localStorage.setItem("adminToken", data.token)
+        // Store user snapshot for UI convenience
         localStorage.setItem("adminUser", JSON.stringify(data.user))
-        console.log(data)
-
-        // Redirect to admin dashboard
-        router.push("/admin")
+        router.push(data.redirectPath || "/admin")
       } else {
         setError(data.message || "Login failed. Please try again.")
       }

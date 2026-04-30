@@ -111,7 +111,8 @@ export async function POST(request: NextRequest) {
       rideTypeId,
       calculatedAmounts, // From distanceService on mobile
       notes,
-      promoCodeId
+      promoCodeId,
+      loyaltyPointsRedeemed
     } = body
     
 
@@ -417,6 +418,15 @@ export async function POST(request: NextRequest) {
     deliveryFee = applyClientDeliveryChargeIfProvided(calculatedAmounts, deliveryFee)
 
     const finalOrderTotal = discountedSubtotal + deliveryFee + platformCommission
+    const loyaltyMeta =
+      loyaltyPointsRedeemed && loyaltyPointsRedeemed > 0
+        ? {
+            loyalty: {
+              pointsRedeemed: Number(loyaltyPointsRedeemed),
+              discountAmount: Number((paymentData as any)?.loyaltyDiscount || 0),
+            },
+          }
+        : null
 
     const allItemsWithPayloads = await Promise.all(
       pharmacyItems.map(async (item: any) => ({
@@ -474,6 +484,10 @@ export async function POST(request: NextRequest) {
         
 
         const childOfferMeta = buildOrderSpecialOffersMetadata(pItems as Record<string, unknown>[])
+        const childOrderMetadata =
+          childOfferMeta || loyaltyMeta
+            ? { ...(childOfferMeta ? { specialOffers: childOfferMeta } : {}), ...(loyaltyMeta || {}) }
+            : null
         
         console.log("478 childOfferMeta", childOfferMeta)
 
@@ -498,7 +512,7 @@ export async function POST(request: NextRequest) {
             notes,
             pharmacyId: pharmacy.id,
             isChildOrder: true as any,
-            ...(childOfferMeta ? { metadata: { specialOffers: childOfferMeta } as object } : {}),
+            ...(childOrderMetadata ? { metadata: childOrderMetadata as object } : {}),
             orderItems: {
               create: childPayloads,
             },
@@ -519,6 +533,10 @@ export async function POST(request: NextRequest) {
 
       const parentOrderNumber = generateOrderNumber()
       const parentOfferMeta = buildOrderSpecialOffersMetadata(pharmacyItems as Record<string, unknown>[])
+      const parentOrderMetadata =
+        parentOfferMeta || loyaltyMeta
+          ? { ...(parentOfferMeta ? { specialOffers: parentOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       console.log("522 parentOfferMeta", parentOfferMeta)
       parentOrder = await prisma.order.create({
         data: {
@@ -542,7 +560,7 @@ export async function POST(request: NextRequest) {
           pharmacyId: null,
           isChildOrder: false as any,
           childId: null as any,
-          ...(parentOfferMeta ? { metadata: { specialOffers: parentOfferMeta } as object } : {}),
+          ...(parentOrderMetadata ? { metadata: parentOrderMetadata as object } : {}),
           orderItems: {
             create: allItemsWithPayloads.map((x) => x.payload),
           },
@@ -569,6 +587,10 @@ export async function POST(request: NextRequest) {
       const orderNumber = generateOrderNumber()
       const singlePayloads = allItemsWithPayloads.map((x) => x.payload)
       const singleOfferMeta = buildOrderSpecialOffersMetadata(pharmacyItems as Record<string, unknown>[])
+      const singleOrderMetadata =
+        singleOfferMeta || loyaltyMeta
+          ? { ...(singleOfferMeta ? { specialOffers: singleOfferMeta } : {}), ...(loyaltyMeta || {}) }
+          : null
       console.log("572 singleOfferMeta", singleOfferMeta)
       parentOrder = await prisma.order.create({
         data: {
@@ -592,7 +614,7 @@ export async function POST(request: NextRequest) {
           pharmacyId: pid,
           isChildOrder: false as any,
           childId: null as any,
-          ...(singleOfferMeta ? { metadata: { specialOffers: singleOfferMeta } as object } : {}),
+          ...(singleOrderMetadata ? { metadata: singleOrderMetadata as object } : {}),
           orderItems: {
             create: singlePayloads,
           },

@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       },
     })
     if (!challenge) {
+      console.error("[rider/bonus/accept] Challenge not available", challengeId)
       return NextResponse.json({ error: "Challenge not available" }, { status: 404 })
     }
 

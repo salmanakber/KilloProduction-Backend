@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { createRiderEarning } from "@/lib/rider-earnings-helper"
+import { socketIOServer } from "@/lib/socket-server"
 
 export async function PUT(
   request: NextRequest,
@@ -69,20 +70,32 @@ export async function PUT(
       )
     }
 
-    // Update the ride booking
-    const updatedBooking = await prisma.rideBooking.update({
-      where: { id },
+    const lockResult = await prisma.rideBooking.updateMany({
+      where: {
+        id,
+        status: { in: ["REQUESTED", "BIDDING", "ACCEPTED"] as any },
+        OR: [{ riderId: null }, { riderId: riderId }],
+      },
       data: {
         status: "ACCEPTED",
         riderId: riderId,
-        acceptedAt: new Date(), // This field exists in RideBooking
+        acceptedAt: new Date(),
         updatedAt: new Date(),
       },
-      include: {
-        customer: true,
-        rider: true,
-        rideType: true,
-      },
+    })
+    if (lockResult.count === 0) {
+      return NextResponse.json({ error: "Ride already assigned to another rider" }, { status: 409 })
+    }
+    const updatedBooking = await prisma.rideBooking.findUnique({
+      where: { id },
+      include: { customer: true, rider: true, rideType: true, rideBids: true },
+    })
+    if (!updatedBooking) {
+      return NextResponse.json({ error: "Ride booking not found after assignment" }, { status: 404 })
+    }
+    await prisma.rideBid.updateMany({
+      where: { rideBookingId: id, status: "PENDING", riderId: { not: riderId } },
+      data: { status: "REJECTED" },
     })
 
     // Get promo code info from booking if applied
@@ -198,6 +211,15 @@ export async function PUT(
     } catch (msgError) {
       console.error('Failed to send auto message:', msgError)
       // Don't fail the request if message creation fails
+    }
+
+    for (const bid of updatedBooking.rideBids || []) {
+      if (!bid.riderId || bid.riderId === riderId) continue
+      await socketIOServer.sendNotificationToUser(bid.riderId, {
+        type: "request_removed",
+        requestId: id,
+        reason: "RIDER_ASSIGNED",
+      })
     }
 
     return NextResponse.json({

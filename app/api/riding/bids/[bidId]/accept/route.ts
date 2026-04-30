@@ -379,6 +379,32 @@ console.log('💰 Booking:', booking)
       bookingNumber: booking.bookingNumber
     });
 
+    try {
+      const autoText = `Hello ${customer?.name || "there"}, I'm on my way to your pickup point now. Please stay reachable.`
+      const autoMessage = await prisma.rideMessage.create({
+        data: {
+          rideBookingId: booking.id,
+          senderId: bid.rider.id,
+          message: autoText,
+          messageType: "TEXT",
+        },
+      })
+      await socketIOServer.sendNotificationToUser(booking.customerId, {
+        type: "chat_message",
+        chatId: booking.id,
+        bookingId: booking.id,
+        id: autoMessage.id,
+        senderId: bid.rider.id,
+        senderName: bid.rider.name || "Rider",
+        senderRole: "RIDER",
+        message: autoText,
+        messageType: "TEXT",
+        timestamp: autoMessage.createdAt.toISOString(),
+      })
+    } catch (autoMsgError) {
+      console.error("Failed to send ride auto acceptance message:", autoMsgError)
+    }
+
     return NextResponse.json({
       success: true,
       data: {
