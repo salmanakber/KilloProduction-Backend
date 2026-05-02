@@ -33,6 +33,10 @@ export async function GET(request: NextRequest) {
         campaign.content && typeof campaign.content === "object"
           ? (campaign.content as Record<string, unknown>)
           : { message: "" }
+      const targeting =
+        content.targeting && typeof content.targeting === "object"
+          ? (content.targeting as Record<string, unknown>)
+          : {}
       const schedule =
         campaign.schedule && typeof campaign.schedule === "object"
           ? (campaign.schedule as Record<string, unknown>)
@@ -43,9 +47,10 @@ export async function GET(request: NextRequest) {
             userType: ta.userType,
             modules: ta.modules,
             segments: ta.segments,
+            location: Array.isArray(targeting.location) ? targeting.location : [],
             totalUsers: ta.totalUsers,
           }
-        : { userType: [], modules: [], segments: [], totalUsers: 0 }
+        : { userType: [], modules: [], segments: [], location: [], totalUsers: 0 }
 
       return {
   id: campaign.id,
@@ -60,6 +65,9 @@ export async function GET(request: NextRequest) {
     imageUrl: content.imageUrl as string | undefined,
     actionUrl: content.actionUrl as string | undefined,
     ctaText: content.ctaText as string | undefined,
+    promoCode: content.promoCode as string | undefined,
+    routeName: content.routeName as string | undefined,
+    deepLinkParams: content.deepLinkParams as Record<string, unknown> | undefined,
   },
   schedule: {
     ...schedule,
@@ -144,6 +152,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    const allowedTypes = new Set(["PROMO", "LOYALTY", "FLASH_SALE", "PROMOTIONAL", "CUSTOM"])
+    if (!allowedTypes.has(String(type))) {
+      return NextResponse.json(
+        { error: "Campaign type must be promo, loyalty, flash sale, special offer or custom" },
+        { status: 400 }
+      )
+    }
+
+    const allowedFrequency = new Set(["ONCE", "HOURLY", "DAILY", "CUSTOM_DAYS"])
+    const rawFrequency = String((schedule as any)?.frequency || "ONCE").toUpperCase()
+    if (!allowedFrequency.has(rawFrequency)) {
+      return NextResponse.json({ error: "Invalid schedule frequency" }, { status: 400 })
+    }
+
     const sched = schedule as { startDate?: string; endDate?: string; timezone?: string; frequency?: string }
     const start = sched?.startDate ? new Date(sched.startDate) : null
     const end = sched?.endDate ? new Date(sched.endDate) : null
@@ -152,6 +174,10 @@ export async function POST(request: NextRequest) {
       start && start.getTime() > now.getTime() + 60 * 1000 ? "SCHEDULED" : "DRAFT"
 
     const taIn = targetAudience && typeof targetAudience === "object" ? targetAudience : {}
+    const requestedLocations = Array.isArray((taIn as any).location)
+      ? (taIn as any).location.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+      : []
+
     const taCreate = {
       userType: (taIn as any).userType ?? ["CUSTOMER"],
       modules: (taIn as any).modules ?? [],
@@ -165,7 +191,13 @@ export async function POST(request: NextRequest) {
       type,
       status: initialStatus,
       channels,
-      content,
+      content: {
+        ...(content && typeof content === "object" ? content : {}),
+        targeting: {
+          location: requestedLocations,
+          triggerMode: "interest_or_sales_or_rules",
+        },
+      },
       schedule,
       createdById: userId,
       ...(start ? { startDate: start } : {}),

@@ -12,6 +12,7 @@ export interface CreatePaymentParams {
   description?: string
   metadata?: any
   paymentMethodId?: string
+  gatewayResponse?: any
 }
 
 export interface CreateSplitPaymentParams {
@@ -23,6 +24,7 @@ export interface CreateSplitPaymentParams {
   description?: string
   metadata?: any
   paymentMethodId?: string
+  gatewayResponse?: any
   vendorPayments: Array<{
     vendorId: string
     orderId: string
@@ -52,6 +54,7 @@ export async function createPayment(params: CreatePaymentParams): Promise<any> {
       description: params.description,
       metadata: params.metadata,
       paymentMethodId: params.paymentMethodId,
+      gatewayResponse: params.gatewayResponse,
     },
   })
 }
@@ -76,7 +79,7 @@ export async function createSplitPayments(params: CreateSplitPaymentParams): Pro
 }> {
   // Generate a unique payment group ID for this transaction
   const paymentGroupId = generatePaymentGroupId()
-  const vendorPayments = []
+  const vendorPayments: any[] = []
   let totalAmount = 0
 
   // Create payment for each vendor order
@@ -97,6 +100,7 @@ export async function createSplitPayments(params: CreateSplitPaymentParams): Pro
         paymentGroupId, // Group identifier
       },
       paymentMethodId: params.paymentMethodId,
+      gatewayResponse: params.gatewayResponse,
     })
     vendorPayments.push(payment)
     totalAmount += vendorPayment.amount
@@ -122,6 +126,7 @@ export async function createSplitPayments(params: CreateSplitPaymentParams): Pro
         paymentGroupId, // Same group identifier
       },
       paymentMethodId: params.paymentMethodId,
+      gatewayResponse: params.gatewayResponse,
     })
     totalAmount += params.riderPayment.amount
   }

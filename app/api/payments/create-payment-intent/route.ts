@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { amount, currency, gateway, orderId, description, customerEmail, metadata } = body
+    const { amount, currency, gateway, orderId, description, customerEmail, metadata, skipPaymentRecord } = body
 
     if (!amount || !currency || !gateway || !orderId || !description || !customerEmail) {
       return NextResponse.json({
@@ -24,21 +24,24 @@ export async function POST(request: NextRequest) {
     const metaIn =
       metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>) : {}
 
-    const paymentRow = await resolvePendingCheckoutPayment({
-      userId: session.id,
-      clientRef,
-      amount: Number(amount),
-      currency: String(currency),
-      gateway: String(gateway),
-      description,
-      baseMetadata: {
-        ...metaIn,
-        userId: session.id,
-        createdAt: new Date().toISOString(),
-      },
-    })
+    const shouldSkipPaymentRecord = Boolean(skipPaymentRecord)
+    const paymentRow = shouldSkipPaymentRecord
+      ? null
+      : await resolvePendingCheckoutPayment({
+          userId: session.id,
+          clientRef,
+          amount: Number(amount),
+          currency: String(currency),
+          gateway: String(gateway),
+          description,
+          baseMetadata: {
+            ...metaIn,
+            userId: session.id,
+            createdAt: new Date().toISOString(),
+          },
+        })
 
-    const prev = (paymentRow.metadata as Record<string, unknown> | null) || {}
+    const prev = ((paymentRow?.metadata as Record<string, unknown> | null) || {})
     const mergedMeta: Record<string, unknown> = {
       ...prev,
       ...metaIn,
@@ -50,31 +53,33 @@ export async function POST(request: NextRequest) {
       module: prev.module ?? metaIn.module,
     }
 
-    if (Math.abs(Number(amount) - paymentRow.amount) > 0.02) {
-      return NextResponse.json(
-        { error: "Amount does not match pending payment record" },
-        { status: 400 }
-      )
-    }
-    if (paymentRow.currency.toUpperCase() !== String(currency).toUpperCase()) {
-      return NextResponse.json({ error: "Currency does not match pending payment record" }, { status: 400 })
+    if (paymentRow) {
+      if (Math.abs(Number(amount) - paymentRow.amount) > 0.02) {
+        return NextResponse.json(
+          { error: "Amount does not match pending payment record" },
+          { status: 400 }
+        )
+      }
+      if (paymentRow.currency.toUpperCase() !== String(currency).toUpperCase()) {
+        return NextResponse.json({ error: "Currency does not match pending payment record" }, { status: 400 })
+      }
+
+      await prisma.payment.update({
+        where: { id: paymentRow.id },
+        data: {
+          gateway,
+          metadata: mergedMeta as object,
+        },
+      })
     }
 
-    await prisma.payment.update({
-      where: { id: paymentRow.id },
-      data: {
-        gateway,
-        metadata: mergedMeta as object,
-      },
-    })
-
-    const prismaPaymentId = paymentRow.id
+    const paymentIntentOrderRef = paymentRow?.id || clientRef
 
     const paymentIntent = await createPaymentIntent({
       amount,
       currency,
       gateway,
-      orderId: prismaPaymentId,
+      orderId: paymentIntentOrderRef,
       description,
       customerEmail,
       metadata: mergedMeta,
@@ -84,7 +89,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         ...paymentIntent,
-        prismaPaymentId,
+        ...(paymentRow?.id ? { prismaPaymentId: paymentRow.id } : {}),
       },
     })
   } catch (error: any) {

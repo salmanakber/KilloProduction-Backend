@@ -66,6 +66,17 @@ export async function GET(request: NextRequest) {
           paymentMethod: {
             select: { id: true, type: true, provider: true, brand: true, lastFour: true, last4: true },
           },
+          processingFeeLedger: {
+            select: {
+              id: true,
+              orderAmount: true,
+              commissionRate: true,
+              commissionAmount: true,
+              currency: true,
+              gateway: true,
+              createdAt: true,
+            },
+          },
         },
       }),
       prisma.payment.count({ where }),
@@ -81,6 +92,12 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               orderNumber: true,
+              subtotal: true,
+              deliveryFee: true,
+              serviceFee: true,
+              tax: true,
+              discount: true,
+              total: true,
               vendor: { select: { id: true, name: true } },
             },
           })
@@ -100,11 +117,41 @@ export async function GET(request: NextRequest) {
         status: p.status,
         gateway: p.gateway,
         gatewayTransactionId: p.gatewayTransactionId,
+        paymentMethodId: p.paymentMethodId,
         orderId: p.orderId,
         orderNumber: ord?.orderNumber ?? null,
+        orderSummary: ord
+          ? {
+              subtotal: ord.subtotal,
+              deliveryFee: ord.deliveryFee,
+              serviceFee: ord.serviceFee,
+              tax: ord.tax,
+              discount: ord.discount,
+              total: ord.total,
+            }
+          : null,
         vendorName: ord?.vendor?.name ?? null,
         description: p.description,
         metadata: p.metadata,
+        paymentGroupId:
+          p.metadata && typeof p.metadata === "object" && !Array.isArray(p.metadata)
+            ? ((p.metadata as Record<string, unknown>).paymentGroupId as string | undefined) ?? null
+            : null,
+        paymentType:
+          p.metadata && typeof p.metadata === "object" && !Array.isArray(p.metadata)
+            ? ((p.metadata as Record<string, unknown>).paymentType as string | undefined) ?? null
+            : null,
+        processingFeeLedger: p.processingFeeLedger
+          ? {
+              id: p.processingFeeLedger.id,
+              orderAmount: p.processingFeeLedger.orderAmount,
+              commissionRate: p.processingFeeLedger.commissionRate,
+              commissionAmount: p.processingFeeLedger.commissionAmount,
+              currency: p.processingFeeLedger.currency,
+              gateway: p.processingFeeLedger.gateway,
+              createdAt: p.processingFeeLedger.createdAt.toISOString(),
+            }
+          : null,
         createdAt: p.createdAt.toISOString(),
         updatedAt: p.updatedAt.toISOString(),
         paymentMethod: p.paymentMethod

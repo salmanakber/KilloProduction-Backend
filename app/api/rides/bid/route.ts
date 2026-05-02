@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -14,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     // Verify rider is eligible
     const rider = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session.id },
       include: { riderProfile: true },
     })
 
@@ -35,7 +34,7 @@ export async function POST(request: NextRequest) {
     const existingBid = await prisma.rideBid.findFirst({
       where: {
         rideBookingId,
-        riderId: session.user.id,
+        riderId: session.id,
         status: "PENDING",
       },
     })
@@ -48,7 +47,7 @@ export async function POST(request: NextRequest) {
     const bid = await prisma.rideBid.create({
       data: {
         rideBookingId,
-        riderId: session.user.id,
+        riderId: session.id,
         bidAmount,
         estimatedTime,
         message,

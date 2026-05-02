@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import Stripe from "stripe"
 import { NotificationBridge } from "@/lib/notification-bridge" //@TODO: Use NotificationService instead
+import { computeMoneyTransferFinancials } from "@/lib/money-transfer-financial-snapshot"
 
 async function initializePaystackPayment(args: {
   secretKey: string
@@ -186,7 +187,14 @@ export async function POST(request: NextRequest) {
     const totalFee = (amount * feePercentage) / 100 + feeFixed
     const totalAmount = amount + totalFee
 
-    // Create money transfer record
+    const fin = await computeMoneyTransferFinancials({
+      sendAmount: amount,
+      sendCurrency: currency,
+      feeInSendCurrency: totalFee,
+      settlementCurrency: "NGN",
+    })
+
+    // Create money transfer record (financial snapshot locked at creation — never recomputed)
     const transfer = await prisma.moneyTransfer.create({
       data: {
         senderId: user.id,
@@ -196,6 +204,20 @@ export async function POST(request: NextRequest) {
         description: description || `Money transfer to ${receiver.name || receiver.email || receiver.phone}`,
         status: "PENDING",
         reference: `MT_${Date.now()}_${user.id.substring(0, 8)}`,
+        ngnAmount: fin.receiveAmount ?? undefined,
+        exchangeRate: fin.customerRate ?? undefined,
+        receiveAmount: fin.receiveAmount ?? undefined,
+        receiveCurrency: fin.receiveCurrency,
+        baseCurrency: fin.baseCurrency,
+        baseAmount: fin.baseAmount ?? undefined,
+        midMarketRate: fin.midMarketRate ?? undefined,
+        customerRate: fin.customerRate ?? undefined,
+        markupPercentage: fin.markupPercentage ?? undefined,
+        rateSource: fin.rateSource,
+        fee: fin.fee,
+        feeBase: fin.feeBase ?? undefined,
+        fxMarginSettlement: fin.fxMarginSettlement ?? undefined,
+        fxMarginBase: fin.fxMarginBase ?? undefined,
         metadata: {
           fee: totalFee,
           feePercentage,

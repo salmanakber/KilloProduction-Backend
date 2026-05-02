@@ -72,6 +72,8 @@ export async function PUT(request: NextRequest) {
       if (profile.gender !== undefined) profileUpdateData.gender = profile.gender
       if (profile.bio !== undefined) profileUpdateData.bio = profile.bio
       if (profile.emergencyContact !== undefined) profileUpdateData.emergencyContact = profile.emergencyContact
+      if (profile.residentialAddress !== undefined)
+        profileUpdateData.residentialAddress = profile.residentialAddress
     }
 
     // Use transaction to update both models

@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
         type: isSender ? "sent" : "received",
         amount: transfer.amount,
         currency: transfer.currency,
+        ngnAmount: transfer.ngnAmount ?? undefined,
         status: transfer.status,
         otherUser: {
           id: otherUser.id,

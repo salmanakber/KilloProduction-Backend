@@ -1,13 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 import { socketIOServer } from "@/lib/socket-server"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -45,7 +44,7 @@ export async function POST(request: NextRequest) {
     const rideBooking = await prisma.rideBooking.create({
       data: {
         bookingNumber,
-        customerId: session.user.id,
+        customerId: session.id,
         rideTypeId,
         pickupAddress,
         pickupLatitude,
@@ -64,7 +63,7 @@ export async function POST(request: NextRequest) {
       },
       include: {
         customer: {
-          select: { name: true, phone: true },
+          select: { userProfile: { select: { firstName: true, lastName: true, phone: true } } },
         },
         rideType: true,
       },
@@ -119,7 +118,7 @@ async function findNearbyRiders(lat: number, lng: number, radiusKm: number) {
     where: {
       role: "RIDER",
       riderProfile: {
-        isOnline: true,
+        isOnline: new Date().toISOString(),
         isAvailable: true,
         isApproved: true,
         serviceTypes: { has: "EXTERNAL" },

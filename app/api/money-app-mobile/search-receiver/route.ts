@@ -61,15 +61,25 @@ export async function POST(request: NextRequest) {
       take: 20,
     })
 
-    const formattedReceivers = receivers.map((receiver) => ({
-      id: receiver.id,
-      name: receiver.name || receiver.userProfile?.firstName 
-        ? `${receiver.userProfile?.firstName || ""} ${receiver.userProfile?.lastName || ""}`.trim()
-        : receiver.email || receiver.phone || "Unknown",
-      email: receiver.email,
-      phone: receiver.phone,
-      avatar: receiver.avatar,
-    }))
+    const formattedReceivers = receivers.map((receiver) => {
+      const profileName = [receiver.userProfile?.firstName, receiver.userProfile?.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim()
+      const name =
+        receiver.name?.trim() ||
+        profileName ||
+        receiver.email ||
+        receiver.phone ||
+        "Unknown"
+      return {
+        id: receiver.id,
+        name,
+        email: receiver.email,
+        phone: receiver.phone,
+        avatar: receiver.avatar,
+      }
+    })
 
     return NextResponse.json({
       success: true,

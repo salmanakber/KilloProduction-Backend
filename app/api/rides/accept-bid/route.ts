@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -18,7 +17,11 @@ export async function POST(request: NextRequest) {
       include: {
         rideBooking: {
           include: {
-            customer: true,
+            customer: {
+              include: {
+                userProfile: true,
+              },
+            },
           },
         },
         rider: {
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify customer owns the ride booking
-    if (bid.rideBooking.customerId !== session.user.id) {
+    if (bid.rideBooking.customer.id !== session.id) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 })
     }
 
@@ -87,8 +90,8 @@ export async function POST(request: NextRequest) {
     await prisma.rideTracking.create({
       data: {
         rideBookingId: bid.rideBookingId,
-        latitude: bid.rideBooking.pickupLatitude,
-        longitude: bid.rideBooking.pickupLongitude,
+        latitude: bid.rideBooking.customer.userProfile?.latitude || 0,
+        longitude: bid.rideBooking.customer.userProfile?.longitude || 0,
         status: "ACCEPTED",
         notes: "Rider assigned and heading to pickup location",
       },

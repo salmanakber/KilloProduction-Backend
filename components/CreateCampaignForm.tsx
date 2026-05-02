@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState } from "react"
+import { useMemo } from "react"
 import {
   Dialog,
   DialogContent,
@@ -30,10 +31,10 @@ import {
   AlignLeft,
   MousePointerClick,
   Link as LinkIcon,
-  AlertCircle
+  AlertCircle,
+  Navigation,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Campaign } from "@/types/campaign" 
 
 interface CreateCampaignFormProps {
   isOpen: boolean
@@ -42,8 +43,9 @@ interface CreateCampaignFormProps {
 }
 
 export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaignFormProps) {
+  const recommendedDailyCap = 150
   const [name, setName] = useState("")
-  const [type, setType] = useState<Campaign["type"]>("PROMO")
+  const [type, setType] = useState<"PROMO" | "LOYALTY" | "FLASH_SALE" | "PROMOTIONAL" | "CUSTOM">("PROMO")
   const [message, setMessage] = useState("")
   const [title, setTitle] = useState("")
   const [ctaText, setCtaText] = useState("")
@@ -51,7 +53,24 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
   const [startDate, setStartDate] = useState<Date | undefined>(new Date())
   const [endDate, setEndDate] = useState<Date | undefined>(undefined)
   const [channels, setChannels] = useState<("PUSH" | "EMAIL" | "SMS")[]>([])
+  const [timezone, setTimezone] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
+  const [targetLocation, setTargetLocation] = useState("")
+  const [targetLat, setTargetLat] = useState<number | null>(null)
+  const [targetLng, setTargetLng] = useState<number | null>(null)
+  const [targetRadiusKm, setTargetRadiusKm] = useState<string>("10")
+  const [locationSuggestions, setLocationSuggestions] = useState<Array<{ description: string; place_id: string }>>([])
+  const [locationLoading, setLocationLoading] = useState(false)
+  const [frequency, setFrequency] = useState<"ONCE" | "HOURLY" | "DAILY" | "CUSTOM_DAYS">("ONCE")
+  const [customEveryDays, setCustomEveryDays] = useState<string>("2")
+  const [promoCode, setPromoCode] = useState("")
+  /** React Navigation screen name (matches mobile stack); preferred over Action URL for in-app taps. */
+  const [destinationRoute, setDestinationRoute] = useState("")
+  /** Optional JSON object passed to navigate(screen, params), e.g. {"offerId":"..."} for FoodOfferDetails */
+  const [routeParamsJson, setRouteParamsJson] = useState("")
+  const [ruleNotes, setRuleNotes] = useState("")
   const [loading, setLoading] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +84,27 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
       return
     }
 
+    if (targetLocation && (targetLat === null || targetLng === null)) {
+      setError("Please pick a suggested address so we can use exact map coordinates.")
+      setLoading(false)
+      return
+    }
+
+    let deepLinkParams: Record<string, unknown> | undefined
+    if (routeParamsJson.trim()) {
+      try {
+        const parsed = JSON.parse(routeParamsJson.trim()) as unknown
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("Screen params must be a JSON object, e.g. {\"offerId\":\"abc\"}")
+        }
+        deepLinkParams = parsed as Record<string, unknown>
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Invalid JSON for screen params")
+        setLoading(false)
+        return
+      }
+    }
+
     try {
       const response = await fetch("/api/marketing/campaigns", {
         method: "POST",
@@ -75,19 +115,39 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
         body: JSON.stringify({
           name,
           type,
-          content: { title, message, ctaText, actionUrl },
           channels,
           schedule: {
             startDate: startDate.toISOString(),
             endDate: endDate?.toISOString(),
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            frequency: "ONCE", 
+            timezone: timezone || "UTC",
+            frequency,
+            customEveryDays: frequency === "CUSTOM_DAYS" ? Math.max(1, Number(customEveryDays || "1")) : undefined,
           },
           targetAudience: {
             userType: ["CUSTOMER"], 
             modules: [],
             segments: [],
-            totalUsers: 0, 
+            location: targetLocation ? [targetLocation.trim()] : [],
+            totalUsers: previewCount ?? 0,
+          },
+          content: {
+            title,
+            message,
+            ctaText,
+            actionUrl,
+            promoCode: promoCode || undefined,
+            routeName: destinationRoute.trim() || undefined,
+            deepLinkParams,
+            targetingRules: ruleNotes || undefined,
+            targetingCoordinates:
+              targetLat !== null && targetLng !== null
+                ? {
+                    lat: targetLat,
+                    lng: targetLng,
+                    radiusKm: Math.max(1, Number(targetRadiusKm || "10")),
+                    address: targetLocation.trim(),
+                  }
+                : undefined,
           },
         }),
       })
@@ -117,11 +177,94 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
     setStartDate(new Date())
     setEndDate(undefined)
     setChannels([])
+    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
+    setTargetLocation("")
+    setTargetLat(null)
+    setTargetLng(null)
+    setTargetRadiusKm("10")
+    setLocationSuggestions([])
+    setFrequency("ONCE")
+    setCustomEveryDays("2")
+    setPromoCode("")
+    setDestinationRoute("")
+    setRouteParamsJson("")
+    setRuleNotes("")
+    setPreviewCount(null)
     setError(null)
+  }
+
+  const canSearchLocation = useMemo(() => targetLocation.trim().length >= 3, [targetLocation])
+  const estimatedDaysToComplete =
+    previewCount && previewCount > 0 ? Math.ceil(previewCount / recommendedDailyCap) : null
+
+  const searchLocationSuggestions = async (input: string) => {
+    const q = input.trim()
+    if (q.length < 3) {
+      setLocationSuggestions([])
+      return
+    }
+    setLocationLoading(true)
+    try {
+      const res = await fetch(`/api/location/autocomplete?input=${encodeURIComponent(q)}`, { credentials: "include" })
+      const data = await res.json()
+      setLocationSuggestions((data?.predictions || []).slice(0, 6))
+    } catch {
+      setLocationSuggestions([])
+    } finally {
+      setLocationLoading(false)
+    }
+  }
+
+  const chooseLocation = async (placeId: string, description: string) => {
+    try {
+      const res = await fetch(`/api/location/place-details?place_id=${encodeURIComponent(placeId)}`, {
+        credentials: "include",
+      })
+      const data = await res.json()
+      const loc = data?.result?.geometry?.location
+      if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+        setTargetLocation(data?.result?.formatted_address || description)
+        setTargetLat(Number(loc.lat))
+        setTargetLng(Number(loc.lng))
+        setLocationSuggestions([])
+        setPreviewCount(null)
+      }
+    } catch {
+      // no-op
+    }
   }
 
   const handleChannelChange = (channel: "PUSH" | "EMAIL" | "SMS") => {
     setChannels((prev) => (prev.includes(channel) ? prev.filter((c) => c !== channel) : [...prev, channel]))
+  }
+
+  const previewAudience = async () => {
+    setError(null)
+    if (targetLocation && (targetLat === null || targetLng === null)) {
+      setError("Please choose an address from suggestions before previewing audience.")
+      return
+    }
+    setPreviewLoading(true)
+    try {
+      const res = await fetch("/api/marketing/campaigns/preview-audience", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetLat,
+          targetLng,
+          radiusKm: Math.max(1, Number(targetRadiusKm || "10")),
+          segmentIds: [],
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || "Failed to preview audience")
+      setPreviewCount(Number(data?.matchedUsers || 0))
+    } catch (e: any) {
+      setError(e?.message || "Failed to preview audience")
+    } finally {
+      setPreviewLoading(false)
+    }
   }
 
   return (
@@ -163,20 +306,20 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="type" className="text-slate-700 font-semibold">Campaign Type</Label>
-                  <Select value={type} onValueChange={(value) => setType(value as Campaign["type"])}>
+                  <Select value={type} onValueChange={(value) => setType(value as typeof type)}>
                     <SelectTrigger className="border-slate-200 focus:ring-emerald-500 bg-white">
                       <SelectValue placeholder="Select campaign type" />
                     </SelectTrigger>
                     <SelectContent className="bg-white border-slate-200 max-h-[300px]">
                       {[
-                        "PROMOTIONAL", "TRANSACTIONAL", "BEHAVIORAL", "LIFECYCLE", 
-                        "RETENTION", "ACQUISITION", "REACTIVATION", "SEASONAL", 
-                        "FLASH_SALE", "ANNOUNCEMENT", "EDUCATIONAL", "SURVEY", 
-                        "FEEDBACK", "WELCOME_SERIES", "ABANDONED_CART", "WIN_BACK", 
-                        "REFERRAL", "LOYALTY", "BIRTHDAY", "PROMO", "ANNIVERSARY", "CUSTOM"
+                        { value: "PROMO", label: "Promo" },
+                        { value: "LOYALTY", label: "Loyalty" },
+                        { value: "FLASH_SALE", label: "Flash Sale" },
+                        { value: "PROMOTIONAL", label: "Special Offer" },
+                        { value: "CUSTOM", label: "Custom" },
                       ].map((t) => (
-                        <SelectItem key={t} value={t} className="cursor-pointer focus:bg-emerald-50 focus:text-emerald-900">
-                          {t.replace(/_/g, ' ')}
+                        <SelectItem key={t.value} value={t.value} className="cursor-pointer focus:bg-emerald-50 focus:text-emerald-900">
+                          {t.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -234,15 +377,57 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="actionUrl" className="text-slate-700 font-semibold flex items-center gap-2">
-                      <LinkIcon className="h-4 w-4 text-slate-400" /> Action URL
+                      <LinkIcon className="h-4 w-4 text-slate-400" /> External link (optional)
                     </Label>
                     <Input
                       id="actionUrl"
                       value={actionUrl}
                       onChange={(e) => setActionUrl(e.target.value)}
                       className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
-                      type="url"
-                      placeholder="https://your-app.com/offer"
+                      placeholder="https://… (only if opening a website, not the in-app screen)"
+                    />
+                    <p className="text-xs text-slate-500">
+                      For app destinations, use <strong>In-app screen</strong> below so promotion taps open the correct module (not a generic home link).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="destinationRoute" className="text-slate-700 font-semibold flex items-center gap-2">
+                      <Navigation className="h-4 w-4 text-slate-400" /> In-app screen
+                    </Label>
+                    <Select value={destinationRoute || "__none__"} onValueChange={(v) => setDestinationRoute(v === "__none__" ? "" : v)}>
+                      <SelectTrigger id="destinationRoute" className="border-slate-200 focus:ring-emerald-500 bg-white">
+                        <SelectValue placeholder="Choose where “Claim” opens in the app" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200 max-h-[280px]">
+                        <SelectItem value="__none__">— Not set (use external link or path only) —</SelectItem>
+                        <SelectItem value="Home">Home</SelectItem>
+                        <SelectItem value="CustomerFood">Food (browse)</SelectItem>
+                        <SelectItem value="FoodOffers">Food — offers list</SelectItem>
+                        <SelectItem value="FoodOfferDetails">Food — single offer (set JSON params)</SelectItem>
+                        <SelectItem value="CustomerGrocery">Grocery</SelectItem>
+                        <SelectItem value="CustomerPharmacy">Pharmacy</SelectItem>
+                        <SelectItem value="CustomerAutoParts">Auto parts</SelectItem>
+                        <SelectItem value="CustomerRiding">Rides</SelectItem>
+                        <SelectItem value="Cart">Cart</SelectItem>
+                        <SelectItem value="Loyalty">Loyalty</SelectItem>
+                        <SelectItem value="Wallet">Wallet</SelectItem>
+                        <SelectItem value="PromotionInbox">Promotions inbox</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="routeParamsJson" className="text-slate-700 font-semibold">
+                      Screen params (JSON, optional)
+                    </Label>
+                    <Textarea
+                      id="routeParamsJson"
+                      value={routeParamsJson}
+                      onChange={(e) => setRouteParamsJson(e.target.value)}
+                      className="border-slate-200 focus-visible:ring-emerald-500 bg-white min-h-[80px] resize-none font-mono text-xs"
+                      placeholder='e.g. {"offerId":"clx123"} for FoodOfferDetails'
                     />
                   </div>
                 </div>
@@ -345,6 +530,149 @@ export function CreateCampaignForm({ isOpen, onClose, onSuccess }: CreateCampaig
                       <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
                     </PopoverContent>
                   </Popover>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Timezone</Label>
+                  <Select value={timezone} onValueChange={setTimezone}>
+                    <SelectTrigger className="border-slate-200 focus:ring-emerald-500 bg-white">
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {[
+                        "UTC",
+                        "Africa/Lagos",
+                        "Asia/Karachi",
+                        "Asia/Dubai",
+                        "Europe/London",
+                        "America/New_York",
+                        "Asia/Kolkata",
+                      ].map((tz) => (
+                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Target Location</Label>
+                  <Input
+                    value={targetLocation}
+                    onChange={(e) => {
+                      setTargetLocation(e.target.value)
+                      setTargetLat(null)
+                      setTargetLng(null)
+                      setPreviewCount(null)
+                      void searchLocationSuggestions(e.target.value)
+                    }}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                    placeholder="Search exact address"
+                  />
+                  {locationLoading ? (
+                    <p className="text-xs text-slate-500">Searching locations...</p>
+                  ) : null}
+                  {canSearchLocation && locationSuggestions.length > 0 ? (
+                    <div className="max-h-40 overflow-auto rounded-md border border-slate-200 bg-white">
+                      {locationSuggestions.map((s) => (
+                        <button
+                          key={s.place_id}
+                          type="button"
+                          className="block w-full text-left px-3 py-2 text-sm hover:bg-emerald-50"
+                          onClick={() => void chooseLocation(s.place_id, s.description)}
+                        >
+                          {s.description}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {targetLat !== null && targetLng !== null ? (
+                    <p className="text-xs text-emerald-700">
+                      Target locked: {targetLat.toFixed(5)}, {targetLng.toFixed(5)}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Target Radius (KM)</Label>
+                  <Input
+                    value={targetRadiusKm}
+                    onChange={(e) => {
+                      setTargetRadiusKm(e.target.value)
+                      setPreviewCount(null)
+                    }}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                    type="number"
+                    min={1}
+                    max={100}
+                  />
+                  <div className="flex items-center gap-3 pt-1">
+                    <Button type="button" variant="outline" onClick={() => void previewAudience()} disabled={previewLoading}>
+                      {previewLoading ? "Checking..." : "Preview Audience"}
+                    </Button>
+                    {previewCount !== null ? (
+                      <p className="text-xs font-medium text-emerald-700">
+                        Matched users: {previewCount.toLocaleString()}
+                      </p>
+                    ) : null}
+                  </div>
+                  {previewCount !== null && previewCount > recommendedDailyCap ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-medium text-amber-800">
+                        Audience is above daily automation cap (100-200/day, default {recommendedDailyCap}/day).
+                      </p>
+                      {estimatedDaysToComplete ? (
+                        <p className="mt-1 text-xs text-amber-700">
+                          Estimated delivery window: about {estimatedDaysToComplete} day
+                          {estimatedDaysToComplete > 1 ? "s" : ""}.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Run Frequency</Label>
+                  <Select value={frequency} onValueChange={(v) => setFrequency(v as any)}>
+                    <SelectTrigger className="border-slate-200 focus:ring-emerald-500 bg-white">
+                      <SelectValue placeholder="Select frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ONCE">Once</SelectItem>
+                      <SelectItem value="HOURLY">Hourly</SelectItem>
+                      <SelectItem value="DAILY">Daily</SelectItem>
+                      <SelectItem value="CUSTOM_DAYS">Every custom days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {frequency === "CUSTOM_DAYS" ? (
+                    <Input
+                      value={customEveryDays}
+                      onChange={(e) => setCustomEveryDays(e.target.value)}
+                      type="number"
+                      min={1}
+                      className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                      placeholder="Run every N days"
+                    />
+                  ) : null}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Promo Code (optional)</Label>
+                  <Input
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                    placeholder="e.g. EID2026"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-700 font-semibold">Custom Rules / AI Notes</Label>
+                  <Input
+                    value={ruleNotes}
+                    onChange={(e) => setRuleNotes(e.target.value)}
+                    className="border-slate-200 focus-visible:ring-emerald-500 bg-white"
+                    placeholder="interest-based, nearest offer, etc."
+                  />
                 </div>
               </div>
             </div>

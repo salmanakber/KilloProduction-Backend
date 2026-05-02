@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperKillo Platform Feature Documentation</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1d2433;
+      --muted: #4f5b72;
+      --primary: #1b64f2;
+      --border: #d9e1ef;
+      --ok: #0f9d58;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 32px auto;
+      padding: 0 20px 40px;
+    }
+
+    .hero, .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 6px 20px rgba(16, 24, 40, 0.04);
+      margin-bottom: 18px;
+    }
+
+    h1, h2, h3 { margin-top: 0; }
+    h1 { font-size: 30px; margin-bottom: 8px; }
+    h2 { font-size: 22px; margin-bottom: 10px; }
+    h3 { font-size: 18px; margin-bottom: 8px; color: #243452; }
+
+    p { margin: 8px 0; }
+    .muted { color: var(--muted); }
+    .pill {
+      display: inline-block;
+      background: #eaf1ff;
+      color: #164dc8;
+      border: 1px solid #cddcff;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    ul { margin-top: 8px; }
+    li { margin-bottom: 6px; }
+    strong { color: #1a2740; }
+
+    .flow {
+      border-left: 4px solid var(--primary);
+      background: #f8fbff;
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="hero">
+      <h1>SuperKillo Platform Documentation</h1>
+      <p class="muted">
+        Client-facing product documentation based on deep review of mobile apps, backend services, real-time systems, and admin panel capabilities.
+      </p>
+      <span class="pill">Mobile Apps</span>
+      <span class="pill">Backend APIs</span>
+      <span class="pill">Real-Time Sockets</span>
+      <span class="pill">Admin & Operations</span>
+      <span class="pill">AI Features</span>
+      <span class="pill">Marketing & Automation</span>
+      <span class="pill">Compliance & Audit</span>
+    </section>
+
+    <section class="card">
+      <h2>Platform Overview (Detailed)</h2>
+      <p>
+        SuperKillo is a unified super-platform where commerce, mobility, service providers, and finance operate on one backend. Customers can buy products, request services,
+        book riders, transfer money, and track every lifecycle from request to settlement, while administrators control KYC, security, operations, and policy.
+      </p>
+      <div class="two-col">
+        <div>
+          <h3>Core Pillars</h3>
+          <ul>
+            <li>Commerce modules: Pharmacy, Food, Grocery, Auto Parts, Supplier sourcing</li>
+            <li>Service module: Mechanic quotes, offers, job execution, and approval flow</li>
+            <li>Mobility module: Ride booking, courier dispatch, rider acceptance, live tracking</li>
+            <li>Financial rails: wallet, transfers, withdrawals, gateway processing, refunds</li>
+            <li>Admin governance: KYC, compliance, commissions, security, reporting, HR</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Shared Infrastructure</h3>
+          <ul>
+            <li>AI layer for recommendation, virtual assistant, and intelligent drafting</li>
+            <li>Socket layer for dispatch, chat, status updates, and presence</li>
+            <li>Order lifecycle engine for split orders, pickup, delivery, and completion</li>
+            <li>Commission and tax handling with module-specific payout calculations</li>
+            <li>Role-based access model for admin features and operational safety</li>
+            <li>Notification infrastructure: in-app, email, SMS, and mobile push (device token registry) with module-aware routing</li>
+          </ul>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:14px;">
+        <strong>Note on messaging:</strong> <em>Marketing campaigns</em> drive growth and conversions; <em>system notices</em> communicate operational truth (incidents, maintenance, policy);
+        both coexist with transactional messages (orders, payouts, OTPs) delivered through the same technical channels where appropriate.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>1) Pharmacy Module (Deep Explanation)</h2>
+      <p>
+        Pharmacy is built as both a healthcare-assist module and a medicine commerce engine. It links AI symptom support, prescription processing, pharmacy matching,
+        chat/approval workflow, checkout, rider logistics, and health continuity records.
+      </p>
+      <h3>Customer Experience Features</h3>
+      <ul>
+        <li><strong>Virtual doctor flow:</strong> customer can describe symptoms with text, voice, or image and receive medically guided suggestions.</li>
+        <li><strong>Prescription upload and shortlist:</strong> prescriptions are analyzed and transformed into structured medicine suggestions for purchase.</li>
+        <li><strong>Nearby pharmacy intelligence:</strong> location-aware pharmacy listing with stock/availability and delivery suitability checks.</li>
+        <li><strong>Pharmacy chat handoff:</strong> customer can continue clarification in chat when AI suggests uncertain or partially available items.</li>
+        <li><strong>Purchase flow:</strong> address, payment, and confirmation handled in-app with module-aware checkout behavior.</li>
+      </ul>
+      <h3>Backend/Operations Features</h3>
+      <ul>
+        <li><strong>Single-store first matching strategy:</strong> attempts complete fulfillment from one pharmacy before split sourcing.</li>
+        <li><strong>Prescription queue:</strong> pharmacies receive queued requests with status control for review, acceptance, and follow-up.</li>
+        <li><strong>Top-selling and search endpoints:</strong> powers medicine discovery, ranking, and fast purchase conversion.</li>
+        <li><strong>Payment/settlement hooks:</strong> provisional vendor crediting and final settlement on completion events.</li>
+        <li><strong>Refund integration:</strong> supports post-order refund handling including reverse pickup logistics when required.</li>
+      </ul>
+      <h3>Health Integration</h3>
+      <ul>
+        <li><strong>Medicine reminders and vitals:</strong> pharmacy behavior can connect with ongoing health management data.</li>
+        <li><strong>Doctor visit and lab context:</strong> health timeline can support better medication continuity decisions.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> symptom/prescription input -> AI extraction and medicine shortlist -> pharmacy review queue + chat -> customer payment ->
+        rider pickup and delivery -> completion settlement and notifications.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) Supplier (Wholesaler) Module</h2>
+      <p>
+        Supplier module enables pharmacies/vendors to source medicines and products from wholesalers with quote negotiation, courier-enabled delivery,
+        payment/commission handling, and inventory import after delivery.
+      </p>
+      <h3>Supplier Lifecycle Features</h3>
+      <ul>
+        <li><strong>Wholesaler onboarding and KYC:</strong> admin can create, verify, approve, suspend, and govern wholesaler accounts.</li>
+        <li><strong>Wholesaler catalog management:</strong> wholesalers maintain products and medicine lists for B2B sourcing.</li>
+        <li><strong>Supplier discovery:</strong> pharmacies can browse wholesalers and evaluate supplier detail before ordering.</li>
+      </ul>
+      <h3>Quote and Order Features</h3>
+      <ul>
+        <li><strong>Quote request creation:</strong> pharmacy/vendor sends supplier order request with needed items and terms.</li>
+        <li><strong>Supplier response options:</strong> wholesaler can accept, reject, or counter offer with changed conditions.</li>
+        <li><strong>Terms confirmation:</strong> pharmacy confirms final terms before acceptance and payment progression.</li>
+        <li><strong>Delivery coordination:</strong> courier booking can be created for wholesaler-to-pharmacy movement.</li>
+        <li><strong>QR-secured handover:</strong> supplier order QR can be generated and verified for controlled pickup/delivery.</li>
+        <li><strong>Inventory import:</strong> delivered supplier items can be imported directly into pharmacy inventory records.</li>
+      </ul>
+      <h3>Financial and Governance Features</h3>
+      <ul>
+        <li><strong>Commission and distance calculators:</strong> backend supports pricing/fee calculations tied to order acceptance.</li>
+        <li><strong>Notification bridge:</strong> supplier-specific notifications for quote updates and operational events.</li>
+        <li><strong>Admin eligibility tooling:</strong> admin can inspect supplier-pharmacy compatibility and control module exposure.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> admin-approved wholesaler publishes catalog -> pharmacy sends quote -> wholesaler responds -> terms are confirmed ->
+        supplier order accepted and paid -> courier pickup/delivery with QR verification -> pharmacy imports delivered items into stock.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) Auto Parts Module (Detailed)</h2>
+      <p>
+        Auto Parts is a marketplace module where customers request parts, vendors send custom offers, and the platform supports part-only or part-plus-service journeys
+        with rider/courier logistics and strong completion controls.
+      </p>
+      <h3>Core Features</h3>
+      <ul>
+        <li><strong>AI-assisted request drafting:</strong> backend AI helps convert user problem descriptions into structured part requests.</li>
+        <li><strong>Vendor scoring and matching:</strong> intelligent matching by location, compatibility, budget, and vendor performance.</li>
+        <li><strong>Custom offer workflow:</strong> vendors submit detailed offers (condition, warranty, timeline, price).</li>
+        <li><strong>Offer acceptance engine:</strong> customer acceptance transitions request/order states and prepares payment/delivery.</li>
+        <li><strong>Delivery quote support:</strong> route and courier estimation provided before dispatch execution.</li>
+        <li><strong>Handover verification:</strong> pickup and delivery safeguards using secure code/QR checks.</li>
+      </ul>
+      <h3>Integrated Modes</h3>
+      <ul>
+        <li><strong>Part-only mode:</strong> customer buys part and receives rider/courier delivery.</li>
+        <li><strong>Part + mechanic mode:</strong> accepted part offer can enter mechanic bid/service flow before final completion.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> customer raises request -> vendors send custom offers -> customer accepts -> delivery quote and payment ->
+        courier/rider dispatch -> handover verification -> completion and settlement.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4) Mechanic Module (Standalone + Integrated)</h2>
+      <p>
+        Mechanic module is a complete service system, not just a small extension. It supports direct quote flow, service request statuses,
+        chat/communication, additional-part requests, approval-based payout release, and admin KYC/governance.
+      </p>
+      <h3>Customer and Mechanic Features</h3>
+      <ul>
+        <li><strong>Direct quote request flow:</strong> customer can request quote from mechanics without a vendor-part chain.</li>
+        <li><strong>Quote lifecycle:</strong> quote pending -> submitted -> accepted/rejected with controlled transitions.</li>
+        <li><strong>Service request lifecycle:</strong> pending, quoted, accepted, in-progress, completed, cancelled, rejected states.</li>
+        <li><strong>Mechanic offer flow:</strong> for integrated jobs, mechanics can submit offers and customer accepts one winner.</li>
+        <li><strong>Additional parts request:</strong> mechanic can request extra parts during active service.</li>
+        <li><strong>Chat and notifications:</strong> dedicated mechanic chats and notification events for all milestones.</li>
+      </ul>
+      <h3>Earnings and Control Features</h3>
+      <ul>
+        <li><strong>Escrow-like pending credits:</strong> mechanic earnings can remain pending until approval/completion trigger.</li>
+        <li><strong>Approval-gated release:</strong> customer approval or completion finalization releases pending wallet credits.</li>
+        <li><strong>Distance-based pickup pricing:</strong> configurable price-per-km for pickup-related mechanic jobs.</li>
+        <li><strong>Rating system:</strong> post-service customer ratings update mechanic quality metrics.</li>
+      </ul>
+      <h3>Admin Mechanic Controls</h3>
+      <ul>
+        <li><strong>KYC decisions:</strong> approve/reject with reasons and audit trail updates.</li>
+        <li><strong>Module stats:</strong> active mechanics, job volumes, revenue indicators, rating summaries.</li>
+        <li><strong>Settings control:</strong> platform-level mechanic pickup pricing and policy surfaces.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> quote/offer creation -> customer acceptance -> service execution updates -> completion request ->
+        customer approval -> payout release and rating.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5) Food Module (Detailed)</h2>
+      <p>
+        Food module is optimized for timing-sensitive fulfillment. It combines AI assistance, menu/catalog controls, delayed-dispatch strategy based on prep time,
+        promotions, and POS-ready API integrations.
+      </p>
+      <ul>
+        <li><strong>AI food assistant:</strong> smart suggestions, meal plan conversations, and guided selection.</li>
+        <li><strong>Preparation-aware dispatch:</strong> rider notification can wait until food is closer to ready state to reduce idle time and improve freshness.</li>
+        <li><strong>ETA prediction:</strong> combines route intelligence and prep estimates for more realistic delivery windows.</li>
+        <li><strong>POS integration:</strong> vendor APIs and keys for external system synchronization.</li>
+        <li><strong>Promotion and loyalty support:</strong> promo validation, usage tracking, and rewards impact at checkout.</li>
+        <li><strong>Multi-order decomposition:</strong> can split complex orders and coordinate pickup/delivery sequence.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> discover items -> optional AI help -> checkout with promos -> prep-time aware rider dispatch ->
+        live tracking -> completion and accounting updates.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>6) Grocery Module (Detailed)</h2>
+      <p>
+        Grocery module provides product-centric shopping with strong inventory visibility and fast rider interconnection.
+      </p>
+      <ul>
+        <li><strong>AI pantry assistant:</strong> weekly planning and smart reorder guidance.</li>
+        <li><strong>Catalog controls:</strong> categories, stock flags, featured products, and pricing behavior for stores.</li>
+        <li><strong>Fast dispatch model:</strong> grocery checkout commonly enters immediate rider request flow.</li>
+        <li><strong>Promotions and campaign visibility:</strong> offers, coupons, and campaign discovery on customer home surfaces.</li>
+        <li><strong>Multi-pickup support:</strong> parent/child order handling for complex fulfillment structures.</li>
+      </ul>
+      <div class="flow">
+        <strong>Workflow:</strong> browse stores -> AI assist or direct add-to-cart -> checkout -> immediate rider assignment ->
+        tracking and delivery completion.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>7) Standalone Riding Module</h2>
+      <p>
+        Riding is a separate operational module that powers passenger/courier booking, dispatch waves, rider acceptance, OTP safety checks,
+        and lifecycle-linked earnings.
+      </p>
+      <ul>
+        <li><strong>Booking orchestration:</strong> creates ride/courier bookings with payment and promo validation.</li>
+        <li><strong>Eligibility-aware request feed:</strong> only suitable riders receive each request based on service type and context.</li>
+        <li><strong>Atomic accept flow:</strong> request acceptance updates assignment and earning records safely.</li>
+        <li><strong>OTP start verification:</strong> trip starts only after secure OTP confirmation at pickup.</li>
+        <li><strong>Live operations:</strong> sockets for location, status, and request lifecycle broadcast.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>8) Customer Super App Module</h2>
+      <p>
+        Customer app layer unifies all module journeys behind one navigation, one account identity, and common payment/wallet/loyalty systems.
+      </p>
+      <ul>
+        <li><strong>Unified navigation:</strong> customer can move between pharmacy, food, grocery, auto-parts, riding, and money transfer features.</li>
+        <li><strong>Unified cart and checkout behavior:</strong> module-specific handoff with consistent UX and account context.</li>
+        <li><strong>Address, payment methods, and wallet controls:</strong> reusable account capabilities across all modules.</li>
+        <li><strong>Loyalty and rewards:</strong> point accrual/redemption and customer history view.</li>
+        <li><strong>Smart shopping tools:</strong> AI suggestions and saved plan logic to improve repeat behavior.</li>
+        <li><strong>Authentication experience:</strong> phone/email login with optional OTP verification paths; push tokens refresh on supported devices after login so notices and orders reach the right handset.</li>
+        <li><strong>Chat &amp; real-time:</strong> module-threaded conversations (e.g. pharmacy, mechanic) synchronized with order and service state.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>9) Money Transfer Module</h2>
+      <p>
+        Money transfer module enables secure P2P movement with compliance checks, gateway abstraction, payout processing, and dedicated admin oversight.
+      </p>
+      <ul>
+        <li><strong>Transfer creation:</strong> sender to registered receiver with limits, validations, and fee computation.</li>
+        <li><strong>Bank verification constraints:</strong> transfer and withdrawal flows enforce bank-account validity.</li>
+        <li><strong>Gateway flexibility:</strong> Stripe/Paystack flow selection driven by runtime configuration.</li>
+        <li><strong>Payout execution:</strong> receiver can withdraw to bank and track payout status.</li>
+        <li><strong>History and monitoring:</strong> detailed transaction timelines in mobile and admin.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>10) Bonus and Loyalty Systems</h2>
+      <ul>
+        <li><strong>Rider peak bonus engine:</strong> creates demand-based challenges and tracks completion progress in real time.</li>
+        <li><strong>Challenge acceptance flow:</strong> riders can accept active incentive tasks and receive event-based updates.</li>
+        <li><strong>Customer loyalty engine:</strong> points, caps, expiries, rewards, redemption logs, and module-specific earning behavior.</li>
+        <li><strong>Admin visibility:</strong> rider bonus analytics and platform tuning connect incentives to operational outcomes.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>11) Marketing Management &amp; Automation (Growth Suite)</h2>
+      <p>
+        This is a <strong>separate growth layer</strong> from day-to-day promo codes and from operational system notices. It is designed for planned campaigns,
+        measurable engagement, and repeatable audience outreach across modules.
+      </p>
+      <h3>Campaigns &amp; Channels</h3>
+      <ul>
+        <li><strong>Multi-channel outreach:</strong> combine push, email, and SMS according to campaign strategy and compliance.</li>
+        <li><strong>Scheduling &amp; timezones:</strong> start/end windows, frequencies (one-off, recurring patterns), and calendar-aware execution.</li>
+        <li><strong>Audience targeting:</strong> filter by user types, platform modules, segments, and geographic or cohort signals where configured.</li>
+        <li><strong>Content &amp; CTAs:</strong> titles, body copy, images, deep links, and call-to-action text for measurable clicks.</li>
+        <li><strong>A/B testing:</strong> variant splits for message optimization on supported campaign types.</li>
+      </ul>
+      <h3>Segments &amp; Automation</h3>
+      <ul>
+        <li><strong>Segments:</strong> reusable audience groups for campaigns and reporting (member counts and engagement quality).</li>
+        <li><strong>Automation rules:</strong> trigger-based journeys with execution history, success/failure monitoring, and iteration.</li>
+        <li><strong>Analytics loop:</strong> delivery, opens, clicks, conversions, revenue attribution, and health indicators to refine future campaigns.</li>
+      </ul>
+      <div class="flow">
+        <strong>How it differs:</strong> <em>Promo codes</em> are typically short redemption mechanics at checkout.
+        <em>Marketing campaigns</em> orchestrate outreach and measurement. <em>System notices</em> (next section) are operational broadcasts, not promotions.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>12) System Notices &amp; Operational Broadcasts</h2>
+      <p>
+        When the platform must communicate maintenance windows, incidents, policy updates, or safety guidance, administrators use a dedicated
+        <strong>system notice</strong> workflow—distinct from marketing campaigns and promo spam risk.
+      </p>
+      <ul>
+        <li><strong>Channels:</strong> mobile push (Expo push tokens stored per user), email, SMS, or in-app inbox-only notices.</li>
+        <li><strong>Lifecycle:</strong> draft, schedule for a future time, send immediately, or rely on background workers for due schedules.</li>
+        <li><strong>Audience:</strong> target by user roles (e.g. customers, vendors, riders) with counts computed from live user data.</li>
+        <li><strong>Scale:</strong> delivery runs in controlled batches so large audiences do not overload a single job.</li>
+        <li><strong>Governance:</strong> sent notices are locked; drafts and scheduled items can be edited or removed before dispatch.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>13) Special Offers, Vendor Flash Events &amp; Approval Gates</h2>
+      <p>
+        Beyond generic promo codes, the platform supports <strong>curated promotional programs</strong> and <strong>vendor-initiated flash or mystery offers</strong>
+        that may require administrative approval before customers see them.
+      </p>
+      <ul>
+        <li><strong>Special offers workspace:</strong> create and monitor platform-wide or targeted offers with an approval path for pending items.</li>
+        <li><strong>Vendor offers:</strong> mystery or flash-style promotions submitted by vendors route through a pending queue for compliance and quality.</li>
+        <li><strong>Why it exists:</strong> protects brand trust—promotional intensity is gated while still enabling fast merchant creativity.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>14) Medicine Catalog, Taxonomy &amp; Data Quality</h2>
+      <p>
+        Pharmacy intelligence depends on clean catalog data. Administration tools keep medicines, conditions, and sourcing metadata aligned with customer discovery and AI flows.
+      </p>
+      <ul>
+        <li><strong>Master medicine directory:</strong> maintain the canonical medicine list powering search, prescriptions, and fulfillment.</li>
+        <li><strong>Wholesaler suggestions:</strong> review catalog additions or corrections proposed through B2B sourcing workflows.</li>
+        <li><strong>Illness categories:</strong> structure symptom and condition browsing so AI and search route users sensibly.</li>
+        <li><strong>Medicine origins / sourcing metadata:</strong> enrich listings for compliance, filtering, and supplier transparency where configured.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>15) Developer, POS &amp; Partner Integrations</h2>
+      <p>
+        Food service and omni-channel vendors often rely on external POS or partner systems. The platform exposes <strong>developer-grade controls</strong> so integrations stay secure over time.
+      </p>
+      <ul>
+        <li><strong>POS &amp; partner APIs:</strong> provision credentials for trusted integrations.</li>
+        <li><strong>Key lifecycle:</strong> rotate or revoke keys without downtime surprises; reduce blast radius if a secret leaks.</li>
+        <li><strong>Vendor-side settings:</strong> food module settings align external menus and operational behavior with in-app ordering.</li>
+        <li><strong>Optional runtime configuration:</strong> Firebase/push and messaging-related settings can be centralized for consistent mobile behavior.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>16) HR, Employees &amp; Internal Workforce</h2>
+      <p>
+        The admin panel includes <strong>internal workforce controls</strong> separate from marketplace users (customers, riders, vendors).
+      </p>
+      <ul>
+        <li><strong>HR dashboard:</strong> leave requests, attendance-oriented stats, and staffing summaries for operations leadership.</li>
+        <li><strong>Employee directory:</strong> manage internal admin and operational staff records alongside HR workflows.</li>
+        <li><strong>Granular admin access:</strong> feature grants and legacy permission mappings ensure each admin sees only approved areas (payments, marketing, complaints, notifications, etc.).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>17) Money Transfer — Administrative Oversight</h2>
+      <p>
+        Customer-facing transfers (section 9) are mirrored by an <strong>admin console</strong> for monitoring, configuration, and payout governance.
+      </p>
+      <ul>
+        <li><strong>Dashboard:</strong> snapshot of volume, risk indicators, and operational posture.</li>
+        <li><strong>Transactions:</strong> searchable ledger of movements for support and reconciliation.</li>
+        <li><strong>Payouts:</strong> oversee withdrawal and settlement pipes tied to user bank destinations.</li>
+        <li><strong>Configuration:</strong> tune limits, fees, provider selection, and policy knobs without redeploying apps.</li>
+        <li><strong>Bank verification / transfer KYC:</strong> administrative review surfaces tied to verified funding endpoints.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>18) Support, FAQs &amp; Customer Experience Operations</h2>
+      <ul>
+        <li><strong>Complaints / tickets:</strong> structured intake, threading, and resolution workflows for production incidents and disputes.</li>
+        <li><strong>FAQ management:</strong> publish and refine self-service answers that reduce repeat contacts.</li>
+        <li><strong>Operational awareness:</strong> pending-count cues on navigation highlight queues needing attention (approvals, tickets, etc.).</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>19) Configuration, Compliance &amp; Observability</h2>
+      <ul>
+        <li><strong>Global settings:</strong> session timeouts, notification defaults, loyalty parameters, and cross-module toggles.</li>
+        <li><strong>Security center:</strong> security events with investigate/resolve flows and configurable defensive policies.</li>
+        <li><strong>Audit logs:</strong> trace administrative actions for accountability and regulator-ready narratives.</li>
+        <li><strong>Email templates:</strong> maintain transactional and system templates with variable placeholders.</li>
+        <li><strong>AI configuration:</strong> central governance of model/prompt defaults powering assistants across modules.</li>
+        <li><strong>Ride types &amp; rider tooling:</strong> configure ride categories and analyze peak bonus performance.</li>
+        <li><strong>Vendor performance:</strong> operational analytics to identify strong or struggling merchants.</li>
+        <li><strong>Cross-module categories:</strong> taxonomy maintenance where product families span storefront experiences.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>20) Detailed Backend Admin Panel (Deep Domain Map)</h2>
+      <p>
+        Admin panel is a full command center with domain-specific workbenches. It is not only CRUD; it contains policy engines, approval flows, financial controls,
+        incident handling, and reporting/export.
+      </p>
+      <h3>Admin Domains and What They Control</h3>
+      <p class="muted">
+        The sidebar mirrors operational reality: module-specific workbenches sit next to horizontal platforms (payments, marketing, HR, support).
+        Below is a consolidated map aligned with what administrators actually use day to day.
+      </p>
+      <ul>
+        <li><strong>Dashboard:</strong> KPIs, module summaries, revenue and operational snapshots.</li>
+        <li><strong>User management:</strong> account lifecycle, activation, roles, and profile governance across customers and supply-side users.</li>
+        <li><strong>KYC &amp; verification:</strong> unified queue for vendor/rider/mechanic verification with approve/reject, reasons, and audit trail.</li>
+        <li><strong>Orders:</strong> cross-module order intervention—cancellation, completion assists, refund pathways—with action logging.</li>
+        <li><strong>Payments hub:</strong> payment records, wallet movements, retries/cancellations, refunds workspace, withdrawal approvals, and consolidated stats.</li>
+        <li><strong>Vendor management by module:</strong> Auto Parts, Pharmacy, Food (restaurants + settings), Grocery, plus shared <strong>categories</strong> taxonomy.</li>
+        <li><strong>Riders:</strong> fleet oversight, <strong>peak bonus analytics</strong>, and <strong>ride type</strong> configuration.</li>
+        <li><strong>Mechanics:</strong> directory and verification aligned with the mechanic service module.</li>
+        <li><strong>Promo codes:</strong> redemption mechanics, limits, and lifecycle distinct from full marketing campaigns.</li>
+        <li><strong>Commission management:</strong> rules, activation, module economics, platform fees.</li>
+        <li><strong>Medicine administration:</strong> medicines master list, wholesaler catalog suggestions, illness categories, medicine origins.</li>
+        <li><strong>Marketing management:</strong> growth dashboard—campaigns, segments, automation, engagement and conversion analytics.</li>
+        <li><strong>Money transfer (admin):</strong> dashboard, transactions, payouts, configuration, bank verification.</li>
+        <li><strong>Special offers &amp; vendor offers:</strong> platform offers plus pending mystery/flash vendor submissions.</li>
+        <li><strong>Notifications (system notices):</strong> operational broadcasts—not promotional marketing—with scheduling and channel selection.</li>
+        <li><strong>Support:</strong> complaints/tickets and <strong>FAQ</strong> content management.</li>
+        <li><strong>Reports &amp; analytics exports:</strong> module and financial reporting pipelines.</li>
+        <li><strong>Developer:</strong> POS/partner API credentials, rotation and revocation.</li>
+        <li><strong>Settings cluster:</strong> general platform settings, <strong>security</strong> incidents, <strong>audit logs</strong>, <strong>email templates</strong>, <strong>AI configuration</strong>.</li>
+        <li><strong>HR &amp; employees:</strong> internal workforce—staff HR views and employee records.</li>
+        <li><strong>Wholesalers:</strong> B2B supplier account oversight tied to pharmacy sourcing (alongside supplier workflows in section 2).</li>
+      </ul>
+      <div class="flow">
+        <strong>Admin operating pattern:</strong> monitor -> decide (approve/reject/adjust policy) -> execute operational action ->
+        audit and report outcomes.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Interconnected Architecture Highlights</h2>
+      <ul>
+        <li><strong>Shared rider network:</strong> Pharmacy, Food, Grocery, Auto Parts, and supplier-linked deliveries can feed dispatch.</li>
+        <li><strong>Shared real-time backbone:</strong> socket events synchronize dispatch, chat, status, and presence across modules.</li>
+        <li><strong>Shared settlement logic:</strong> wallet/payout/commission flows are connected with module-specific release rules.</li>
+        <li><strong>Shared governance:</strong> admin controls unify security, compliance, and operational policy across the full platform.</li>
+        <li><strong>Shared AI strategy:</strong> AI assistants are integrated into module experiences and centrally governed via admin config.</li>
+        <li><strong>Growth vs operations:</strong> marketing automation and promo tooling layer on top of the same user graph without confusing shoppers—system notices stay factual and separable from promotions.</li>
+        <li><strong>Data &amp; catalog spine:</strong> medicine taxonomy, categories, and vendor catalogs feed both customer discovery and admin reporting.</li>
+      </ul>
+      <p class="ok">Result: SuperKillo operates as one interconnected digital operating system for commerce, service fulfillment, logistics, and finance.</p>
+    </section>
+
+    <p class="footer">
+      Prepared for client presentation - SuperKillo Feature Documentation
+    </p>
+  </div>
+</body>
+</html>

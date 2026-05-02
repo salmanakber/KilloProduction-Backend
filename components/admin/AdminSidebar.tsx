@@ -294,7 +294,13 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
     { name: "User Management", href: "/admin/users", icon: Users, feature: "users.manage" as AdminFeature },
     { name: "KYC Management", href: "/admin/kyc", icon: ClipboardCheck, permission: "VENDOR_APPROVAL" },
     { name: "Orders", href: "/admin/orders", icon: ShoppingCart, feature: "orders.view" as AdminFeature },
-    { name: "Payments", href: "/admin/payments", icon: DollarSign, feature: "payments.manage" as AdminFeature },
+
+    { name: "Payments", href: "/admin/payments", icon: DollarSign, feature: "payments.manage" as AdminFeature,
+      subItems: [
+        { name: "All Payments", href: "/admin/payments", icon: DollarSign },
+        { name: "Refunds", href: "/admin/payments/refunds", icon: DollarSign },
+      ]
+    },
     {
       name: "Vendor Management",
       href: "/admin/modules/vendor",
@@ -403,6 +409,13 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         { name: "Pending Mystery/Flash", href: "/admin/vendor-offers", icon: ClipboardCheck },
       ]
     },
+    {
+      name: "Notifications",
+      href: "/admin/notifications",
+      icon: Bell,
+      feature: "notifications.manage" as AdminFeature,
+      permission: "NOTIFICATIONS_MANAGEMENT",
+    },
     { 
       name: "Support", 
       href: "/admin/complaints", 
@@ -450,6 +463,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
     PAYMENT_MANAGEMENT: "payments.manage",
     COMPLAINT_HANDLING: "complaints.manage",
     MARKETING_CAMPAIGNS: "promos.manage",
+    NOTIFICATIONS_MANAGEMENT: "notifications.manage",
     ANALYTICS_VIEW: "reports.view",
     SYSTEM_SETTINGS: "settings.manage",
     COMMISSION_SETTINGS: "commission.manage",

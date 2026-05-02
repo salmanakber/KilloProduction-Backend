@@ -1,12 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   DollarSign,
   TrendingUp,
-  TrendingDown,
-  Users,
   ArrowUpRight,
   ArrowDownRight,
   Clock,
@@ -14,20 +11,25 @@ import {
   XCircle,
   Activity,
   Loader2,
+  Settings,
+  List
 } from "lucide-react"
 
 interface MoneyTransferStats {
+  reportingCurrency: string
   totalTransfers: number
-  totalAmount: number
-  totalNGNAmount: number
-  totalCommission: number
+  totalVolumeBase: number
+  totalFeeBase: number
+  totalFxMarginBase: number
+  totalPlatformRevenueBase: number
+  taxableEarningsBase: number
   pendingTransfers: number
   processingTransfers: number
-  completedTransfers: number
+  settledTransfers: number
   failedTransfers: number
   todayTransfers: number
-  todayAmount: number
-  monthlyGrowth: number
+  todayVolumeBase: number
+  todayPlatformRevenueBase: number
 }
 
 export default function MoneyTransferDashboard() {
@@ -40,37 +42,26 @@ export default function MoneyTransferDashboard() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch("/api/admin/money-app-admin/transactions?limit=1")
-      const data = await response.json()
-      
-      // Calculate stats from transactions
-      // In production, create a dedicated stats endpoint
-      const transactionsResponse = await fetch("/api/admin/money-app-admin/transactions?limit=1000")
-      const transactionsData = await transactionsResponse.json()
-      
-      const transactions = transactionsData.transfers || []
-      const totalAmount = transactions.reduce((sum: number, t: any) => sum + (t.amount || 0), 0)
-      const totalNGNAmount = transactions.reduce((sum: number, t: any) => sum + (t.ngnAmount || 0), 0)
-      const pending = transactions.filter((t: any) => t.status === "PENDING").length
-      const processing = transactions.filter((t: any) => t.status === "PROCESSING").length
-      const completed = transactions.filter((t: any) => t.status === "COMPLETED").length
-      const failed = transactions.filter((t: any) => t.status === "FAILED").length
-      
-      // Calculate commission (simplified - should come from commission records)
-      const totalCommission = totalAmount * 0.02 // 2% default
-      
+      const res = await fetch("/api/admin/money-app-admin/stats")
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to load stats")
+      }
       setStats({
-        totalTransfers: transactions.length,
-        totalAmount,
-        totalNGNAmount,
-        totalCommission,
-        pendingTransfers: pending,
-        processingTransfers: processing,
-        completedTransfers: completed,
-        failedTransfers: failed,
-        todayTransfers: 0, // Calculate from date
-        todayAmount: 0,
-        monthlyGrowth: 0,
+        reportingCurrency: data.reportingCurrency,
+        totalTransfers: data.totalTransfers,
+        totalVolumeBase: data.totalVolumeBase,
+        totalFeeBase: data.totalFeeBase,
+        totalFxMarginBase: data.totalFxMarginBase,
+        totalPlatformRevenueBase: data.totalPlatformRevenueBase,
+        taxableEarningsBase: data.taxableEarningsBase,
+        pendingTransfers: data.pendingTransfers,
+        processingTransfers: data.processingTransfers,
+        settledTransfers: data.settledTransfers,
+        failedTransfers: data.failedTransfers,
+        todayTransfers: data.todayTransfers,
+        todayVolumeBase: data.todayVolumeBase,
+        todayPlatformRevenueBase: data.todayPlatformRevenueBase,
       })
     } catch (error) {
       console.error("Failed to fetch stats:", error)
@@ -81,144 +72,205 @@ export default function MoneyTransferDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+      <div className="flex flex-col items-center justify-center h-64 bg-white rounded-2xl border border-slate-200 shadow-sm animate-pulse">
+        <Loader2 className="h-8 w-8 animate-spin text-teal-600 mb-4" />
+        <p className="text-sm font-medium text-slate-500">Syncing transfer data...</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Money Transfer Dashboard</h1>
-        <p className="text-gray-600 mt-1">Monitor and manage money transfers</p>
+    <div className="space-y-8 animate-in fade-in duration-500 pb-12">
+      
+      {/* HEADER */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Money Transfer Dashboard</h1>
+          <p className="text-sm text-slate-500 mt-1">Monitor and manage money transfers across the network.</p>
+        </div>
+        <div className="flex items-center space-x-2 bg-teal-50 px-4 py-2 rounded-xl border border-teal-100">
+          <Activity className="h-4 w-4 text-teal-600" />
+          <span className="text-sm font-bold text-teal-700">Live Status</span>
+        </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Transfers</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalTransfers || 0}</div>
-            <p className="text-xs text-muted-foreground">All time</p>
-          </CardContent>
-        </Card>
+      {/* STATS GRID (TOP 4) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        {/* Card 1: Total Transfers */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-slate-50 group-hover:bg-teal-50 transition-colors rounded-xl flex items-center justify-center border border-slate-100 group-hover:border-teal-100">
+              <List className="h-6 w-6 text-slate-600 group-hover:text-teal-600 transition-colors" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Transfers</p>
+            <p className="text-3xl font-black text-slate-900">{stats?.totalTransfers || 0}</p>
+            <p className="text-xs text-slate-500 mt-2 font-medium">All time transactions</p>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${stats?.totalAmount.toFixed(2) || "0.00"}</div>
-            <p className="text-xs text-muted-foreground">
-              ₦{stats?.totalNGNAmount.toFixed(2) || "0.00"} NGN
+        {/* Card 2: Total Volume (Custom Primary Gradient) */}
+        <div className="bg-gradient-to-br from-[#0f766e] to-[#1A2433] p-6 rounded-2xl shadow-md border border-[#0f766e]/20 group relative overflow-hidden">
+          {/* Subtle background flair */}
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/5 blur-2xl"></div>
+          
+          <div className="flex items-start justify-between mb-4 relative z-10">
+            <div className="h-12 w-12 rounded-xl bg-white/10 flex items-center justify-center backdrop-blur-sm border border-white/10">
+              <TrendingUp className="h-6 w-6 text-[#2dd4bf]" />
+            </div>
+          </div>
+          <div className="relative z-10">
+            <p className="text-sm font-semibold text-teal-100 uppercase tracking-wider mb-1">Total Volume</p>
+            <p className="text-3xl font-black text-white">
+              {(stats?.totalVolumeBase ?? 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{" "}
+              <span className="text-lg font-bold text-teal-200">{stats?.reportingCurrency}</span>
             </p>
-          </CardContent>
-        </Card>
+            <p className="text-xs text-teal-100/70 mt-2 font-medium">Sum of base amount (proc. + sent + comp.)</p>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Commission</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${stats?.totalCommission.toFixed(2) || "0.00"}</div>
-            <p className="text-xs text-muted-foreground">Platform earnings</p>
-          </CardContent>
-        </Card>
+        {/* Card 3: Platform Revenue */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-emerald-50 transition-colors rounded-xl flex items-center justify-center border border-emerald-100">
+              <DollarSign className="h-6 w-6 text-emerald-600" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Platform Revenue</p>
+            <p className="text-3xl font-black text-slate-900">
+              {(stats?.totalPlatformRevenueBase ?? 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{" "}
+              <span className="text-lg font-bold text-slate-400">{stats?.reportingCurrency}</span>
+            </p>
+            <p className="text-xs text-slate-500 mt-2 font-medium">Fees + FX margin (feeBase + fxMarginBase)</p>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Transfers</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.todayTransfers || 0}</div>
-            <p className="text-xs text-muted-foreground">${stats?.todayAmount.toFixed(2) || "0.00"}</p>
-          </CardContent>
-        </Card>
+        {/* Card 4: Today's Transfers */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
+          <div className="flex items-start justify-between mb-4">
+            <div className="h-12 w-12 bg-blue-50 transition-colors rounded-xl flex items-center justify-center border border-blue-100">
+              <Activity className="h-6 w-6 text-blue-600" />
+            </div>
+            <div className="flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700">
+              Today
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Today's Transfers</p>
+            <p className="text-3xl font-black text-slate-900">{stats?.todayTransfers || 0}</p>
+            <div className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">
+              Vol: <span className="font-bold text-slate-700">{(stats?.todayVolumeBase ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {stats?.reportingCurrency}</span>
+              <br/>
+              Rev: <span className="font-bold text-emerald-600">{(stats?.todayPlatformRevenueBase ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {stats?.reportingCurrency}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Status Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            <Clock className="h-4 w-4 text-yellow-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.pendingTransfers || 0}</div>
-          </CardContent>
-        </Card>
+      {/* STATUS CARDS */}
+      <div>
+        <h3 className="text-lg font-bold text-slate-900 mb-4">Transfer Lifecycle</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-amber-200 transition-colors">
+            <div className="h-12 w-12 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+              <Clock className="h-6 w-6 text-amber-500" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending</p>
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">{stats?.pendingTransfers || 0}</p>
+            </div>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Processing</CardTitle>
-            <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.processingTransfers || 0}</div>
-          </CardContent>
-        </Card>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-blue-200 transition-colors">
+            <div className="h-12 w-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 text-blue-500 animate-spin" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Processing</p>
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">{stats?.processingTransfers || 0}</p>
+            </div>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.completedTransfers || 0}</div>
-          </CardContent>
-        </Card>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-teal-200 transition-colors">
+            <div className="h-12 w-12 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center">
+              <CheckCircle className="h-6 w-6 text-teal-600" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Settled</p>
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">{stats?.settledTransfers ?? 0}</p>
+            </div>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Failed</CardTitle>
-            <XCircle className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.failedTransfers || 0}</div>
-          </CardContent>
-        </Card>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-rose-200 transition-colors">
+            <div className="h-12 w-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center">
+              <XCircle className="h-6 w-6 text-rose-500" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Failed</p>
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">{stats?.failedTransfers || 0}</p>
+            </div>
+          </div>
+
+        </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = "/admin/money-app-admin/transactions"}>
-          <CardHeader>
-            <CardTitle className="text-lg">View All Transactions</CardTitle>
-            <CardDescription>See complete transaction history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ArrowUpRight className="h-6 w-6 text-green-600" />
-          </CardContent>
-        </Card>
+      {/* QUICK ACTIONS */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <h3 className="text-lg font-bold text-slate-900 mb-6">Quick Management</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          
+          <div 
+            onClick={() => window.location.href = "/admin/money-app-admin/transactions"}
+            className="group flex items-center p-5 rounded-2xl border border-slate-200 hover:border-teal-300 hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer bg-white"
+          >
+            <div className="h-12 w-12 rounded-full bg-teal-50 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform duration-200">
+              <ArrowUpRight className="h-6 w-6 text-teal-600" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-slate-900">View Transactions</h4>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">See complete transaction history</p>
+            </div>
+          </div>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = "/admin/money-app-admin/payouts"}>
-          <CardHeader>
-            <CardTitle className="text-lg">Manage Payouts</CardTitle>
-            <CardDescription>Monitor and retry failed payouts</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ArrowDownRight className="h-6 w-6 text-blue-600" />
-          </CardContent>
-        </Card>
+          <div 
+            onClick={() => window.location.href = "/admin/money-app-admin/payouts"}
+            className="group flex items-center p-5 rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer bg-white"
+          >
+            <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform duration-200">
+              <ArrowDownRight className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-slate-900">Manage Payouts</h4>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Monitor & retry failed payouts</p>
+            </div>
+          </div>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = "/admin/money-app-admin/config"}>
-          <CardHeader>
-            <CardTitle className="text-lg">Configuration</CardTitle>
-            <CardDescription>Update settings and API keys</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Activity className="h-6 w-6 text-purple-600" />
-          </CardContent>
-        </Card>
+          <div 
+            onClick={() => window.location.href = "/admin/money-app-admin/config"}
+            className="group flex items-center p-5 rounded-2xl border border-slate-200 hover:border-purple-300 hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer bg-white"
+          >
+            <div className="h-12 w-12 rounded-full bg-purple-50 flex items-center justify-center mr-4 group-hover:scale-110 transition-transform duration-200">
+              <Settings className="h-6 w-6 text-purple-600" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-slate-900">Configuration</h4>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Update settings and API keys</p>
+            </div>
+          </div>
+
+        </div>
       </div>
+      
     </div>
   )
 }

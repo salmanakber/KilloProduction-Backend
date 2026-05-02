@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     // Check if rider is available
     const riderProfile = await prisma.riderProfile.findUnique({
-      where: { userId: session.user.id },
+      where: { userId: session.id },
     })
 
     if (!riderProfile?.isAvailable) {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
         status: "CONFIRMED",
       },
       data: {
-        riderId: session.user.id,
+        riderId: session.id,
         status: "READY_FOR_PICKUP",
       },
       include: {
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
           select: { name: true, phone: true },
         },
         vendor: {
-          select: { businessName: true, address: true, phone: true },
+          select: { autoPartsStore: { select: { storeName: true } }, pharmacy: { select: { pharmacyName: true } }, restaurant: { select: { name: true } }, groceryStore: { select: { storeName: true } } },
         },
       },
     })

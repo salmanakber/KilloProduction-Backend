@@ -23,7 +23,7 @@ let stripeInstance: Stripe | null = null
 let paymentGatewayConfig: PaymentGatewayConfig | null = null
 
 // Function to get payment gateway configuration
-async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
+export async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
   if (paymentGatewayConfig) {
     return paymentGatewayConfig
   }
@@ -96,7 +96,7 @@ async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
 }
 
 // Function to get Stripe instance
-async function getStripeInstance(): Promise<Stripe> {
+export async function getStripeInstance(): Promise<Stripe> {
   if (stripeInstance) {
     return stripeInstance
   }

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyAdminToken } from '@/lib/admin-auth';
+import { authenticateRequest } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const admin = await verifyAdminToken(request);
-    if (!admin) {
+    const admin = await authenticateRequest();
+    if (!admin?.id  ) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -157,15 +157,15 @@ export async function GET(request: NextRequest) {
     );
 
     // Log admin action
-    await prisma.adminAuditLog.create({
+    await prisma.auditLog.create({
       data: {
-        adminId: admin.id,
+        performedBy: admin.id,
         action: 'VIEW_USERS',
-        module: 'USER_MANAGEMENT',
+        entityType: 'User',
+        entityId: admin.id,
         details: { 
           filters: { search, role, status, module },
-          page,
-          limit
+          page, limit
         }
       }
     });
@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const admin = await verifyAdminToken(request);
+    const admin = await authenticateRequest();
     if (!admin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -249,16 +249,13 @@ export async function PATCH(request: NextRequest) {
     });
 
     // Log admin action
-    await prisma.adminAuditLog.create({
+    await prisma.auditLog.create({
       data: {
-        adminId: admin.id,
+        performedBy: admin.id,
         action: auditAction,
-        module: 'USER_MANAGEMENT',
-        targetId: userId,
-        details: { 
-          previousData: data?.previousData,
-          newData: updateData
-        }
+        entityType: 'User',
+        entityId: userId,
+        details: { changes: updateData }
       }
     });
 

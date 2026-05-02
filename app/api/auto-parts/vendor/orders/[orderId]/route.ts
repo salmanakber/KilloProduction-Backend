@@ -100,6 +100,33 @@ export async function GET(
       specialOfferDiscountFunding = summarizeOfferFundingFromItems(order.orderItems)
     }
 
+    const ledgerOrderId =
+      order.isChildOrder && order.childId ? order.childId : order.id
+
+    const processingLedger = await prisma.paymentProcessingLedger.findFirst({
+      where: { payment: { orderId: ledgerOrderId } },
+      select: { commissionAmount: true, commissionRate: true },
+    })
+    
+    const refundPayments = await prisma.payment.findMany({
+      where: {
+        OR: [{ orderId: order.id }, { metadata: { path: ["parentOrderId"], equals: order.id } }],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { metadata: true },
+    })
+    const refundMeta = refundPayments
+      .map((row) =>
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? ((row.metadata as Record<string, any>).refund as Record<string, any> | undefined)
+          : undefined,
+      )
+      .find((r) => ["PENDING", "APPROVED", "COMPLETED"].includes(String(r?.status || "").toUpperCase()))
+      
+    const vendorPaysDeliveryOnRefund = String(refundMeta?.deliveryFeeBearer || "").toUpperCase() === "VENDOR"
+    
+    const vendorRefundDeliveryFeeLiability = vendorPaysDeliveryOnRefund ? Number(order.deliveryFee || 0) : 0
+
     return NextResponse.json({
       order: {
         id: order.id,
@@ -109,6 +136,7 @@ export async function GET(
         subtotal: order.subtotal,
         vendorId: order.vendorId,
         vendorCommission: order.vendorCommission,
+        platformCommission: order.platformCommission,
         deliveryFee: order.deliveryFee,
         serviceFee: order.serviceFee,
         tax: order.tax,
@@ -138,6 +166,15 @@ export async function GET(
         vendorSettlementMerchandise,
         specialOfferDiscountFunding,
         specialOffers: orderMeta?.specialOffers ?? null,
+        paymentProcessingFee: processingLedger?.commissionAmount ?? null,
+        paymentProcessingRate: processingLedger?.commissionRate ?? null,
+        refundStatus: String(refundMeta?.status || ""),
+        refundMethod: String(refundMeta?.refundMethod || ""),
+        refundAmount: Number(refundMeta?.requestedRefundAmount || 0),
+        refundRequestedAt: String(refundMeta?.requestedAt || ""),
+        refundSettlementPendingPickupOtp: Boolean(refundMeta?.settlementPendingPickupOtp),
+        vendorPaysDeliveryOnRefund,
+        vendorRefundDeliveryFeeLiability,
       },
     })
   } catch (error) {

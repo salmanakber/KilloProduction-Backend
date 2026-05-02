@@ -7,15 +7,18 @@ import { prisma } from "@/lib/prisma"
  */
 export async function GET(_request: NextRequest) {
   try {
-    const systemSettings = await prisma.systemSettings.findFirst({
-      select: {
-        pharmacyEnabled: true,
-        autoPartsEnabled: true,
-        foodEnabled: true,
-        groceryEnabled: true,
-        ridingEnabled: true,
-      },
-    })
+    const [systemSettings, moneyCfg] = await Promise.all([
+      prisma.systemSettings.findFirst({
+        select: {
+          pharmacyEnabled: true,
+          autoPartsEnabled: true,
+          foodEnabled: true,
+          groceryEnabled: true,
+          ridingEnabled: true,
+        },
+      }),
+      prisma.moneyTransferConfig.findFirst({ select: { isEnabled: true } }),
+    ])
 
     const modules = {
       pharmacy: systemSettings?.pharmacyEnabled ?? true,
@@ -23,6 +26,7 @@ export async function GET(_request: NextRequest) {
       food: systemSettings?.foodEnabled ?? true,
       grocery: systemSettings?.groceryEnabled ?? true,
       riding: systemSettings?.ridingEnabled ?? true,
+      moneyTransfer: moneyCfg?.isEnabled ?? true,
     }
 
     return NextResponse.json({ modules, fetchedAt: new Date().toISOString() })
@@ -36,6 +40,7 @@ export async function GET(_request: NextRequest) {
           food: true,
           grocery: true,
           riding: true,
+          moneyTransfer: true,
         },
         fetchedAt: new Date().toISOString(),
       },

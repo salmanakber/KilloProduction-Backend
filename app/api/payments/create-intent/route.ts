@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 import Stripe from "stripe"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -10,8 +9,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -23,10 +22,11 @@ export async function POST(request: NextRequest) {
 
     // Get order details
     const order = await prisma.order.findUnique({
-      where: { id: orderId, customerId: session.user.id },
+      where: { id: orderId, customerId: session.id },
       include: {
         customer: true,
-        vendor: { select: { businessName: true } },
+        vendor: { select: { autoPartsStore: { select: { storeName: true } }, pharmacy: { select: { pharmacyName: true } }, restaurant: { select: { name: true } }, groceryStore: { select: { storeName: true } } } },
+      
       },
     })
 
@@ -38,10 +38,10 @@ export async function POST(request: NextRequest) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100), // Convert to cents
       currency,
-      customer: order.customer.stripeCustomerId || undefined,
+      customer: (order.customer as any)?.stripeCustomerId as string | undefined,
       metadata: {
         orderId: order.id,
-        customerId: session.user.id,
+        customerId: session.id,
         vendorId: order.vendorId || "",
       },
       description: `Payment for order #${order.orderNumber}`,
@@ -51,19 +51,14 @@ export async function POST(request: NextRequest) {
     const payment = await prisma.payment.create({
       data: {
         orderId: order.id,
-        customerId: session.user.id,
-        vendorId: order.vendorId,
-        amount,
-        currency,
-        paymentMethod: paymentMethod || "CARD",
-        stripePaymentIntentId: paymentIntent.id,
+        userId: session.id,
+        paymentMethodId: paymentMethodId,
+        amount: Number(amount),
+        currency: String(currency),
         status: "PENDING",
+        gateway: "stripe",
+        gatewayTransactionId: paymentIntent.id,
       },
-    })
-
-    return NextResponse.json({
-      clientSecret: paymentIntent.client_secret,
-      paymentId: payment.id,
     })
   } catch (error) {
     console.error("Error creating payment intent:", error)

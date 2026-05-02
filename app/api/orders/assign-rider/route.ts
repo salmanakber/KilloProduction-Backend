@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -27,11 +27,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify vendor owns the order (for manual assignment)
-    if (assignmentType === "MANUAL" && order.vendorId !== session.user.id) {
+    if (assignmentType === "MANUAL" && order.vendorId !== session.id) {
       return NextResponse.json({ error: "Not authorized to assign rider to this order" }, { status: 403 })
     }
 
-    let assignedRider = null
+    let assignedRider: any | null = null
 
     if (assignmentType === "MANUAL" && riderId) {
       // Manual assignment by vendor
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
         include: { riderProfile: true },
       })
 
-      if (!rider || rider.role !== "RIDER" || !rider.riderProfile?.isApproved) {
+      if (!rider || rider.role !== "RIDER" || !rider.riderProfile?.isApproved || !rider.id) {
         return NextResponse.json({ error: "Invalid rider" }, { status: 400 })
       }
 
@@ -105,7 +105,7 @@ async function findNearestAvailableRider(order: any) {
     where: {
       role: "RIDER",
       riderProfile: {
-        isOnline: true,
+        isOnline: new Date().toISOString(),
         isAvailable: true,
         isApproved: true,
         serviceTypes: { has: "MODULE_DELIVERY" },

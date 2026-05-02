@@ -23,8 +23,18 @@ const nextConfig = {
    
   },
   experimental: {
-    serverComponentsExternalPackages: ['ws']
-  }
+    // pdfkit loads StandardFont .afm files from its package `data/` folder; bundling breaks those paths.
+    serverComponentsExternalPackages: ['ws', 'pdfkit'],
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = config.externals || []
+      if (Array.isArray(config.externals)) {
+        config.externals.push('pdfkit')
+      }
+    }
+    return config
+  },
 }
 
 module.exports = nextConfig

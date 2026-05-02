@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -26,7 +25,7 @@ export async function POST(request: NextRequest) {
     const order = await prisma.order.update({
       where: {
         id: orderId,
-        riderId: session.user.id,
+        riderId: session.id,
       },
       data: updateData,
     })
@@ -45,7 +44,7 @@ export async function POST(request: NextRequest) {
     // If delivered, update rider stats
     if (status === "DELIVERED") {
       await prisma.riderProfile.update({
-        where: { userId: session.user.id },
+        where: { userId: session.id },
         data: {
           totalDeliveries: { increment: 1 },
           totalEarnings: { increment: order.deliveryFee },

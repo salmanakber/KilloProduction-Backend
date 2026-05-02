@@ -1,17 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authenticateRequest } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session.id },
     })
 
     if (user?.role !== "ADMIN" && user?.role !== "SUPER_ADMIN") {
@@ -77,28 +77,32 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const session = await authenticateRequest()
+    if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: session.id },
     })
 
     if (user?.role !== "ADMIN" && user?.role !== "SUPER_ADMIN") {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
-    const { title, message, type, targetAudience, scheduledAt, imageUrl, actionUrl } = await request.json()
+    const body = await request.json()
+    const { title, message, type, scheduledAt, imageUrl, actionUrl } = body
+    let targetAudience = body.targetAudience && typeof body.targetAudience === "object" ? body.targetAudience : {}
+    const ta = targetAudience as { userTypes?: string[]; modules?: string[] }
+    const userTypes =
+      Array.isArray(ta.userTypes) && ta.userTypes.length > 0 ? ta.userTypes : ["CUSTOMER"]
 
-    // Calculate target user count
+    // Calculate target user count (module targeting reserved for future use)
     const targetUserCount = await prisma.user.count({
       where: {
-        AND: [
-          targetAudience.userTypes.length > 0 ? { role: { in: targetAudience.userTypes } } : {},
-          // Add module filtering logic here if needed
-        ],
+        deletedAt: null,
+        isActive: true,
+        role: { in: userTypes as any },
       },
     })
 
@@ -107,24 +111,23 @@ export async function POST(request: NextRequest) {
         title,
         message,
         type,
-        targetUserTypes: targetAudience.userTypes,
-        targetModules: targetAudience.modules,
+        targetUserTypes: userTypes,
+        targetModules: Array.isArray(ta.modules) ? ta.modules : [],
         targetUserCount,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
         imageUrl,
         actionUrl,
         status: scheduledAt ? "SCHEDULED" : "DRAFT",
-        createdById: session.user.id,
+        createdById: session.id,
       },
     })
 
-    // Create audit log
-    await prisma.adminAuditLog.create({
+    await prisma.auditLog.create({
       data: {
-        adminId: session.user.id,
+        performedBy: session.id,
         action: "CREATE_NOTIFICATION_CAMPAIGN",
-        module: "NOTIFICATION_MANAGEMENT",
-        targetId: campaign.id,
+        entityType: "NOTIFICATION_CAMPAIGN",
+        entityId: campaign.id,
         details: {
           title,
           type,

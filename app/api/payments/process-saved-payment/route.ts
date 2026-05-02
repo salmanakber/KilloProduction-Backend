@@ -24,10 +24,12 @@ export async function POST(request: NextRequest) {
       orderId, 
       gateway,
       module: moduleRaw,
+      skipPaymentRecord,
       loyaltyPointsRedeemed,
       /** Same base used for /customer/cart/commission-flags (order subtotal before processing fee). */
       commissionBaseAmount,
     } = body
+    const shouldSkipPaymentRecord = Boolean(skipPaymentRecord)
 
     // Validate required fields
     if (!paymentMethodId || !amount || !currency || !gateway) {
@@ -77,64 +79,67 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const rawClientRef = String(orderId || "")
-    const clientRef = rawClientRef.trim().length > 0 ? rawClientRef : `pending-${session.id}-${Date.now()}`
-    let paymentShell
-    try {
-      paymentShell = await resolvePendingCheckoutPayment({
-        userId: session.id,
-        clientRef,
-        amount: Number(amount),
-        currency: String(currency),
-        gateway: String(gateway),
-        description: description ?? null,
-        baseMetadata: {
-          loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
-          module: module ?? undefined,
-          commissionBaseAmount: commissionBaseAmount ?? undefined,
-          paymentProcessingFee: processingFee,
-          paymentProcessingRate: processingRate,
-        },
-      })
-    } catch (resolveError: any) {
-      if (!resolveError?.message?.includes("Invalid payment reference")) {
-        throw resolveError
+    let payment: { id: string; userId: string; currency: string; gateway: string } | null = null
+    if (!shouldSkipPaymentRecord) {
+      const rawClientRef = String(orderId || "")
+      const clientRef = rawClientRef.trim().length > 0 ? rawClientRef : `pending-${session.id}-${Date.now()}`
+      let paymentShell
+      try {
+        paymentShell = await resolvePendingCheckoutPayment({
+          userId: session.id,
+          clientRef,
+          amount: Number(amount),
+          currency: String(currency),
+          gateway: String(gateway),
+          description: description ?? null,
+          baseMetadata: {
+            loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+            module: module ?? undefined,
+            commissionBaseAmount: commissionBaseAmount ?? undefined,
+            paymentProcessingFee: processingFee,
+            paymentProcessingRate: processingRate,
+          },
+        })
+      } catch (resolveError: any) {
+        if (!resolveError?.message?.includes("Invalid payment reference")) {
+          throw resolveError
+        }
+        paymentShell = await resolvePendingCheckoutPayment({
+          userId: session.id,
+          clientRef: `pending-${session.id}-${Date.now()}`,
+          amount: Number(amount),
+          currency: String(currency),
+          gateway: String(gateway),
+          description: description ?? null,
+          baseMetadata: {
+            loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+            module: module ?? undefined,
+            commissionBaseAmount: commissionBaseAmount ?? undefined,
+            paymentProcessingFee: processingFee,
+            paymentProcessingRate: processingRate,
+          },
+        })
       }
-      paymentShell = await resolvePendingCheckoutPayment({
-        userId: session.id,
-        clientRef: `pending-${session.id}-${Date.now()}`,
-        amount: Number(amount),
-        currency: String(currency),
-        gateway: String(gateway),
-        description: description ?? null,
-        baseMetadata: {
-          loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
-          module: module ?? undefined,
-          commissionBaseAmount: commissionBaseAmount ?? undefined,
-          paymentProcessingFee: processingFee,
-          paymentProcessingRate: processingRate,
+
+      payment = await prisma.payment.update({
+        where: { id: paymentShell.id },
+        data: {
+          paymentMethodId: paymentMethod.id,
+          description,
+          metadata: {
+            ...((paymentShell.metadata as Record<string, unknown>) || {}),
+            gatewayPaymentMethodId: paymentMethod.gatewayPaymentMethodId,
+            last4: paymentMethod.last4,
+            brand: paymentMethod.brand,
+            loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
+            module: module ?? undefined,
+            commissionBaseAmount: commissionBaseAmount ?? undefined,
+            paymentProcessingFee: processingFee,
+            paymentProcessingRate: processingRate,
+          } as object,
         },
       })
     }
-
-    const payment = await prisma.payment.update({
-      where: { id: paymentShell.id },
-      data: {
-        paymentMethodId: paymentMethod.id,
-        description,
-        metadata: {
-          ...((paymentShell.metadata as Record<string, unknown>) || {}),
-          gatewayPaymentMethodId: paymentMethod.gatewayPaymentMethodId,
-          last4: paymentMethod.last4,
-          brand: paymentMethod.brand,
-          loyaltyPointsRedeemed: loyaltyPointsRedeemed ?? 0,
-          module: module ?? undefined,
-          commissionBaseAmount: commissionBaseAmount ?? undefined,
-          paymentProcessingFee: processingFee,
-          paymentProcessingRate: processingRate,
-        } as object,
-      },
-    })
 
     // Process payment based on gateway
     let paymentResult
@@ -142,21 +147,26 @@ export async function POST(request: NextRequest) {
       if (gateway === 'STRIPE') {
         paymentResult = await processStripePayment(paymentMethod.gatewayPaymentMethodId, amount, currency, description)
       } else if (gateway === 'PAYSTACK') {
+        if (!paymentMethod.gatewayPaymentMethodId) {
+          throw new Error('Gateway payment method ID is required')
+        }
         paymentResult = await processPaystackPayment(paymentMethod.gatewayPaymentMethodId, amount, currency, description)
       } else {
         throw new Error(`Unsupported gateway: ${gateway}`)
       }
       // Update payment status
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: paymentResult.success ? 'PAID' : 'FAILED',
-          gatewayTransactionId: paymentResult.transactionId,
-          gatewayResponse: paymentResult.response
-        }
-      })
+      if (payment) {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: paymentResult.success ? 'PAID' : 'FAILED',
+            gatewayTransactionId: paymentResult.transactionId,
+            gatewayResponse: paymentResult.response
+          }
+        })
+      }
 
-      if (paymentResult.success && module && processingFee > 0) {
+      if (paymentResult.success && payment && module && processingFee > 0) {
         await recordPaymentProcessingLedgerIfApplicable({
           paymentId: payment.id,
           userId: session.id,
@@ -172,7 +182,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: paymentResult.success,
         data: {
-          paymentId: payment.id,
+          ...(payment ? { paymentId: payment.id } : {}),
           status: paymentResult.success ? 'PAID' : 'FAILED',
           transactionId: paymentResult.transactionId,
           amount,
@@ -183,13 +193,15 @@ export async function POST(request: NextRequest) {
 
     } catch (paymentError: any) {
       // Update payment status to failed
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'FAILED',
-          gatewayResponse: { error: paymentError.message }
-        }
-      })
+      if (payment) {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: 'FAILED',
+            gatewayResponse: { error: paymentError.message }
+          }
+        })
+      }
         console.log('paymentError', paymentError)
 
       return NextResponse.json({
@@ -264,8 +276,6 @@ async function processStripePayment(
 // Process Paystack payment with saved payment method
 async function processPaystackPayment(gatewayPaymentMethodId: string, amount: number, currency: string, description: string) {
   try {
-    const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY!)
-    
     if (!process.env.PAYSTACK_SECRET_KEY) {
       throw new Error('Paystack secret key not configured')
     }

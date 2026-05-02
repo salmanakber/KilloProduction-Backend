@@ -224,6 +224,32 @@ export async function sendSMSFromTemplate(
  * @param phone - Recipient phone number
  * @param otp - OTP code to send
  */
+/**
+ * Send a plain transactional SMS using the configured provider (Twilio, Nexmo, or Africa's Talking).
+ * Used for admin system notices and one-off messages without DB-backed SMS templates.
+ */
+export async function sendTransactionalSms(phone: string, message: string): Promise<boolean> {
+  const trimmed = message.trim()
+  if (!trimmed) return false
+  try {
+    const systemSettings = await prisma.systemSettings.findFirst() as any
+    const smsProvider = systemSettings?.smsProvider || "twilio"
+    const body = trimmed.length > 1600 ? `${trimmed.slice(0, 1597)}...` : trimmed
+
+    switch (smsProvider) {
+      case "nexmo":
+        return await sendViaNexmo(phone, body)
+      case "africas_talking":
+        return await sendViaAfricasTalking(phone, body)
+      default:
+        return await sendViaTwilio(phone, body)
+    }
+  } catch (error) {
+    console.error("sendTransactionalSms failed:", error)
+    return false
+  }
+}
+
 export async function sendOTP(phone: string, otp: string) {
   try {
     // Get SMS provider from settings

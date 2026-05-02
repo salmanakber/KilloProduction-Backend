@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, description, segmentType, conditions, isDynamic, priority } = body
+    const { name, description, segmentType, conditions, isDynamic, priority, isActive } = body
 
     const segment = await prisma.customerSegment.create({
       data: {
@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
         conditions,
         isDynamic: isDynamic ?? true,
         priority: priority ?? 0,
+        isActive: isActive ?? true,
       },
     })
 
@@ -176,6 +177,52 @@ async function calculateSegmentMembers(segmentId: string, conditions: any) {
             userId: user.id,
           },
         })
+      }
+    }
+
+    if (Array.isArray(conditions.location) && conditions.location.length > 0) {
+      const needles = conditions.location
+        .map((v: unknown) => String(v || "").trim().toLowerCase())
+        .filter(Boolean)
+
+      if (needles.length > 0) {
+        const users = await prisma.user.findMany({
+          where: { role: "CUSTOMER" },
+          select: {
+            id: true,
+            userProfile: {
+              select: {
+                city: true,
+                country: true,
+              },
+            },
+          },
+        })
+
+        const matchedUsers = users.filter((u) => {
+          const city = (u.userProfile?.city || "").toLowerCase()
+          const country = (u.userProfile?.country || "").toLowerCase()
+          const composite = `${city} ${country}`.trim()
+          return needles.some((needle: string) => composite.includes(needle))
+        })
+
+        for (const user of matchedUsers) {
+          await prisma.customerSegmentMember.upsert({
+            where: {
+              segmentId_userId: {
+                segmentId,
+                userId: user.id,
+              },
+            },
+            update: {
+              isActive: true,
+            },
+            create: {
+              segmentId,
+              userId: user.id,
+            },
+          })
+        }
       }
     }
   } catch (error) {

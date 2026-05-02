@@ -88,6 +88,7 @@ export async function GET(
         },
         payout: transfer.payout,
         metadata: transfer.metadata,
+        receiptImageUrl: transfer.receiptImageUrl,
         createdAt: transfer.createdAt,
         updatedAt: transfer.updatedAt,
         sentAt: transfer.sentAt,

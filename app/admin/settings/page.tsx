@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, type ReactNode } from "react"
 import {
   Globe,
   Shield,
@@ -170,11 +170,13 @@ const ToggleSwitch = ({ checked, onChange, label, description }: { checked: bool
   </div>
 )
 
-const InputGroup = ({ label, children, subtext, className = "" }: { label: string, children: React.ReactNode, subtext?: string, className?: string }) => (
+const InputGroup = ({ label, children, subtext, className = "" }: { label: string, children: ReactNode, subtext?: ReactNode, className?: string }) => (
   <div className={`space-y-1.5 w-full ${className}`}>
     <label className="block text-sm font-semibold text-gray-800">{label}</label>
     {children}
-    {subtext && <p className="text-xs text-gray-500 leading-snug">{subtext}</p>}
+    {subtext != null && subtext !== "" && (
+      <div className="text-xs text-gray-500 leading-snug">{subtext}</div>
+    )}
   </div>
 )
 
@@ -1021,7 +1023,10 @@ export default function SystemSettings() {
                     </div>
                   </div>
                   <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <InputGroup label="TTS Base URL" description="Example: http://209.97.132.83:8080">
+                    <InputGroup
+                      label="TTS Base URL"
+                      subtext="Example: http://209.97.132.83:8080"
+                    >
                       <TextInput
                         value={settings.tts.baseUrl}
                         onChange={(e) => updateSettings("tts", "baseUrl", e.target.value)}
@@ -1029,7 +1034,25 @@ export default function SystemSettings() {
                         className="font-mono"
                       />
                     </InputGroup>
-                    <InputGroup label="Voice Model" description='Example: en-GB-RyanNeural'>
+                    <InputGroup
+                      label="Voice Model"
+                      subtext={
+                        <>
+                          Use the identifier for your chosen neural voice (for example{" "}
+                          <code className="bg-gray-100 px-1 rounded text-[11px] font-mono text-gray-800">en-GB-RyanNeural</code>
+                          ). For a searchable catalogue of Edge TTS voices, locales, and sample names, refer to{" "}
+                          <a
+                            href="https://tts.travisvn.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-600 font-semibold hover:underline"
+                          >
+                            Edge TTS Voices
+                          </a>
+                          —then enter the matching voice string above.
+                        </>
+                      }
+                    >
                       <TextInput
                         value={settings.tts.voice}
                         onChange={(e) => updateSettings("tts", "voice", e.target.value)}

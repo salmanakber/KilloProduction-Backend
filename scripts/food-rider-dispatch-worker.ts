@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import Redis from "ioredis";
 import { FOOD_RIDER_DISPATCH_QUEUE_NAME } from "@/lib/food-rider-dispatch-queue";
 import { MEAL_PLAN_RECURRING_QUEUE_NAME } from "@/lib/meal-plan-recurring-queue";
@@ -13,6 +13,10 @@ import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
 import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
 import { prisma } from "@/lib/prisma";
+import { processMoneyRateAlerts, processMoneyScheduledDue } from "@/lib/process-money-tasks";
+import { MONEY_FX_SNAPSHOT_QUEUE_NAME } from "@/lib/money-fx-snapshot-queue";
+import { runMoneyFxSnapshotTick } from "@/lib/process-money-fx-snapshot-job";
+import { processDueNotificationBroadcasts } from "@/lib/process-due-notification-broadcasts";
 
 const url = process.env.REDIS_URL;
 
@@ -24,6 +28,15 @@ if (!url) {
 const connection = new Redis(url, {
   maxRetriesPerRequest: null,
 });
+
+const parseMs = (value: string | undefined, fallback: number, min = 1000) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.floor(parsed);
+};
+
+/** Poll FX pairs and insert DB snapshots when rates move (BullMQ scheduler interval). */
+const MONEY_FX_SNAPSHOT_MS = parseMs(process.env.MONEY_FX_SNAPSHOT_MS, 2 * 60 * 1000, 30 * 1000);
 
 // Worker
 const foodDispatchWorker = new Worker(
@@ -98,17 +111,71 @@ const marketingScheduledWorker = new Worker(
 );
 void marketingScheduledWorker;
 
+const moneyFxSnapshotQueue = new Queue(MONEY_FX_SNAPSHOT_QUEUE_NAME, { connection });
+
+const moneyFxSnapshotWorker = new Worker(
+  MONEY_FX_SNAPSHOT_QUEUE_NAME,
+  async () => {
+    const r = await runMoneyFxSnapshotTick();
+    if (r.inserted > 0 || r.errors > 0) {
+      console.log(
+        `[money-fx-snapshot] pairs=${r.pairs} inserted=${r.inserted} unchanged=${r.unchanged} errors=${r.errors}`
+      );
+    }
+    return r;
+  },
+  {
+    connection,
+    concurrency: 1,
+  }
+);
+void moneyFxSnapshotWorker;
+
+void (async () => {
+  try {
+    await moneyFxSnapshotQueue.upsertJobScheduler(
+      "money-fx-snapshot-scheduler",
+      { every: MONEY_FX_SNAPSHOT_MS },
+      {
+        name: "tick",
+        data: {},
+        opts: {
+          removeOnComplete: { count: 120 },
+          attempts: 2,
+          backoff: { type: "exponential", delay: 8000 },
+        },
+      }
+    );
+    console.log(
+      `[bullmq] "${MONEY_FX_SNAPSHOT_QUEUE_NAME}" scheduler every ${MONEY_FX_SNAPSHOT_MS}ms (set MONEY_FX_SNAPSHOT_MS / MONEY_FX_SNAPSHOT_PAIRS)`
+    );
+  } catch (e) {
+    console.error("[money-fx-snapshot] upsertJobScheduler failed:", e);
+  }
+})();
+
 console.log(
-  `[bullmq-workers] "${FOOD_RIDER_DISPATCH_QUEUE_NAME}" + "${MEAL_PLAN_RECURRING_QUEUE_NAME}" + "${MARKETING_SCHEDULED_QUEUE_NAME}"`
+  `[bullmq-workers] "${FOOD_RIDER_DISPATCH_QUEUE_NAME}" + "${MEAL_PLAN_RECURRING_QUEUE_NAME}" + "${MARKETING_SCHEDULED_QUEUE_NAME}" + "${MONEY_FX_SNAPSHOT_QUEUE_NAME}"`
 );
 
-const BONUS_MS = Number(process.env.RIDER_BONUS_TICK_MS || 10 * 60 * 1000);
-const MARKETING_MS = Number(process.env.MARKETING_AUTOMATION_MS || 6 * 60 * 60 * 1000);
-const MARKETING_CATCHUP_MS = Number(process.env.MARKETING_SCHEDULED_CATCHUP_MS || 60 * 1000);
-const WALLET_CLEARANCE_MS = Number(process.env.RIDER_WALLET_CLEARANCE_TICK_MS || 15 * 60 * 1000);
+const BONUS_MS = parseMs(process.env.RIDER_BONUS_TICK_MS, 10 * 60 * 1000);
+const MARKETING_MS = parseMs(process.env.MARKETING_AUTOMATION_MS, 6 * 60 * 60 * 1000, 60 * 1000);
+const MARKETING_CATCHUP_MS = parseMs(process.env.MARKETING_SCHEDULED_CATCHUP_MS, 60 * 1000, 15 * 1000);
+const WALLET_CLEARANCE_MS = parseMs(process.env.RIDER_WALLET_CLEARANCE_TICK_MS, 15 * 60 * 1000);
 /** Same logic as GET /api/cron/pill-reminders — keeps reminders firing if external cron is misconfigured. */
-const PILL_REMINDERS_MS = Number(process.env.PILL_REMINDERS_TICK_MS || 60 * 1000);
-const BOOKING_CLEANUP_MS = Number(process.env.BOOKING_CLEANUP_TICK_MS || 15 * 60 * 1000);
+const PILL_REMINDERS_MS = parseMs(process.env.PILL_REMINDERS_TICK_MS, 60 * 1000, 30 * 1000);
+const BOOKING_CLEANUP_MS = parseMs(process.env.BOOKING_CLEANUP_TICK_MS, 15 * 60 * 1000);
+const MONEY_TRANSFER_TICK_MS = parseMs(process.env.MONEY_TRANSFER_WORKER_MS, 60 * 1000, 10 * 1000);
+/** Poll DB for admin /notifications notices with status SCHEDULED and scheduledAt &lt;= now. */
+const NOTIFICATION_BROADCAST_MS = parseMs(
+  process.env.NOTIFICATION_BROADCAST_SCHEDULE_MS,
+  60 * 1000,
+  15 * 1000
+);
+
+console.log(
+  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms`
+);
 
 setInterval(() => {
   processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
@@ -116,7 +183,13 @@ setInterval(() => {
 
 /** Heuristic abandoned-cart style automation (not schedule-based). */
 setInterval(() => {
-  runMarketingAutomationTick().catch((e) => console.error("[marketing-automation]", e));
+  runMarketingAutomationTick()
+    .then(({ sent, skipped }) => {
+      if (sent > 0 || skipped !== "ok") {
+        console.log(`[marketing-automation] sent=${sent} skipped=${skipped}`);
+      }
+    })
+    .catch((e) => console.error("[marketing-automation]", e));
 }, MARKETING_MS);
 
 /** Safety net for SCHEDULED campaigns if a delayed BullMQ job was missed. */
@@ -132,8 +205,28 @@ setInterval(() => {
 
 void processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick] boot", e));
 
+void runMarketingAutomationTick()
+  .then(({ sent, skipped }) => {
+    console.log(`[marketing-automation] boot sent=${sent} skipped=${skipped}`);
+  })
+  .catch((e) => console.error("[marketing-automation] boot", e));
+
 void catchUpOverdueScheduledCampaigns().catch((e) =>
   console.error("[marketing-scheduled-catchup] boot", e)
+);
+
+setInterval(() => {
+  processDueNotificationBroadcasts()
+    .then(({ attempted, launched }) => {
+      if (attempted > 0) {
+        console.log(`[admin-notification-schedule] due=${attempted} sent=${launched}`);
+      }
+    })
+    .catch((e) => console.error("[admin-notification-schedule]", e));
+}, NOTIFICATION_BROADCAST_MS);
+
+void processDueNotificationBroadcasts().catch((e) =>
+  console.error("[admin-notification-schedule] boot", e)
 );
 
 setInterval(() => {
@@ -169,13 +262,13 @@ async function cleanupOldBookingRequests() {
   const [courier, ride] = await Promise.all([
     prisma.courierBooking.deleteMany({
       where: {
-        status: { in: removableStatuses as unknown as string[] },
+        status: { in: removableStatuses as any },
         updatedAt: { lt: cutoff },
       },
     }),
     prisma.rideBooking.deleteMany({
       where: {
-        status: { in: removableStatuses as unknown as string[] },
+        status: { in: removableStatuses as any },
         updatedAt: { lt: cutoff },
       },
     }),
@@ -193,12 +286,27 @@ setInterval(() => {
 
 void cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup] boot", e));
 
+setInterval(() => {
+  Promise.all([processMoneyScheduledDue(), processMoneyRateAlerts()])
+    .then(([d, a]) => {
+      if (d.processed > 0 || a.notified > 0) {
+        console.log(`[money-transfer-worker] schedules=${d.processed} rateAlerts=${a.notified}`);
+      }
+    })
+    .catch((e) => console.error("[money-transfer-worker]", e));
+}, MONEY_TRANSFER_TICK_MS);
+
+void processMoneyScheduledDue().catch((e) => console.error("[money-transfer-worker] boot schedules", e));
+void processMoneyRateAlerts().catch((e) => console.error("[money-transfer-worker] boot alerts", e));
+
 // Graceful shutdown (IMPORTANT)
 process.on("SIGINT", async () => {
   console.log("[Worker] Shutting down gracefully...");
   await foodDispatchWorker.close();
   await mealPlanWorker.close();
   await marketingScheduledWorker.close();
+  await moneyFxSnapshotWorker.close();
+  await moneyFxSnapshotQueue.close();
   await connection.quit();
   process.exit(0);
 });
@@ -208,6 +316,8 @@ process.on("SIGTERM", async () => {
   await foodDispatchWorker.close();
   await mealPlanWorker.close();
   await marketingScheduledWorker.close();
+  await moneyFxSnapshotWorker.close();
+  await moneyFxSnapshotQueue.close();
   await connection.quit();
   process.exit(0);
 });

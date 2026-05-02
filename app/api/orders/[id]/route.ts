@@ -282,6 +282,37 @@ export async function GET(
       select: { commissionAmount: true, commissionRate: true },
     })
 
+    const refundPayments = await prisma.payment.findMany({
+      where: {
+        OR: [
+          { orderId: order.id },
+          ...(order.childId ? [{ orderId: order.childId }] : []),
+          { metadata: { path: ["parentOrderId"], equals: order.id } },
+          ...(order.childId ? [{ metadata: { path: ["parentOrderId"], equals: order.childId } }] : []),
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      select: { metadata: true },
+    })
+    const refundMeta = refundPayments
+      .map((row) =>
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? ((row.metadata as Record<string, any>).refund as Record<string, any> | undefined)
+          : undefined,
+      )
+      .find((r) => {
+        const st = String(r?.status || "").toUpperCase()
+        return ["PENDING", "APPROVED", "COMPLETED", "REJECTED", "FAILED"].includes(st)
+      })
+
+    const refundCourierBookingId = String(refundMeta?.refundCourierBookingId || "")
+    const refundCourierBooking = refundCourierBookingId
+      ? await prisma.courierBooking.findUnique({
+          where: { id: refundCourierBookingId },
+          select: { id: true, status: true, riderId: true },
+        })
+      : null
+
     const orderMeta = order.metadata as { specialOffers?: unknown } | null | undefined
     const subNum = Number(order.subtotal || 0)
     const discNum = Number(order.discount || 0)
@@ -304,6 +335,14 @@ export async function GET(
       deliveryRiderAssigned: Boolean(courierBooking?.riderId),
       paymentProcessingFee: processingLedger?.commissionAmount ?? null,
       paymentProcessingRate: processingLedger?.commissionRate ?? null,
+      refundStatus: String(refundMeta?.status || ""),
+      refundMethod: String(refundMeta?.refundMethod || ""),
+      refundAmount: Number(refundMeta?.requestedRefundAmount || 0),
+      refundRequestedAt: String(refundMeta?.requestedAt || ""),
+      refundSettlementPendingPickupOtp: Boolean(refundMeta?.settlementPendingPickupOtp),
+      refundCourierBookingId: refundCourierBooking?.id ?? null,
+      refundCourierBookingStatus: refundCourierBooking?.status ?? null,
+      refundPickupRiderAssigned: Boolean(refundCourierBooking?.riderId),
       /** Customer-paid merchandise (order subtotal before settlement view). */
       customerMerchandiseSubtotal: subNum,
       /** Book / settlement merchandise for offer-aware modules (matches vendor list `totalAmount`). */

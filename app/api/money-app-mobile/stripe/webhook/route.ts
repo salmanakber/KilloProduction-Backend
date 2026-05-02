@@ -1,7 +1,33 @@
+/**
+ * Money Transfer — Stripe webhooks.
+ * Register in Stripe Dashboard (Developers → Webhooks):
+ *   URL:  https://<your-api-host>/api/money-app-mobile/stripe/webhook
+ *   Secret: `MoneyTransferConfig.stripeWebhookSecret` or `MONEY_TRANSFER_STRIPE_WEBHOOK_SECRET`
+ * Events: at least `payment_intent.succeeded`, `payment_intent.payment_failed`
+ * 
+ * Stripe webhook URL (Money Transfer)
+Configure this in Stripe → Developers → Webhooks:
+
+POST https://<your-backend-host>/api/money-app-mobile/stripe/webhook
+
+Signing secret: MoneyTransferConfig.stripeWebhookSecret or MONEY_TRANSFER_STRIPE_WEBHOOK_SECRET.
+Subscribe at least to: payment_intent.succeeded, payment_intent.payment_failed.
+(A short comment was added at the top of stripe/webhook/route.ts with the same hints.)
+
+Paystack verification (Stripe success → Paystack payout)
+The webhook already re-reads the PaymentIntent from Stripe after payment_intent.succeeded.
+
+New step: After Paystack’s /transfer create succeeds, we call GET https://api.paystack.co/transfer/verify/{reference} with your secret and:
+
+Fail the payout if verification fails or status === 'failed'
+Accept other statuses (e.g. pending) as OK for bank payouts
+/money-app-mobile/send/confirm already verifies Paystack checkout payments with transaction/verify when gateway === "PAYSTACK" — that path is unchanged.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import Stripe from "stripe"
 import { NotificationBridge } from "@/lib/notification-bridge" //@TODO: Use NotificationService instead
+import { getMoneyTransferFxRate } from "@/lib/money-fx-rate"
 
 // Get Money Transfer Stripe config (separate from marketplace)
 async function getMoneyTransferStripeConfig(): Promise<{ stripe: Stripe; webhookSecret: string }> {
@@ -43,6 +69,19 @@ async function getMoneyTransferPaystackConfig() {
   }
   
   throw new Error("Money Transfer Paystack configuration not found")
+}
+
+/** Confirms a Paystack transfer with Paystack’s verify API (don’t rely only on the create response). */
+async function verifyPaystackTransferReference(secretKey: string, reference: string) {
+  const res = await fetch(
+    `https://api.paystack.co/transfer/verify/${encodeURIComponent(reference)}`,
+    { headers: { Authorization: `Bearer ${secretKey}` } }
+  )
+  const json = await res.json()
+  if (!json?.status || !json?.data) {
+    throw new Error(json?.message || "Paystack transfer verification failed")
+  }
+  return json.data as { status?: string; amount?: number; recipient?: unknown }
 }
 
 export async function POST(request: NextRequest) {
@@ -96,10 +135,18 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       return
     }
 
+    const { stripe } = await getMoneyTransferStripeConfig()
+    const verified = await stripe.paymentIntents.retrieve(paymentIntent.id)
+    if (verified.status !== "succeeded") {
+      console.warn("Webhook PI not succeeded on retrieve, skipping", paymentIntent.id, verified.status)
+      return
+    }
+
     // Get transfer with receiver bank account (required)
     const transfer = await prisma.moneyTransfer.findUnique({
       where: { id: transferId },
       include: {
+        payout: true,
         sender: true,
         receiver: {
           include: {
@@ -115,6 +162,21 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 
     if (!transfer) {
       console.error(`Transfer not found: ${transferId}`)
+      return
+    }
+
+    if (transfer.payout) {
+      console.log("Payout already exists, webhook idempotent skip", transferId)
+      return
+    }
+
+    if (transfer.stripePaymentIntentId && transfer.stripePaymentIntentId !== paymentIntent.id) {
+      console.error("Payment intent mismatch for transfer", transferId)
+      return
+    }
+
+    if (!["PENDING", "PROCESSING"].includes(transfer.status)) {
+      console.log("Transfer already finalized, idempotent skip", transferId, transfer.status)
       return
     }
 
@@ -137,22 +199,34 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 
     const bankAccount = transfer.receiver.bankAccounts[0]
 
-    // Get exchange rate from API
-    let exchangeRate = 1500 // Fallback
-    let ngnAmount = transfer.amount * exchangeRate
-    
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-      const exchangeRateResponse = await fetch(
-        `${baseUrl}/api/money-app-mobile/exchange-rates?from=${transfer.currency}&to=NGN`
-      )
-      const exchangeRateData = await exchangeRateResponse.json()
-      if (exchangeRateData.success && exchangeRateData.rate) {
-        exchangeRate = exchangeRateData.rate
-        ngnAmount = transfer.amount * exchangeRate
+    let exchangeRate: number
+    let ngnAmount: number
+
+    if (
+      transfer.receiveAmount != null &&
+      transfer.customerRate != null &&
+      transfer.customerRate > 0
+    ) {
+      ngnAmount = transfer.receiveAmount
+      exchangeRate = transfer.customerRate
+    } else if (transfer.customerRate != null && transfer.customerRate > 0) {
+      exchangeRate = transfer.customerRate
+      ngnAmount = transfer.amount * exchangeRate
+    } else if (transfer.ngnAmount != null && transfer.exchangeRate != null && transfer.exchangeRate > 0) {
+      ngnAmount = transfer.ngnAmount
+      exchangeRate = transfer.exchangeRate
+    } else {
+      exchangeRate = 1500
+      ngnAmount = transfer.amount * exchangeRate
+      try {
+        const r = await getMoneyTransferFxRate(transfer.currency, "NGN")
+        if (r != null && r > 0) {
+          exchangeRate = r
+          ngnAmount = transfer.amount * exchangeRate
+        }
+      } catch (error) {
+        console.error("Failed to fetch exchange rate, using fallback:", error)
       }
-    } catch (error) {
-      console.error("Failed to fetch exchange rate, using fallback:", error)
     }
 
     // Get commission setting for MONEY_TRANSFER module
@@ -204,9 +278,8 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     })
 
     // Automatically initiate Paystack payout (REQUIRED - no manual withdrawal)
-    let paystackReference = null
+    let paystackReference: string | null = null
     try {
-      const { stripe } = await getMoneyTransferStripeConfig()
       paystackReference = await initiatePaystackPayout(transfer, bankAccount, ngnAmount, paymentIntent.id)
       
       // Update Stripe payment intent metadata with Paystack reference
@@ -413,6 +486,31 @@ async function initiatePaystackPayout(
       },
     })
     throw new Error(transferData.message || "Paystack transfer failed")
+  }
+
+  const paystackRef = transferData.data?.reference as string | undefined
+  if (!paystackRef) {
+    await prisma.moneyTransferPayout.update({
+      where: { id: payout.id },
+      data: { status: "FAILED", failureReason: "Missing Paystack transfer reference", failedAt: new Date() },
+    })
+    throw new Error("Paystack response missing transfer reference")
+  }
+  try {
+    const verified = await verifyPaystackTransferReference(paystackSecretKey, paystackRef)
+    if (verified.status === "failed") {
+      throw new Error("Paystack reported transfer as failed after verify")
+    }
+  } catch (verErr: any) {
+    await prisma.moneyTransferPayout.update({
+      where: { id: payout.id },
+      data: {
+        status: "FAILED",
+        failureReason: verErr?.message || "Paystack transfer verification failed",
+        failedAt: new Date(),
+      },
+    })
+    throw verErr
   }
 
   // Update payout with success

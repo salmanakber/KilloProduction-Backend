@@ -12,7 +12,8 @@ import {
 } from "@/lib/marketing-targeting-helpers"
 
 const COOLDOWN_HOURS = 48
-const MAX_SEND_PER_RUN = 25
+const MAX_SEND_PER_RUN = envInt("MARKETING_AUTOMATION_RUN_LIMIT", 40)
+const MAX_SEND_PER_DAY = Math.min(200, Math.max(100, envInt("MARKETING_AUTOMATION_DAILY_LIMIT", 150)))
 const HEURISTIC_POOL = 80
 
 function envInt(name: string, defaultValue: number): number {
@@ -29,12 +30,48 @@ function marketingAiEnabled(): boolean {
  * Heuristics + UserActivity signals do most of the work; optional AI only refines a tiny index list.
  */
 export async function runMarketingAutomationTick(): Promise<{ sent: number; skipped: string }> {
-  const cooldown = new Date(Date.now() - COOLDOWN_HOURS * 60 * 60 * 1000)
-  const recent = await prisma.notification.findMany({
-    where: { sentAt: { gte: cooldown } },
-    select: { userId: true },
+  const dayStart = new Date()
+  dayStart.setHours(0, 0, 0, 0)
+  const todayNotifications = await prisma.notification.findMany({
+    where: {
+      createdAt: { gte: dayStart },
+      type: "PROMOTION",
+    },
+    select: { data: true },
+    take: 5000,
+    orderBy: { createdAt: "desc" },
   })
-  const exclude = new Set(recent.map((n) => n.userId))
+  const sentToday = todayNotifications.filter((n) => {
+    const payload = (n.data || {}) as Record<string, unknown>
+    return payload.source === "marketing_automation"
+  }).length
+  const remainingDaily = Math.max(0, MAX_SEND_PER_DAY - sentToday)
+  if (remainingDaily <= 0) {
+    await logAutomationTick({
+      sent: 0,
+      skipped: "daily_cap_reached",
+      sentToday,
+      dailyCap: MAX_SEND_PER_DAY,
+      runCap: MAX_SEND_PER_RUN,
+    })
+    return { sent: 0, skipped: "daily_cap_reached" }
+  }
+
+  /** Only exclude users who already received *this* automation (abandoned-cart), not every notification. */
+  const cooldown = new Date(Date.now() - COOLDOWN_HOURS * 60 * 60 * 1000)
+  const recentAutomation = await prisma.notification.findMany({
+    where: {
+      type: "PROMOTION",
+      createdAt: { gte: cooldown },
+    },
+    select: { userId: true, data: true },
+    take: 20000,
+  })
+  const exclude = new Set<string>()
+  for (const n of recentAutomation) {
+    const d = (n.data || {}) as Record<string, unknown>
+    if (d.source === "marketing_automation") exclude.add(n.userId)
+  }
 
   const since72h = new Date(Date.now() - 72 * 60 * 60 * 1000)
 
@@ -51,13 +88,20 @@ export async function runMarketingAutomationTick(): Promise<{ sent: number; skip
   for (const row of recentCartRows) {
     cartCountByUser.set(row.userId, (cartCountByUser.get(row.userId) ?? 0) + 1)
   }
-  const cartGroups = [...cartCountByUser.entries()]
+  const cartGroups = Array.from(cartCountByUser.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 500)
     .map(([userId, n]) => ({ userId, cartCount: n }))
 
   let userIds = cartGroups.map((g) => g.userId).filter((id) => !exclude.has(id))
   if (userIds.length === 0) {
+    await logAutomationTick({
+      sent: 0,
+      skipped: "no_candidates",
+      sentToday,
+      dailyCap: MAX_SEND_PER_DAY,
+      runCap: MAX_SEND_PER_RUN,
+    })
     return { sent: 0, skipped: "no_candidates" }
   }
 
@@ -82,12 +126,20 @@ export async function runMarketingAutomationTick(): Promise<{ sent: number; skip
 
   const ranked = rankAndTrimForAiPool(enriched, HEURISTIC_POOL)
   if (ranked.length === 0) {
+    await logAutomationTick({
+      sent: 0,
+      skipped: "no_candidates",
+      sentToday,
+      dailyCap: MAX_SEND_PER_DAY,
+      runCap: MAX_SEND_PER_RUN,
+    })
     return { sent: 0, skipped: "no_candidates" }
   }
 
   const automation = await getAutomationAiSettings()
   const aiMax = Math.min(20, automation.marketingAiMaxCandidates)
-  let chosenIds = ranked.slice(0, MAX_SEND_PER_RUN).map((c) => c.userId)
+  const sendLimit = Math.max(1, Math.min(MAX_SEND_PER_RUN, remainingDaily))
+  let chosenIds = ranked.slice(0, sendLimit).map((c) => c.userId)
 
   const useAi = automation.marketingAiEnabled
   const aiConfig = useAi ? await getConfigurationForUseCase("GENERAL_ANALYSIS" as AIUseCase) : null
@@ -98,17 +150,17 @@ export async function runMarketingAutomationTick(): Promise<{ sent: number; skip
     try {
       const ai = await analyzeWithAI("GENERAL_ANALYSIS" as AIUseCase, { r: rows }, {
         customPrompt: `Pick abandoned-cart reminder recipients. Rows use index i only (no user ids). Keys: m=F food G=grocery P=pharmacy A=auto; s=cart adds; v=item views; pur=purchases 72h; h=hours since last cart.
-Prefer users with pur=0 or low pur and fresh carts (low h). Max ${MAX_SEND_PER_RUN} picks.
+Prefer users with pur=0 or low pur and fresh carts (low h). Max ${sendLimit} picks.
 Reply ONLY: {"idx":[...]} using indices 0..${pool.length - 1}.`,
         maxTokens: Math.min(256, 80 + pool.length * 8),
         disableTools: true,
       })
-      const idx = parseAiIndexPick(ai.content || "", pool.length, MAX_SEND_PER_RUN)
+      const idx = parseAiIndexPick(ai.content || "", pool.length, sendLimit)
       if (idx && idx.length > 0) {
         chosenIds = idx.map((i) => pool[i]!.userId).filter(Boolean)
       }
     } catch {
-      chosenIds = ranked.slice(0, MAX_SEND_PER_RUN).map((c) => c.userId)
+      chosenIds = ranked.slice(0, sendLimit).map((c) => c.userId)
     }
   }
 
@@ -139,5 +191,61 @@ Reply ONLY: {"idx":[...]} using indices 0..${pool.length - 1}.`,
     }
   }
 
-  return { sent, skipped: sent === 0 ? "send_failed" : "ok" }
+  const skipped = sent === 0 ? "send_failed" : "ok"
+  await logAutomationTick({
+    sent,
+    skipped,
+    sentToday,
+    dailyCap: MAX_SEND_PER_DAY,
+    runCap: MAX_SEND_PER_RUN,
+    candidates: ranked.length,
+  })
+  return { sent, skipped }
+}
+
+async function getAutomationAiSettings(): Promise<{
+  marketingAiEnabled: boolean
+  marketingAiMaxCandidates: number
+}> {
+  return {
+    marketingAiEnabled: marketingAiEnabled(),
+    marketingAiMaxCandidates: Math.max(5, envInt("MARKETING_AI_MAX_CANDIDATES", 20)),
+  }
+}
+
+async function resolveSystemPerformerId(): Promise<string | null> {
+  const actor = await prisma.user.findFirst({
+    where: { role: { in: ["SUPER_ADMIN", "ADMIN"] } },
+    select: { id: true },
+    orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+  })
+  return actor?.id ?? null
+}
+
+async function logAutomationTick(input: {
+  sent: number
+  skipped: string
+  sentToday: number
+  dailyCap: number
+  runCap: number
+  candidates?: number
+}) {
+  try {
+    const performerId = await resolveSystemPerformerId()
+    if (!performerId) return
+    await prisma.auditLog.create({
+      data: {
+        performedBy: performerId,
+        action: "MARKETING_AUTOMATION_TICK",
+        entityType: "MARKETING_AUTOMATION",
+        entityId: new Date().toISOString().slice(0, 10),
+        details: {
+          ...input,
+          timestamp: new Date().toISOString(),
+        },
+      },
+    })
+  } catch {
+    // non-blocking
+  }
 }

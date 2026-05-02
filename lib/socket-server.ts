@@ -1080,7 +1080,7 @@ class SocketIOServer {
    * Used when promoting FOOD courier bookings from AWAITING_PREP (worker / internal API).
    */
   async broadcastCourierNewRequestToRiders(data: Record<string, unknown>) {
-    console.log("🔔 broadcastCourierNewRequestToRiders called with data:", data)
+    
     try {
       /** Clients sometimes wrap the payload in `data` (e.g. pharmacy quote accept) or nest `pickup: { lat, lng }`. */
       const nested =
@@ -1112,9 +1112,7 @@ class SocketIOServer {
       const pickupLat = typeof rawLat === "number" ? rawLat : Number(rawLat)
       const pickupLng = typeof rawLng === "number" ? rawLng : Number(rawLng)
 
-      console.log("🔔 data 123:", merged)
-      console.log("🔔 pickupLat:", pickupLat)
-      console.log("🔔 pickupLng:", pickupLng)
+
 
       if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
         console.error("❌ Missing pickup coordinates in new_request")
@@ -1128,7 +1126,7 @@ class SocketIOServer {
         radiusKm
       )
 
-      console.log(`📍 Found ${nearbyRiders.length} nearby riders for new request`)
+      
 
       for (const rider of nearbyRiders) {
         const riderSockets = this.getUserSockets(rider.userId)

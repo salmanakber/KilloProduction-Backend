@@ -36,8 +36,6 @@ export function CreateSegmentForm({ isOpen, onClose, onSuccess }: CreateSegmentF
 
   // Simplified criteria state for demonstration
   const [userTypeCriteria, setUserTypeCriteria] = useState<string[]>([])
-  const [minAge, setMinAge] = useState<string>("")
-  const [maxAge, setMaxAge] = useState<string>("")
   const [location, setLocation] = useState<string>("")
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,7 +51,6 @@ export function CreateSegmentForm({ isOpen, onClose, onSuccess }: CreateSegmentF
 
     const criteria: Segment["criteria"] = {}
     if (userTypeCriteria.length > 0) criteria.userType = userTypeCriteria
-    if (minAge && maxAge) criteria.ageRange = { min: Number.parseInt(minAge), max: Number.parseInt(maxAge) }
     if (location) criteria.location = [location] // Simplified to single location
 
     try {
@@ -62,11 +59,13 @@ export function CreateSegmentForm({ isOpen, onClose, onSuccess }: CreateSegmentF
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           name,
           description,
-          type,
-          criteria,
+          segmentType: type,
+          conditions: criteria,
+          isDynamic: true,
           isActive,
         }),
       })
@@ -92,8 +91,6 @@ export function CreateSegmentForm({ isOpen, onClose, onSuccess }: CreateSegmentF
     setType("DEMOGRAPHIC")
     setIsActive(true)
     setUserTypeCriteria([])
-    setMinAge("")
-    setMaxAge("")
     setLocation("")
     setError(null)
   }
@@ -176,27 +173,6 @@ export function CreateSegmentForm({ isOpen, onClose, onSuccess }: CreateSegmentF
                   <Label htmlFor="user-rider">Rider</Label>
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4 mb-2">
-              <Label htmlFor="minAge" className="text-right">
-                Age Range
-              </Label>
-              <Input
-                id="minAge"
-                type="number"
-                value={minAge}
-                onChange={(e) => setMinAge(e.target.value)}
-                placeholder="Min"
-                className="col-span-1"
-              />
-              <Input
-                id="maxAge"
-                type="number"
-                value={maxAge}
-                onChange={(e) => setMaxAge(e.target.value)}
-                placeholder="Max"
-                className="col-span-1"
-              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="location" className="text-right">

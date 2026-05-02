@@ -1,6 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 /**
  * In-app promotions: campaigns in window (SCHEDULED | RUNNING) filtered by:
@@ -17,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const now = new Date()
 
-    const [memberships, rawCampaigns] = await Promise.all([
+    const [memberships, rawCampaigns, profile] = await Promise.all([
       prisma.customerSegmentMember.findMany({
         where: { userId: user.id, isActive: true },
         select: { segmentId: true },
@@ -39,11 +50,39 @@ export async function GET(request: NextRequest) {
         orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
         take: 80,
       }),
+      prisma.userProfile.findUnique({
+        where: { userId: user.id },
+        select: { city: true, country: true, latitude: true, longitude: true },
+      }),
     ])
 
     const userSegments = new Set(memberships.map((m) => m.segmentId))
 
     const campaigns = rawCampaigns.filter((c) => {
+      const targeting =
+        c.content && typeof c.content === "object"
+          ? ((c.content as Record<string, unknown>).targeting as Record<string, unknown> | undefined)
+          : undefined
+      const targetingCoordinates =
+        c.content && typeof c.content === "object"
+          ? ((c.content as Record<string, unknown>).targetingCoordinates as Record<string, unknown> | undefined)
+          : undefined
+      const locationFilters = Array.isArray(targeting?.location)
+        ? targeting.location.map((v) => String(v || "").trim().toLowerCase()).filter(Boolean)
+        : []
+      const targetLat = Number(targetingCoordinates?.lat)
+      const targetLng = Number(targetingCoordinates?.lng)
+      const targetRadiusKm = Math.max(1, Number(targetingCoordinates?.radiusKm || 10))
+      const hasGeoTarget = Number.isFinite(targetLat) && Number.isFinite(targetLng)
+      if (hasGeoTarget) {
+        if (!Number.isFinite(profile?.latitude) || !Number.isFinite(profile?.longitude)) return false
+        const distance = haversineKm(targetLat, targetLng, profile?.latitude as number, profile?.longitude as number)
+        if (distance > targetRadiusKm) return false
+      } else if (locationFilters.length > 0) {
+        const userLoc = `${(profile?.city || "").toLowerCase()} ${(profile?.country || "").toLowerCase()}`.trim()
+        if (!locationFilters.some((needle) => userLoc.includes(needle))) return false
+      }
+
       if (c.participants.length > 0) return true
       const linked = c.CampaignSegments ?? []
       if (linked.length === 0) return true

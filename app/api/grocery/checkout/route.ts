@@ -5,6 +5,7 @@ import { awardLoyaltyPoints, redeemLoyaltyPoints } from "@/lib/loyalty-service"
 import { calculateRouteAndFee, type PickupPoint, type DropoffPoint } from "@/lib/multi-pickup-route.service"
 import { saveRouteToMultiplePickups } from "@/lib/multi-pickup-route-helper"
 import { createSplitPayments } from "@/lib/payment-service"
+import { recordPaymentProcessingLedgerIfApplicable } from "@/lib/payment-processing-ledger"
 import { createOrderCompletionWalletTransactions } from "@/lib/wallet-transaction-service"
 import { createPendingVendorWalletsForCourierOrder } from "@/lib/create-pending-vendor-wallet-for-courier-order"
 import { checkoutPlatformFeeAmount, checkoutVendorCommissionAmount } from "@/lib/commission-service"
@@ -635,6 +636,9 @@ export async function POST(request: NextRequest) {
           status: 'PAID',
           gateway: paymentData.gateway || 'STRIPE',
           gatewayTransactionId: paymentData.id ?? paymentData.transactionId ?? undefined,
+          paymentMethodId:
+            typeof paymentData.paymentMethodId === "string" ? paymentData.paymentMethodId : undefined,
+          gatewayResponse: paymentData.gatewayResponse ?? paymentData,
           description: `Payment for grocery order ${order.orderNumber}`,
           metadata: {
             ...(paymentData as object),
@@ -645,6 +649,22 @@ export async function POST(request: NextRequest) {
           vendorPayments,
           riderPayment,
         })
+
+        const feeAmount = Number(paymentData?.paymentProcessingFee ?? 0)
+        const ledgerPaymentId =
+          splitPaymentResult.vendorPayments?.[0]?.id ?? splitPaymentResult.riderPayment?.id ?? null
+        if (ledgerPaymentId && feeAmount > 0) {
+          await recordPaymentProcessingLedgerIfApplicable({
+            paymentId: ledgerPaymentId,
+            userId: user.id,
+            module: "GROCERY",
+            orderAmount: Number(paymentData?.commissionBaseAmount ?? total - feeAmount),
+            feeAmount,
+            ratePercent: Number(paymentData?.paymentProcessingRate ?? 0),
+            currency: paymentCurrency,
+            gateway: paymentData.gateway || "STRIPE",
+          })
+        }
         
         console.log(`Created payment group ${splitPaymentResult.paymentGroupId} with ${splitPaymentResult.vendorPayments.length} vendor payments and ${splitPaymentResult.riderPayment ? 1 : 0} rider payment`)
 

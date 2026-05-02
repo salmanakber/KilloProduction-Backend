@@ -73,6 +73,7 @@ model User {
   loyaltyPoints           LoyaltyPoint[]
   loyaltyTransactions     LoyaltyTransaction[]      @relation("UserLoyaltyTransactions")
   createdCampaigns        MarketingCampaign[]       @relation("CampaignCreator")
+  notificationCampaignsCreated NotificationCampaign[] @relation("NotificationCampaignCreator")
   medicineReminders       MedicineReminder[]
   sentMessages            Message[]                 @relation("SentMessages")
   milestoneProgress       MilestoneProgress[]       @relation("UserMilestoneProgress")
@@ -140,8 +141,11 @@ model User {
   mechanicNotifications   MechanicNotification[]    @relation("MechanicNotifications")
   kycRejections           KycRejection[]            @relation("KycRejections")
   userKycRejections       KycRejection[]            @relation("UserKycRejections")
-  sentMoneyTransfers      MoneyTransfer[]           @relation("MoneyTransferSender")
-  receivedMoneyTransfers  MoneyTransfer[]           @relation("MoneyTransferReceiver")
+  sentMoneyTransfers            MoneyTransfer[]            @relation("MoneyTransferSender")
+  receivedMoneyTransfers        MoneyTransfer[]            @relation("MoneyTransferReceiver")
+  moneyScheduledTransfersOwner  MoneyScheduledTransfer[]   @relation("MoneyScheduledOwner")
+  moneyScheduledAsRecipient     MoneyScheduledTransfer[]   @relation("MoneyScheduledReceiver")
+  moneyRateAlerts               MoneyRateAlert[]           @relation("MoneyRateAlerts")
   userActivities          UserActivity[]            @relation("UserActivities")
   specialOfferVendors     SpecialOfferVendor[]
   specialOfferSubmissions SpecialOfferSubmission[]
@@ -182,13 +186,19 @@ model UserProfile {
   dateOfBirth      DateTime?
   bodyTemp         String?
   bodyBp           String?
+  latitude         Float?
+  longitude        Float?
+  city             String?
+  country          String?
+  lastLocationAt   DateTime?
   gender           Gender?
-  bio              String?
-  profileImage     String?
-  emergencyContact String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio                String?
+  profileImage       String?
+  emergencyContact   String?
+  residentialAddress String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_profiles")
 }
@@ -4598,6 +4608,69 @@ model AppRating {
 
 // ─── Money Transfer Models ────────────────────────────────────────────────────
 
+model MoneyFxRateSnapshot {
+  id           String   @id @default(cuid())
+  fromCurrency String
+  toCurrency   String
+  rate         Float
+  createdAt    DateTime @default(now())
+
+  @@index([fromCurrency, toCurrency, createdAt])
+  @@map("money_fx_rate_snapshots")
+}
+
+enum MoneyScheduleFrequency {
+  ONCE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum MoneyScheduleStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
+model MoneyScheduledTransfer {
+  id          String                @id @default(cuid())
+  userId      String
+  receiverId  String
+  amount      Float
+  currency    String                @default("USD")
+  frequency   MoneyScheduleFrequency
+  nextRunAt   DateTime
+  lastRunAt   DateTime?
+  status      MoneyScheduleStatus     @default(ACTIVE)
+  description String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  owner       User                  @relation("MoneyScheduledOwner", fields: [userId], references: [id], onDelete: Cascade)
+  receiver    User                  @relation("MoneyScheduledReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([nextRunAt, status])
+  @@index([userId])
+  @@map("money_scheduled_transfers")
+}
+
+model MoneyRateAlert {
+  id             String    @id @default(cuid())
+  userId         String
+  fromCurrency   String
+  toCurrency     String
+  targetRate     Float
+  condition      String
+  status         String    @default("ACTIVE")
+  lastNotifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation("MoneyRateAlerts", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("money_rate_alerts")
+}
+
 enum MoneyTransferStatus {
   PENDING // Payment initiated, waiting for Stripe confirmation
   PROCESSING // Stripe payment succeeded, processing Paystack payout
@@ -4621,9 +4694,27 @@ model MoneyTransfer {
   receiverId   String
   amount       Float // Amount in sender's currency
   currency     String              @default("USD")
-  ngnAmount    Float? // Converted amount in NGN for payout
-  exchangeRate Float? // Exchange rate used for conversion
+  ngnAmount    Float? // Converted amount in NGN for payout (legacy + compatibility)
+  exchangeRate Float? // Customer-facing / locked conversion rate (send → settlement), mirrors customerRate when set
   status       MoneyTransferStatus @default(PENDING)
+
+  /// Locked at create — recipient settlement amount (e.g. NGN)
+  receiveAmount   Float?
+  receiveCurrency String? @default("NGN")
+  /// Reporting standard from SystemSettings.currency at transaction time
+  baseCurrency String?
+  baseAmount   Float?
+  /// Mid-market vs offered rate (audit)
+  midMarketRate    Float?
+  customerRate     Float?
+  markupPercentage Float?
+  rateSource       String?
+  /// Service fee in send currency / base (taxable platform revenue includes feeBase + fxMarginBase)
+  fee     Float?
+  feeBase Float?
+  /// FX spread profit in settlement currency and in base (platform earnings)
+  fxMarginSettlement Float?
+  fxMarginBase       Float?
 
   // Stripe payment details
   stripePaymentIntentId String? @unique
@@ -4640,6 +4731,9 @@ model MoneyTransfer {
   description String?
   reference   String  @unique @default(cuid())
   metadata    Json?
+
+  receiptImageUrl             String?
+  receiptCloudinaryPublicId   String?
 
   // Timestamps
   createdAt   DateTime  @default(now())
@@ -5062,4 +5156,32 @@ enum HealthSummaryPeriod {
   DAILY
   WEEKLY
   MONTHLY
+}
+
+/// Admin “system notice” broadcasts (maintenance, service updates, etc.) — separate from marketing campaigns.
+model NotificationCampaign {
+  id               String    @id @default(cuid())
+  title            String
+  message          String
+  /// PUSH | EMAIL | SMS | IN_APP
+  type             String
+  status           String    @default("DRAFT")
+  targetUserTypes  String[]  @default([])
+  targetModules    String[]  @default([])
+  targetUserCount  Int       @default(0)
+  scheduledAt      DateTime?
+  sentAt           DateTime?
+  imageUrl         String?
+  actionUrl        String?
+  sentCount        Int       @default(0)
+  deliveredCount   Int       @default(0)
+  openedCount      Int       @default(0)
+  clickedCount     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdById      String
+  createdBy        User      @relation("NotificationCampaignCreator", fields: [createdById], references: [id])
+
+  @@index([status])
+  @@map("notification_campaigns")
 }

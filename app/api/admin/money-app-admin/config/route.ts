@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Don't return sensitive keys in GET request
+    // Don't return secret keys in GET. Publishable keys are public by design and must be
+    // returned so admin inputs can show the saved values after reload.
     return NextResponse.json({
       success: true,
       config: {
@@ -43,6 +44,9 @@ export async function GET(request: NextRequest) {
         transferFeeFixed: config.transferFeeFixed,
         exchangeRateProvider: config.exchangeRateProvider,
         exchangeRateMargin: config.exchangeRateMargin,
+        stripePublishableKey: config.stripePublishableKey,
+        paystackPublicKey: config.paystackPublicKey,
+        hasExchangeRateApiKey: !!config.exchangeRateApiKey,
         hasStripeConfig: !!config.stripeSecretKey,
         hasPaystackConfig: !!config.paystackSecretKey,
         createdAt: config.createdAt,
@@ -119,7 +123,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Don't return sensitive keys
+    // Don't return secret keys; publishable keys are safe to echo back
     return NextResponse.json({
       success: true,
       config: {
@@ -133,6 +137,9 @@ export async function POST(request: NextRequest) {
         transferFeeFixed: config.transferFeeFixed,
         exchangeRateProvider: config.exchangeRateProvider,
         exchangeRateMargin: config.exchangeRateMargin,
+        stripePublishableKey: config.stripePublishableKey,
+        paystackPublicKey: config.paystackPublicKey,
+        hasExchangeRateApiKey: !!config.exchangeRateApiKey,
         hasStripeConfig: !!config.stripeSecretKey,
         hasPaystackConfig: !!config.paystackSecretKey,
         createdAt: config.createdAt,

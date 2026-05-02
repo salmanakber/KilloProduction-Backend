@@ -16,15 +16,16 @@ import {
   Utensils,
   Package,
   Truck,
-  Activity,
   CreditCard,
   Calendar,
   ArrowUpRight,
   ArrowDownRight,
   ArrowRight,
-  Zap
+  Zap,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, Cell } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts"
 import { formatDistanceToNow } from "date-fns"
 
 interface DashboardStats {
@@ -61,9 +62,16 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState("7d")
+  
+  // Pagination state for Activity Feed
+  const [activityPage, setActivityPage] = useState(1)
+  const ACTIVITIES_PER_PAGE = 5
 
   useEffect(() => {
     setLoading(true)
+    // Reset pagination when time range changes
+    setActivityPage(1)
+    
     const fetchDashboardStats = async () => {
       try {
         const response = await fetch(`/api/admin/dashboard/stats?range=${timeRange}`)
@@ -82,7 +90,6 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse p-2">
-        {/* Header Skeleton */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <div className="h-8 w-64 bg-slate-200 rounded-lg mb-2"></div>
@@ -90,22 +97,16 @@ export default function AdminDashboard() {
           </div>
           <div className="h-10 w-40 bg-slate-200 rounded-xl"></div>
         </div>
-        
-        {/* KPI Skeleton */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 h-32"></div>
           ))}
         </div>
-
-        {/* Payment Summary Skeleton */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
           {[1, 2, 3].map((i) => (
             <div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 h-24"></div>
           ))}
         </div>
-
-        {/* Charts Skeleton */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 h-[400px]"></div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 h-[400px]"></div>
@@ -118,6 +119,14 @@ export default function AdminDashboard() {
   const growth = stats?.monthlyGrowth ?? 0
   const isPositiveGrowth = growth >= 0
 
+  // Activity Feed Pagination Logic
+  const allActivities = stats?.recentActivities ?? []
+  const totalActivityPages = Math.max(1, Math.ceil(allActivities.length / ACTIVITIES_PER_PAGE))
+  const paginatedActivities = allActivities.slice(
+    (activityPage - 1) * ACTIVITIES_PER_PAGE,
+    activityPage * ACTIVITIES_PER_PAGE
+  )
+
   const moduleIcons = {
     pharmacy: Heart,
     autoParts: Car,
@@ -126,11 +135,12 @@ export default function AdminDashboard() {
     riding: Truck,
   }
 
+  // Tying specific modules to unique colors but keeping the rest of the app in Sea Green
   const moduleColors = {
     pharmacy: { bg: "bg-rose-100", text: "text-rose-600", border: "border-rose-200", bar: "#e11d48" },
     autoParts: { bg: "bg-blue-100", text: "text-blue-600", border: "border-blue-200", bar: "#2563eb" },
     food: { bg: "bg-amber-100", text: "text-amber-600", border: "border-amber-200", bar: "#d97706" },
-    grocery: { bg: "bg-emerald-100", text: "text-emerald-600", border: "border-emerald-200", bar: "#059669" },
+    grocery: { bg: "bg-teal-100", text: "text-teal-600", border: "border-teal-200", bar: "#14b8a6" }, // Used Main Sea Green
     riding: { bg: "bg-purple-100", text: "text-purple-600", border: "border-purple-200", bar: "#7c3aed" },
   }
 
@@ -155,8 +165,8 @@ export default function AdminDashboard() {
           <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">Enterprise overview and system health for Kilo Super App.</p>
         </div>
-        <div className="flex items-center space-x-3 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-          <Calendar className="h-4 w-4 text-slate-500 ml-2" />
+        <div className="flex items-center space-x-3 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-teal-500 focus-within:border-teal-500 transition-all">
+          <Calendar className="h-4 w-4 text-teal-600 ml-2" />
           <select
             value={timeRange}
             onChange={(e) => setTimeRange(e.target.value)}
@@ -172,10 +182,10 @@ export default function AdminDashboard() {
 
       {/* KPI GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all group">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
           <div className="flex items-start justify-between mb-4">
-            <div className="h-12 w-12 bg-blue-50 group-hover:bg-blue-100 transition-colors rounded-xl flex items-center justify-center border border-blue-100">
-              <Users className="h-6 w-6 text-blue-600" />
+            <div className="h-12 w-12 bg-slate-50 group-hover:bg-teal-50 transition-colors rounded-xl flex items-center justify-center border border-slate-100 group-hover:border-teal-100">
+              <Users className="h-6 w-6 text-slate-600 group-hover:text-teal-600 transition-colors" />
             </div>
           </div>
           <div>
@@ -185,12 +195,12 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all group">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
           <div className="flex items-start justify-between mb-4">
-            <div className="h-12 w-12 bg-indigo-50 group-hover:bg-indigo-100 transition-colors rounded-xl flex items-center justify-center border border-indigo-100">
-              <ShoppingCart className="h-6 w-6 text-indigo-600" />
+            <div className="h-12 w-12 bg-teal-50 transition-colors rounded-xl flex items-center justify-center border border-teal-100">
+              <ShoppingCart className="h-6 w-6 text-teal-600" />
             </div>
-            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-bold ${isPositiveGrowth ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-bold ${isPositiveGrowth ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-700"}`}>
               {isPositiveGrowth ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
               {Math.abs(growth)}%
             </div>
@@ -202,10 +212,10 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-all group">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all group">
           <div className="flex items-start justify-between mb-4">
-            <div className="h-12 w-12 bg-emerald-50 group-hover:bg-emerald-100 transition-colors rounded-xl flex items-center justify-center border border-emerald-100">
-              <DollarSign className="h-6 w-6 text-emerald-600" />
+            <div className="h-12 w-12 bg-teal-50 transition-colors rounded-xl flex items-center justify-center border border-teal-100">
+              <TrendingUp className="h-6 w-6 text-teal-600" />
             </div>
           </div>
           <div>
@@ -227,8 +237,8 @@ export default function AdminDashboard() {
             <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Active Tickets</p>
             <p className="text-3xl font-black text-slate-900">{stats?.activeComplaints ?? 0}</p>
             <div className="mt-2 flex items-center">
-              <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mr-1.5" />
-              <span className="text-xs text-emerald-600 font-bold">{stats?.resolvedComplaints ?? 0} resolved</span>
+              <CheckCircle className="h-3.5 w-3.5 text-teal-500 mr-1.5" />
+              <span className="text-xs text-teal-600 font-bold">{stats?.resolvedComplaints ?? 0} resolved</span>
             </div>
           </div>
         </div>
@@ -237,21 +247,22 @@ export default function AdminDashboard() {
       {/* PAYMENT SUMMARY BLOCK */}
       {stats?.paymentSummary && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-5 rounded-2xl shadow-sm flex items-center gap-4 text-white">
+          {/* Highlight Card with Custom Primary Gradient */}
+          <div className="bg-gradient-to-br from-[#0f766e] to-[#1A2433] p-5 rounded-2xl shadow-sm flex items-center gap-4 text-white">
             <div className="h-12 w-12 rounded-xl bg-white/10 flex items-center justify-center backdrop-blur-sm border border-white/10">
-              <DollarSign className="h-6 w-6 text-emerald-400" />
+              <DollarSign className="h-6 w-6 text-[#2dd4bf]" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Wallet Volume</p>
-              <p className="text-xl font-bold mt-0.5">
+              <p className="text-xs font-semibold text-teal-100 uppercase tracking-wider">Wallet Volume</p>
+              <p className="text-xl font-bold mt-0.5 text-white">
                 {cur}{stats.paymentSummary.walletVolume.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </p>
             </div>
           </div>
           
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="h-12 w-12 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-              <CreditCard className="h-6 w-6 text-indigo-600" />
+            <div className="h-12 w-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
+              <CreditCard className="h-6 w-6 text-slate-600" />
             </div>
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Gateway Processed</p>
@@ -271,7 +282,7 @@ export default function AdminDashboard() {
                 <p className="text-xl font-bold text-slate-900 mt-0.5">{stats.paymentSummary.pendingWithdrawals}</p>
               </div>
             </div>
-            <Link href="/admin/payments" className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors">
+            <Link href="/admin/payments" className="h-10 w-10 flex items-center justify-center rounded-full bg-slate-50 hover:bg-teal-50 text-slate-400 hover:text-teal-600 transition-colors">
               <ArrowRight size={18} />
             </Link>
           </div>
@@ -283,7 +294,7 @@ export default function AdminDashboard() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-slate-900">Module Revenue</h3>
-            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">Volume</span>
+            <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full border border-teal-100">Volume</span>
           </div>
           <div className="h-[300px] w-full">
             {chartRows.length > 0 ? (
@@ -295,7 +306,7 @@ export default function AdminDashboard() {
                   <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} formatter={(value: number) => [`${cur}${value.toLocaleString()}`, "Revenue"]} />
                   <Bar dataKey="revenue" radius={[6, 6, 0, 0]} barSize={40}>
                     {chartRows.map((entry) => (
-                      <Cell key={`cell-${entry.key}`} fill={moduleColors[entry.key as keyof typeof moduleColors]?.bar || "#059669"} />
+                      <Cell key={`cell-${entry.key}`} fill={moduleColors[entry.key as keyof typeof moduleColors]?.bar || "#14b8a6"} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -309,7 +320,7 @@ export default function AdminDashboard() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-slate-900">Order Distribution</h3>
-            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">Count</span>
+            <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full border border-teal-100">Count</span>
           </div>
           <div className="h-[300px] w-full">
             {chartRows.length > 0 ? (
@@ -319,7 +330,8 @@ export default function AdminDashboard() {
                   <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} dy={10} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
                   <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                  <Bar dataKey="orders" name="Orders" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={40} />
+                  {/* Changed standard blue to SEA_GREEN_MAIN (#14b8a6) */}
+                  <Bar dataKey="orders" name="Orders" fill="#14b8a6" radius={[6, 6, 0, 0]} barSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -341,7 +353,7 @@ export default function AdminDashboard() {
                 const colorConfig = moduleColors[key as keyof typeof moduleColors] || { bg: 'bg-slate-100', text: 'text-slate-600', border: 'border-slate-200' }
                 
                 return (
-                  <div key={key} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer">
+                  <div key={key} className="group flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-teal-200 hover:bg-slate-50 transition-colors cursor-pointer">
                     <div className="flex items-center space-x-4">
                       <div className={`h-12 w-12 rounded-xl flex items-center justify-center border ${colorConfig.bg} ${colorConfig.text} ${colorConfig.border}`}>
                         <IconComponent className="h-6 w-6" />
@@ -357,7 +369,7 @@ export default function AdminDashboard() {
                       <p className="font-black text-slate-900 text-base">
                         {cur}{data.revenue?.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </p>
-                      <p className="text-xs font-medium text-slate-500 mt-0.5 group-hover:text-emerald-600 transition-colors">Gross Vol.</p>
+                      <p className="text-xs font-medium text-slate-500 mt-0.5 group-hover:text-teal-600 transition-colors">Gross Vol.</p>
                     </div>
                   </div>
                 )
@@ -365,47 +377,70 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Recent Activity Timeline */}
+        {/* Recent Activity Timeline with Pagination */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Zap className="h-5 w-5 text-amber-500" /> Live Activity Feed
+              <Zap className="h-5 w-5 text-teal-500" /> Live Activity Feed
             </h3>
             <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span>
             </span>
           </div>
           
-          <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-            <div className="relative border-l border-slate-200 ml-3 space-y-6 pb-4">
-              {(stats?.recentActivities?.length ?? 0) === 0 ? (
-                <p className="text-sm text-slate-500 font-medium ml-6">No recent audit or order events in this range.</p>
-              ) : (
-                stats!.recentActivities.map((activity, index) => {
-                  let rel = activity.timestamp
-                  try {
-                    rel = formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })
-                  } catch { /* keep raw */ }
-                  
-                  return (
-                    <div key={activity.id} className="relative pl-6">
-                      {/* Timeline dot */}
-                      <span className="absolute -left-1.5 top-1.5 h-3 w-3 rounded-full bg-slate-200 border-2 border-white ring-1 ring-slate-200"></span>
-                      
-                      <div className="flex flex-col gap-1">
-                        <p className="text-sm font-semibold text-slate-900 leading-snug">{activity.message}</p>
-                        <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                          <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600">{activity.user}</span>
-                          <span>•</span>
-                          <span>{rel}</span>
+          <div className="flex-1 flex flex-col justify-between overflow-hidden">
+            <div className="overflow-y-auto pr-2 custom-scrollbar">
+              <div className="relative border-l border-slate-200 ml-3 space-y-6 pb-2">
+                {paginatedActivities.length === 0 ? (
+                  <p className="text-sm text-slate-500 font-medium ml-6">No recent audit or order events in this range.</p>
+                ) : (
+                  paginatedActivities.map((activity) => {
+                    let rel = activity.timestamp
+                    try {
+                      rel = formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })
+                    } catch { /* keep raw */ }
+                    
+                    return (
+                      <div key={activity.id} className="relative pl-6">
+                        <span className="absolute -left-1.5 top-1.5 h-3 w-3 rounded-full bg-slate-200 border-2 border-white ring-1 ring-slate-200"></span>
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm font-semibold text-slate-900 leading-snug">{activity.message}</p>
+                          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                            <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600">{activity.user}</span>
+                            <span>•</span>
+                            <span>{rel}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })
-              )}
+                    )
+                  })
+                )}
+              </div>
             </div>
+
+            {/* Pagination Controls */}
+            {allActivities.length > 0 && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => setActivityPage((p) => Math.max(1, p - 1))}
+                  disabled={activityPage === 1}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Prev
+                </button>
+                <span className="text-xs font-medium text-slate-500">
+                  Page {activityPage} of {totalActivityPages}
+                </span>
+                <button
+                  onClick={() => setActivityPage((p) => Math.min(totalActivityPages, p + 1))}
+                  disabled={activityPage === totalActivityPages}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -416,7 +451,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
             { name: "Users", icon: Users, href: "/admin/users", color: "text-blue-600", bg: "bg-blue-50", hover: "hover:border-blue-300 hover:shadow-blue-100" },
-            { name: "Payments", icon: DollarSign, href: "/admin/payments", color: "text-emerald-600", bg: "bg-emerald-50", hover: "hover:border-emerald-300 hover:shadow-emerald-100" },
+            { name: "Payments", icon: DollarSign, href: "/admin/payments", color: "text-teal-600", bg: "bg-teal-50", hover: "hover:border-teal-300 hover:shadow-teal-100" },
             { name: "Orders", icon: ShoppingCart, href: "/admin/orders", color: "text-indigo-600", bg: "bg-indigo-50", hover: "hover:border-indigo-300 hover:shadow-indigo-100" },
             { name: "Commission", icon: BarChart3, href: "/admin/commission", color: "text-purple-600", bg: "bg-purple-50", hover: "hover:border-purple-300 hover:shadow-purple-100" },
             { name: "Support", icon: AlertTriangle, href: "/admin/complaints", color: "text-rose-600", bg: "bg-rose-50", hover: "hover:border-rose-300 hover:shadow-rose-100" },

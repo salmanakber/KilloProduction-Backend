@@ -7,6 +7,13 @@ import { sendEmailFromTemplate } from "@/lib/email"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
 import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
 import { verifyRideStartOtp } from "@/lib/ride-start-otp"
+import Stripe from "stripe"
+
+function getRefundMeta(meta: any): Record<string, any> | null {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null
+  if (!meta.refund || typeof meta.refund !== "object" || Array.isArray(meta.refund)) return null
+  return meta.refund as Record<string, any>
+}
 
 export async function PUT(
   request: NextRequest,
@@ -66,7 +73,8 @@ export async function PUT(
       return NextResponse.json({ error: "Courier booking not found" }, { status: 404 })
     }
 
-    const requiresPickupOtp = String(courierBooking.module || "").toUpperCase() === "RIDE"
+    const courierModule = String(courierBooking.module || "").toUpperCase()
+    const requiresPickupOtp = courierModule === "RIDE" || courierModule === "REFUND"
     if (
       requiresPickupOtp &&
       status === "PICKED_UP" &&
@@ -121,11 +129,151 @@ export async function PUT(
       }
     });
 
+    if (
+      courierModule === "REFUND" &&
+      status === "PICKED_UP" &&
+      courierBooking.status === "ARRIVED_AT_PICKUP"
+    ) {
+      try {
+        const payment = await prisma.payment.findFirst({
+          where: {
+            metadata: {
+              path: ["refund", "refundCourierBookingId"],
+              equals: courierBookingId,
+            },
+          },
+          include: { order: true },
+        })
+        if (payment) {
+          const refund = getRefundMeta(payment.metadata)
+          const pending = Boolean(refund?.settlementPendingPickupOtp)
+          const refundMethod = String(refund?.refundMethod || "ORIGINAL_PAYMENT")
+          const refundAmount = Number(refund?.computedRefundAmount || payment.amount || 0)
+          const deliveryFee = Number(payment.order?.deliveryFee || 0)
+          const deliveryFeeBearer = String(refund?.deliveryFeeBearer || "CUSTOMER")
+          const refundPlatformCommission = refund?.refundPlatformCommission !== false
+
+          if (pending) {
+            await prisma.$transaction(async (tx) => {
+              if (payment.orderId && payment.order?.vendorId) {
+                const vendorWallet = await tx.wallet.findUnique({ where: { userId: payment.order.vendorId } })
+                if (vendorWallet) {
+                  const credited = await tx.walletTransaction.findFirst({
+                    where: {
+                      userId: payment.order.vendorId,
+                      orderId: payment.orderId,
+                      status: "COMPLETED",
+                      amount: { gt: 0 },
+                    },
+                    orderBy: { createdAt: "desc" },
+                  })
+                  if (credited) {
+                    const extraVendorFee = deliveryFeeBearer === "VENDOR" ? deliveryFee : 0
+                    const debitAmount = Math.abs(credited.amount) + Math.abs(extraVendorFee)
+                    const nextVendorBalance = vendorWallet.balance - debitAmount
+                    await tx.wallet.update({ where: { id: vendorWallet.id }, data: { balance: nextVendorBalance } })
+                    await tx.walletTransaction.create({
+                      data: {
+                        userId: payment.order.vendorId,
+                        type: "DEBIT",
+                        amount: -Math.abs(debitAmount),
+                        balance: nextVendorBalance,
+                        description: `Refund reversal for order ${payment.orderId}`,
+                        reference: `VENDOR_REFUND_REVERSAL_${payment.id}`,
+                        orderId: payment.orderId,
+                        status: "COMPLETED",
+                        metadata: {
+                          sourceWalletTransactionId: credited.id,
+                          refundPaymentId: payment.id,
+                          deliveryFeeBearer,
+                          deliveryFeeDeducted: extraVendorFee,
+                        },
+                      },
+                    })
+                  }
+                }
+              }
+
+              if (refundMethod === "WALLET") {
+                const customerWallet = await tx.wallet.upsert({
+                  where: { userId: payment.userId },
+                  update: {},
+                  create: { userId: payment.userId, balance: 0, currency: payment.currency },
+                })
+                const newBalance = customerWallet.balance + refundAmount
+                await tx.wallet.update({ where: { id: customerWallet.id }, data: { balance: newBalance } })
+                await tx.walletTransaction.create({
+                  data: {
+                    userId: payment.userId,
+                    type: "REFUND",
+                    amount: refundAmount,
+                    balance: newBalance,
+                    description: `Refund to wallet for order ${payment.orderId || "N/A"}`,
+                    reference: `WALLET_REFUND_${payment.id}`,
+                    orderId: payment.orderId ?? undefined,
+                    status: "COMPLETED",
+                    metadata: {
+                      paymentId: payment.id,
+                      refundMethod,
+                      deliveryFeeBearer,
+                      refundPlatformCommission,
+                      computedRefundAmount: refundAmount,
+                    },
+                  },
+                })
+              } else if (String(payment.gateway || "").toUpperCase() === "STRIPE" && payment.gatewayTransactionId) {
+                const secret = process.env.STRIPE_SECRET_KEY || ""
+                if (secret) {
+                  const stripe = new Stripe(secret, { apiVersion: "2023-10-16" })
+                  await stripe.refunds.create({
+                    payment_intent: payment.gatewayTransactionId,
+                    amount: Math.round(refundAmount * 100),
+                    metadata: { paymentId: payment.id, orderId: payment.orderId || "" },
+                  })
+                }
+              }
+
+              await tx.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: "REFUNDED",
+                  metadata: {
+                    ...(payment.metadata && typeof payment.metadata === "object" && !Array.isArray(payment.metadata)
+                      ? (payment.metadata as Record<string, unknown>)
+                      : {}),
+                    refund: {
+                      ...(refund || {}),
+                      status: refundMethod === "WALLET" ? "COMPLETED" : "APPROVED",
+                      settlementPendingPickupOtp: false,
+                      settledAt: new Date().toISOString(),
+                      settledByRiderId: user.id,
+                    },
+                  },
+                },
+              })
+              if (payment.orderId) {
+                await tx.orderTracking.create({
+                  data: {
+                    orderId: payment.orderId,
+                    status: "CANCELLED",
+                    notes: `Refund settlement completed after pickup OTP verification (${refundAmount.toFixed(2)}).`,
+                    timestamp: new Date(),
+                  },
+                }).catch(() => {})
+              }
+            })
+          }
+        }
+      } catch (settlementError) {
+        console.error("refund pickup settlement error:", settlementError)
+      }
+    }
+
 
     
     // Handle regular Order (if orderId exists)
     let updatedOrder: any = null
-    if (updatedBooking.orderId) {
+    if (updatedBooking.orderId && courierModule !== "REFUND") {
       const order = await prisma.order.findUnique({
         where: { id: updatedBooking.orderId },
         select: { partRequestId: true },

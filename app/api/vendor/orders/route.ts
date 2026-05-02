@@ -120,6 +120,34 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const paymentRows =
+      orderIds.length > 0
+        ? await prisma.payment.findMany({
+            where: {
+              OR: [
+                { orderId: { in: orderIds } },
+                { metadata: { path: ["parentOrderId"], in: orderIds as string[] } },
+              ],
+            },
+            select: {
+              orderId: true,
+              metadata: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : []
+    const refundByOrderId = new Map<string, Record<string, any>>()
+    for (const p of paymentRows) {
+      if (!p.metadata || typeof p.metadata !== "object" || Array.isArray(p.metadata)) continue
+      const m = p.metadata as Record<string, any>
+      const refund = m.refund && typeof m.refund === "object" && !Array.isArray(m.refund) ? (m.refund as Record<string, any>) : null
+      if (!refund) continue
+      const targetOrderId = String(refund.sourceOrderId || p.orderId || m.parentOrderId || "")
+      if (!targetOrderId || refundByOrderId.has(targetOrderId)) continue
+      refundByOrderId.set(targetOrderId, refund)
+    }
+
     // Format orders for frontend
     const formattedOrders = orders.map((order) => {
       const cb = courierByOrderId.get(order.id)
@@ -170,6 +198,11 @@ export async function GET(request: NextRequest) {
         paymentStatus: order.paymentStatus.toLowerCase(),
         deliveryType: order.deliveryType?.toLowerCase() || "delivery",
         specialInstructions: order.specialInstructions,
+        refundStatus: String(refundByOrderId.get(order.id)?.status || ""),
+        refundMethod: String(refundByOrderId.get(order.id)?.refundMethod || ""),
+        refundAmount: Number(refundByOrderId.get(order.id)?.requestedRefundAmount || 0),
+        refundRequestedAt: String(refundByOrderId.get(order.id)?.requestedAt || ""),
+        refundSettlementPendingPickupOtp: Boolean(refundByOrderId.get(order.id)?.settlementPendingPickupOtp),
       }
     })
     

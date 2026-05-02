@@ -12,7 +12,7 @@ export type AdminFeature =
   | "employees.manage"
   | "hr.manage"
   | "settings.manage"
-
+  | "notifications.manage"
 export const FEATURE_ROUTE_RULES: Array<{ prefix: string; feature: AdminFeature }> = [
   { prefix: "/admin/reports", feature: "reports.view" },
   { prefix: "/admin/employees", feature: "employees.manage" },
@@ -26,6 +26,7 @@ export const FEATURE_ROUTE_RULES: Array<{ prefix: string; feature: AdminFeature 
   { prefix: "/admin/users", feature: "users.manage" },
   { prefix: "/admin/complaints", feature: "complaints.manage" },
   { prefix: "/admin/faqs", feature: "complaints.manage" },
+  { prefix: "/admin/notifications", feature: "notifications.manage" },
   { prefix: "/admin/settings", feature: "settings.manage" },
   { prefix: "/admin/security", feature: "settings.manage" },
   { prefix: "/admin", feature: "dashboard.view" },
@@ -45,6 +46,7 @@ export const ACCESS_ROLE_DEFAULTS: Record<string, AdminFeature[]> = {
     "employees.manage",
     "hr.manage",
     "settings.manage",
+    "notifications.manage",
   ],
   ADMIN: [
     "dashboard.view",
@@ -59,12 +61,14 @@ export const ACCESS_ROLE_DEFAULTS: Record<string, AdminFeature[]> = {
     "reports.view",
     "employees.manage",
     "hr.manage",
+    "notifications.manage",
   ],
   OPERATIONS: ["dashboard.view", "orders.view", "riders.manage", "vendors.manage", "reports.view"],
   SUPPORT: ["dashboard.view", "users.manage", "orders.view", "reports.view", "complaints.manage"],
   FINANCE: ["dashboard.view", "payments.manage", "commission.manage", "reports.view"],
   MARKETING: ["dashboard.view", "promos.manage", "reports.view"],
   HR: ["dashboard.view", "employees.manage", "hr.manage", "reports.view"],
+  NOTIFICATIONS: ["dashboard.view", "notifications.manage", "reports.view"],
 }
 
 const LEGACY_GRANT_TO_FEATURE: Record<string, AdminFeature> = {
@@ -76,6 +80,7 @@ const LEGACY_GRANT_TO_FEATURE: Record<string, AdminFeature> = {
   ANALYTICS_VIEW: "reports.view",
   SYSTEM_SETTINGS: "settings.manage",
   COMMISSION_SETTINGS: "commission.manage",
+  NOTIFICATIONS_MANAGEMENT: "notifications.manage",
 }
 
 type AccessEnvelope = {
@@ -130,6 +135,7 @@ export function firstGrantedAdminPath(grants: string[], modules: string[]): stri
     ANALYTICS_VIEW: "/admin/reports",
     SYSTEM_SETTINGS: "/admin/settings",
     COMMISSION_SETTINGS: "/admin/commission",
+    NOTIFICATIONS_MANAGEMENT: "/admin/notifications",
     "dashboard.view": "/admin",
     "users.manage": "/admin/users",
     "orders.view": "/admin/orders",
@@ -143,6 +149,7 @@ export function firstGrantedAdminPath(grants: string[], modules: string[]): stri
     "employees.manage": "/admin/employees",
     "hr.manage": "/admin/hr",
     "settings.manage": "/admin/settings",
+    "notifications.manage": "/admin/notifications",
   }
   for (const grant of ordered) {
     const mapped = grantToPath[grant]
