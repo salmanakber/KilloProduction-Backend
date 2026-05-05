@@ -40,7 +40,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { UserEditModal } from "@/components/components/admin/UserEditModal"
 import { UserViewModal } from "@/components/components/admin/UserViewModal"
-import { useToast } from "../../../../hooks/use-toast"
+import { useToast } from "../../../hooks/use-toast"
 import type { User } from "../../type/index"
 
 interface AdminUser extends User {}
