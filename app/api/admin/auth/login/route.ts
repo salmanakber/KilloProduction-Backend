@@ -4,6 +4,22 @@ import bcrypt from "bcryptjs"
 import { SignJWT } from "jose"
 import { firstGrantedAdminPath, parseAdminAccess } from "@/lib/admin-access"
 
+function shouldUseSecureCookie(request: NextRequest): boolean {
+  // ADMIN_COOKIE_SECURE_MODE: "auto" (default) | "always" | "never"
+  const mode = String(process.env.ADMIN_COOKIE_SECURE_MODE || "auto").toLowerCase()
+  if (mode === "always") return true
+  if (mode === "never") return false
+
+  const xfProto = request.headers.get("x-forwarded-proto") || ""
+  const forwarded = request.headers.get("forwarded") || ""
+  const proto =
+    xfProto.split(",")[0].trim().toLowerCase() ||
+    (/\bproto=https\b/i.test(forwarded) ? "https" : "")
+
+  // In auto mode: secure only when request is actually HTTPS.
+  return proto === "https"
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
@@ -95,12 +111,10 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Cookie must survive reverse-proxy setups on VPS.
-    const forwardedProto = request.headers.get("x-forwarded-proto")
-    const isHttps = forwardedProto === "https"
+    // Support both HTTP and HTTPS deploys via ADMIN_COOKIE_SECURE_MODE.
     response.cookies.set("admin-token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production" ? isHttps : false,
+      secure: shouldUseSecureCookie(request),
       path: "/",
       sameSite: "lax",
       maxAge: 60 * 60 * 24, // 1 day

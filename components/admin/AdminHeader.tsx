@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { useSession, signOut } from "next-auth/react"
+import { useSession } from "next-auth/react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Bell, Search, Settings, User, LogOut, Shield, ChevronDown, Menu, X } from "lucide-react"
@@ -154,6 +154,21 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
     setSearchQuery("")
   }
 
+  const handleAdminSignOut = async () => {
+    try {
+      await fetch("/api/auth/signout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } catch (error) {
+      console.error("Admin signout error:", error)
+    } finally {
+      localStorage.removeItem("adminUser")
+      router.replace("/admin/login")
+      router.refresh()
+    }
+  }
+
   return (
     <header className="bg-white border-b border-gray-200 px-4 py-3">
       <div className="flex items-center justify-between">
@@ -300,7 +315,7 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
                   </Link>
                   <hr className="my-2" />
                   <button
-                    onClick={() => signOut()}
+                    onClick={handleAdminSignOut}
                     className="w-full flex items-center space-x-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg"
                   >
                     <LogOut className="h-4 w-4" />
