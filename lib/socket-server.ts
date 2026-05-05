@@ -5,6 +5,11 @@ import { prisma } from "./prisma";
 import { eventBus } from "./event-bus";
 import { fetchRider } from "./services/riderService";
 import { NotificationBridge } from "./notification-bridge";
+import {
+  buildRiderServiceFilter,
+  courierMatchesRider,
+  rideBookingMatchesRider,
+} from "@/lib/rider-request-eligibility";
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -1138,11 +1143,26 @@ class SocketIOServer {
         return
       }
 
-      const radiusKm = 5
+      const radiusKm = 30
+      const rideTypeVehicleRaw =
+        (merged as any)?.rideType?.vehicleType ??
+        (merged as any)?.vehicleType ??
+        (merged as any)?.requestedVehicleType
+      const rideTypeVehicle =
+        typeof rideTypeVehicleRaw === "string" ? rideTypeVehicleRaw.toUpperCase() : null
+      const requestModuleRaw = (merged as any)?.module
+      const requestModule = typeof requestModuleRaw === "string" ? requestModuleRaw.toUpperCase() : null
+      const requestTypeRaw = (merged as any)?.type ?? (merged as any)?.requestType
+      const requestType = typeof requestTypeRaw === "string" ? requestTypeRaw.toLowerCase() : "courier"
       const nearbyRiders = await this.findNearbyRiders(
         pickupLat,
         pickupLng,
-        radiusKm
+        radiusKm,
+        {
+          type: requestType,
+          module: requestModule,
+          rideTypeVehicle,
+        }
       )
 
       
@@ -1178,7 +1198,12 @@ class SocketIOServer {
   }
 
   // Find nearby riders within radius
-  private async findNearbyRiders(latitude: number, longitude: number, radiusKm: number) {
+  private async findNearbyRiders(
+    latitude: number,
+    longitude: number,
+    radiusKm: number,
+    requestContext?: { type?: string | null; module?: string | null; rideTypeVehicle?: string | null }
+  ) {
     try {
       // Find all available riders with their profiles
       const riders = await prisma.riderProfile.findMany({
@@ -1219,6 +1244,31 @@ class SocketIOServer {
           location.latitude,
           location.longitude
         )
+
+        const riderMaxKm = Number(rider.maxDeliveryDistance || 0)
+        const effectiveRiderMaxKm = riderMaxKm > 0 ? riderMaxKm : 10
+        if (distance > radiusKm || distance > effectiveRiderMaxKm) {
+          continue
+        }
+
+        if (requestContext?.rideTypeVehicle) {
+          const riderFilter = buildRiderServiceFilter(
+            rider.serviceTypes,
+            rider.modules,
+            rider.vehicleType as any
+          )
+          const matches =
+            requestContext.type === "ride"
+              ? rideBookingMatchesRider(riderFilter, requestContext.rideTypeVehicle as any)
+              : courierMatchesRider(
+                  riderFilter,
+                  requestContext.module ?? null,
+                  requestContext.rideTypeVehicle as any
+                )
+          if (!matches) {
+            continue
+          }
+        }
 
         if (distance <= radiusKm) {
           nearbyRiders.push({
@@ -1297,6 +1347,50 @@ class SocketIOServer {
     console.log("🚗 User sockets map:", this.userSockets.size);
     console.log("🚗 Sockets for user:", this.getUserSockets(userId)); 
     
+    // Safety gate: do not emit mismatched rideType/module requests to this rider.
+    try {
+      const rider = await prisma.riderProfile.findUnique({
+        where: { userId },
+        select: { vehicleType: true, serviceTypes: true, modules: true, maxDeliveryDistance: true, currentLocation: true },
+      })
+      const rideTypeVehicleRaw = ride?.rideType?.vehicleType ?? ride?.vehicleType ?? ride?.requestedVehicleType
+      const rideTypeVehicle = typeof rideTypeVehicleRaw === "string" ? rideTypeVehicleRaw.toUpperCase() : null
+      const requestType = String(ride?.type || ride?.requestType || "courier").toLowerCase()
+      const requestModule = typeof ride?.module === "string" ? ride.module.toUpperCase() : null
+
+      if (!rider || !rideTypeVehicle) {
+        return
+      }
+
+      const filter = buildRiderServiceFilter(rider.serviceTypes, rider.modules, rider.vehicleType as any)
+      const allowed =
+        requestType === "ride"
+          ? rideBookingMatchesRider(filter, rideTypeVehicle as any)
+          : courierMatchesRider(filter, requestModule, rideTypeVehicle as any)
+      if (!allowed) {
+        return
+      }
+
+      const rLoc = rider.currentLocation as any
+      const pLat = Number(ride?.pickupLatitude)
+      const pLng = Number(ride?.pickupLongitude)
+      if (
+        rLoc &&
+        Number.isFinite(pLat) &&
+        Number.isFinite(pLng) &&
+        Number.isFinite(Number(rLoc.latitude)) &&
+        Number.isFinite(Number(rLoc.longitude))
+      ) {
+        const d = this.calculateDistance(Number(rLoc.latitude), Number(rLoc.longitude), pLat, pLng)
+        const riderMaxKm = Number(rider.maxDeliveryDistance || 0) > 0 ? Number(rider.maxDeliveryDistance) : 10
+        if (d > riderMaxKm) {
+          return
+        }
+      }
+    } catch {
+      return
+    }
+
     const sockets = this.getUserSockets(userId);
     if (!sockets.length) {
       console.warn(`⚠️ No active sockets for user eeeee ${userId}`);
