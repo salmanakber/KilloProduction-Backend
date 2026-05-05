@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
     const createdAt = new Date().toISOString()
     const expiresAt = new Date(Date.now() + RETRY_BROADCAST_SECONDS * 1000).toISOString()
     const lockUntil = new Date(Date.now() + RETRY_LOCK_SECONDS * 1000).toISOString()
+    const rebroadcastWaveId = `${booking.id}:${Date.now()}`
 
     for (const rider of eligibleRiders) {
       const riderUserId = (rider as any).user.id as string
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest) {
         lockUntil,
         waveIndex: 0,
         rebroadcast: true,
+        rebroadcastWaveId,
       }
 
       await socketServer.sendNewRideToUser(riderUserId, riderData)
@@ -176,6 +178,7 @@ export async function POST(request: NextRequest) {
             type: "request_removed",
             requestId: booking.id,
             reason: "BROADCAST_WINDOW_ENDED",
+            rebroadcastWaveId,
           })
         }
 

@@ -311,7 +311,9 @@ export async function GET(request: NextRequest) {
 
     // Process ride bookings - NO distance calculations here
     const processedRideBookings = rideVisible.map((booking) => {
-      const baseTs = booking.scheduledAt ? new Date(booking.scheduledAt).getTime() : new Date(booking.createdAt).getTime()
+      const baseTs = booking.scheduledAt
+        ? new Date(booking.scheduledAt).getTime()
+        : new Date((booking as any).requestedAt || booking.createdAt).getTime()
       const expiresAt = new Date(baseTs + rideMaxAgeMs)
       return {
         id: booking.id,
@@ -358,10 +360,7 @@ const withDistances = await Promise.all(
     if (effectiveRiderLat === 0 && effectiveRiderLng === 0) {
       return { ...request, isWithinRange: true }
     }
-    console.log("3232 effectiveRiderLat", effectiveRiderLat)
-    console.log("3232 effectiveRiderLng", effectiveRiderLng)
-    console.log("3232 request.pickupLatitude", request.pickupLatitude)
-    console.log("3232 request.pickupLongitude", request.pickupLongitude)
+
 
     const distanceToPickup = await calculateDistance(
       effectiveRiderLat,

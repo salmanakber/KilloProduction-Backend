@@ -1358,17 +1358,18 @@ class SocketIOServer {
       const requestType = String(ride?.type || ride?.requestType || "courier").toLowerCase()
       const requestModule = typeof ride?.module === "string" ? ride.module.toUpperCase() : null
 
-      if (!rider || !rideTypeVehicle) {
+      if (!rider) {
         return
       }
-
-      const filter = buildRiderServiceFilter(rider.serviceTypes, rider.modules, rider.vehicleType as any)
-      const allowed =
-        requestType === "ride"
-          ? rideBookingMatchesRider(filter, rideTypeVehicle as any)
-          : courierMatchesRider(filter, requestModule, rideTypeVehicle as any)
-      if (!allowed) {
-        return
+      if (rideTypeVehicle) {
+        const filter = buildRiderServiceFilter(rider.serviceTypes, rider.modules, rider.vehicleType as any)
+        const allowed =
+          requestType === "ride"
+            ? rideBookingMatchesRider(filter, rideTypeVehicle as any)
+            : courierMatchesRider(filter, requestModule, rideTypeVehicle as any)
+        if (!allowed) {
+          return
+        }
       }
 
       const rLoc = rider.currentLocation as any
