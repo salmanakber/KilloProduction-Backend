@@ -12,8 +12,9 @@ const riderRequestCache = new Map<string, { count: number; lastUpdate: number }>
 
 export async function fetchRider(riderId: string, lat: number, lng: number): Promise<{ rider: RiderLocation | null; hasNewRequests: boolean }> {
   try {
-    // Update rider location in RiderProfile
-    const updatedRider = await prisma.riderProfile.update({
+    // Update rider location in RiderProfile.
+    // Use updateMany to avoid P2025 when a rider account exists but profile row is missing/incomplete.
+    const updateResult = await prisma.riderProfile.updateMany({
       where: { userId: riderId },
       data: {
         currentLocation: {
@@ -22,6 +23,15 @@ export async function fetchRider(riderId: string, lat: number, lng: number): Pro
         },
         lastLocationUpdate: new Date()
       },
+    });
+
+    if (updateResult.count === 0) {
+      console.warn(`Rider profile not found for location update: ${riderId}`);
+      return { rider: null, hasNewRequests: false };
+    }
+
+    const updatedRider = await prisma.riderProfile.findUnique({
+      where: { userId: riderId },
       select: {
         userId: true,
         currentLocation: true,

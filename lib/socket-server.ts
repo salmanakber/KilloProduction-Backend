@@ -10,6 +10,7 @@ interface AuthenticatedSocket extends Socket {
   data: {
     userId?: string;
     role?: string;
+    authToken?: string;
     [key: string]: any;
   };
 }
@@ -69,6 +70,7 @@ class SocketIOServer {
 
         socket.data.userId = user.id;
         socket.data.role = user.role;
+        socket.data.authToken = token;
         this.clients.set(socket.id, socket);
         this.addUserSocket( user.id, socket);  
 
@@ -112,6 +114,7 @@ class SocketIOServer {
 
           socket.data.userId = user.id;
           socket.data.role = user.role;
+          socket.data.authToken = payload.token;
           this.clients.set(socket.id, socket)
           this.addUserSocket(user.id, socket) // add user socket to the map
 
@@ -395,6 +398,22 @@ class SocketIOServer {
       socket.on("update_location", async (data: { lat: number; lng: number; userId: string; timestamp: string; heading: number; speed: number; userName: string }) => {
         if (!socket.data?.userId) return;
         try {
+          // Re-validate token on high-frequency rider updates so expired sessions cannot keep mutating state.
+          const token = socket.data?.authToken;
+          if (token) {
+            const payload = await verifyToken(token);
+            if (!payload?.userId || payload.userId !== socket.data.userId) {
+              socket.emit("auth_error", { message: "Session expired. Please login again." });
+              socket.disconnect(true);
+              return;
+            }
+          }
+
+          // Guardrail: only rider sockets should update rider geo state.
+          if (socket.data.role !== "RIDER") {
+            return;
+          }
+
           console.log("📍 update_location received from rider:", socket.data.userId, { lat: data.lat, lng: data.lng });
 
           // Update rider location in database
