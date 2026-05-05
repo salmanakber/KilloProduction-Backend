@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperKillo Platform — Feature Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #0d1117;
+      --ink-soft: #374151;
+      --ink-muted: #6b7280;
+      --ink-faint: #9ca3af;
+      --paper: #fafaf8;
+      --paper-warm: #f5f3ef;
+      --paper-card: #ffffff;
+      --accent: #1a3a6b;
+      --accent-mid: #2b5fb0;
+      --accent-light: #dce8ff;
+      --accent-xlight: #f0f5ff;
+      --gold: #b5893a;
+      --gold-light: #fdf4e3;
+      --ok: #0c6e4e;
+      --ok-light: #d6f0e8;
+      --border: rgba(0,0,0,0.08);
+      --border-med: rgba(0,0,0,0.12);
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.06);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.05);
+      --radius: 12px;
+      --radius-lg: 18px;
+      --radius-sm: 7px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Sora', -apple-system, sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      line-height: 1.65;
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── SIDEBAR NAV ── */
+    .sidebar {
+      position: fixed;
+      left: 0; top: 0; bottom: 0;
+      width: 252px;
+      background: var(--paper-card);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border-med); border-radius: 4px; }
+
+    .sidebar-brand {
+      padding: 24px 20px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .brand-mark {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-mark svg { width: 18px; height: 18px; fill: white; }
+
+    .brand-name {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--ink-faint);
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .nav-section {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-section-label {
+      padding: 10px 20px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 20px;
+      font-size: 13px;
+      color: var(--ink-soft);
+      text-decoration: none;
+      border-radius: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .nav-link:hover {
+      background: var(--paper-warm);
+      color: var(--ink);
+    }
+
+    .nav-link.active {
+      background: var(--accent-xlight);
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .nav-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--border-med);
+      flex-shrink: 0;
+    }
+
+    .nav-link.active .nav-dot { background: var(--accent-mid); }
+
+    /* ── MAIN CONTENT ── */
+    .main {
+      margin-left: 252px;
+      min-height: 100vh;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      background: var(--accent);
+      padding: 72px 64px 64px;
+      color: white;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 80% at 85% 20%, rgba(43,95,176,0.5) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 60% at 10% 90%, rgba(26,58,107,0.8) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .hero-eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-weight: 500;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 12px;
+    }
+
+    .hero-title {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 52px;
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: white;
+      margin-bottom: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-title em {
+      font-style: italic;
+      font-weight: 300;
+      color: rgba(255,255,255,0.65);
+    }
+
+    .hero-desc {
+      font-size: 15px;
+      color: rgba(255,255,255,0.65);
+      max-width: 560px;
+      line-height: 1.7;
+      margin-bottom: 36px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      color: rgba(255,255,255,0.8);
+      letter-spacing: 0.01em;
+    }
+
+    /* ── CONTENT AREA ── */
+    .content {
+      padding: 48px 64px 80px;
+      max-width: 960px;
+    }
+
+    /* ── SECTION HEADINGS ── */
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .section-num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px; height: 36px;
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 9px;
+      flex-shrink: 0;
+      margin-top: 4px;
+      font-family: 'DM Mono', monospace;
+    }
+
+    .section-title {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+
+    .section-desc {
+      font-size: 14.5px;
+      color: var(--ink-soft);
+      line-height: 1.75;
+      margin-bottom: 24px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--paper-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      box-shadow: var(--shadow-md);
+      margin-bottom: 28px;
+      scroll-margin-top: 24px;
+    }
+
+    .card-overview {
+      background: linear-gradient(135deg, #fafbff 0%, #f5f8ff 100%);
+      border-color: rgba(26,58,107,0.12);
+    }
+
+    /* ── TWO COL ── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 20px;
+    }
+
+    /* ── FEATURE GROUPS ── */
+    .feature-group {
+      margin-top: 24px;
+    }
+
+    .feature-group-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-faint);
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feature-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+    }
+
+    .feature-list li::before {
+      content: '';
+      display: block;
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent-mid);
+      flex-shrink: 0;
+      margin-top: 7px;
+    }
+
+    .feature-list li strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* ── WORKFLOW BAR ── */
+    .workflow {
+      margin-top: 28px;
+      background: var(--accent-xlight);
+      border: 1px solid var(--accent-light);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+
+    .workflow-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-mid);
+      margin-bottom: 10px;
+    }
+
+    .workflow-steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      align-items: center;
+    }
+
+    .workflow-step {
+      font-size: 12.5px;
+      color: var(--accent);
+      font-weight: 500;
+      background: white;
+      border: 1px solid var(--accent-light);
+      border-radius: 6px;
+      padding: 4px 10px;
+    }
+
+    .workflow-arrow {
+      font-size: 11px;
+      color: var(--ink-faint);
+      padding: 0 5px;
+    }
+
+    /* ── DOMAIN TABLE ── */
+    .domain-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .domain-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 16px;
+      align-items: start;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      background: var(--paper-warm);
+      border: 1px solid var(--border);
+    }
+
+    .domain-key {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.4;
+    }
+
+    .domain-val {
+      font-size: 13px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    /* ── PILLAR CARDS ── */
+    .pillar-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .pillar-card {
+      background: var(--paper-warm);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .pillar-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pillar-icon {
+      width: 24px; height: 24px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .pillar-icon svg { width: 13px; height: 13px; fill: white; }
+
+    /* ── RESULT BOX ── */
+    .result-box {
+      background: var(--ok-light);
+      border: 1px solid rgba(12,110,78,0.2);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      margin-top: 28px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .result-check {
+      font-size: 18px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .result-text {
+      font-size: 14.5px;
+      color: var(--ok);
+      font-weight: 500;
+      line-height: 1.6;
+    }
+
+    /* ── NOTICE BOX ── */
+    .notice {
+      background: var(--gold-light);
+      border: 1px solid rgba(181,137,58,0.25);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      font-size: 13.5px;
+      color: #7a5a1e;
+      line-height: 1.6;
+      margin-top: 20px;
+    }
+
+    .notice strong { color: #5a3e0e; }
+
+    /* ── MODE CHIPS ── */
+    .mode-chips {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .mode-chip {
+      background: var(--accent-xlight);
+      border: 1px solid var(--accent-light);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .mode-chip strong {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    /* ── CATEGORY BADGE ── */
+    .cat-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 9px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+    }
+
+    .cat-commerce { background: #e8f4e8; color: #2a6e2a; }
+    .cat-service { background: #fff0e0; color: #8a4e00; }
+    .cat-platform { background: #e8eeff; color: #1a3a8a; }
+    .cat-finance { background: #f0ffe8; color: #2a6e3a; }
+    .cat-admin { background: #f5e8ff; color: #5a1a8a; }
+    .cat-growth { background: #ffe8e8; color: #8a1a2a; }
+
+    /* ── ARCH HIGHLIGHTS ── */
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .arch-item {
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
+      border-left: 3px solid var(--accent-mid);
+      background: var(--paper-warm);
+      font-size: 13.5px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+    }
+
+    .arch-item strong { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; }
+
+    /* ── SECTION DIVIDER ── */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 12px 0 36px;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-left: 252px;
+      background: var(--accent);
+      padding: 28px 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-brand {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: -0.02em;
+    }
+
+    .footer-text {
+      font-size: 12px;
+      color: rgba(255,255,255,0.45);
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: var(--border-med); border-radius: 6px; }
+
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main, .footer { margin-left: 0; }
+      .content { padding: 32px 24px 64px; }
+      .hero { padding: 48px 24px 40px; }
+      .hero-title { font-size: 36px; }
+      .two-col, .pillar-grid, .arch-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ────────── SIDEBAR ────────── -->
+<nav class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-logo">
+      <div class="brand-mark">
+        <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <rect x="1" y="1" width="7" height="7" rx="2"/>
+          <rect x="10" y="1" width="7" height="7" rx="2"/>
+          <rect x="1" y="10" width="7" height="7" rx="2"/>
+          <rect x="10" y="10" width="7" height="7" rx="2"/>
+        </svg>
+      </div>
+      <span class="brand-name">SuperKillo</span>
+    </div>
+    <div class="brand-sub">Platform Documentation</div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Overview</div>
+    <a href="#overview" class="nav-link active"><span class="nav-dot"></span>Platform Overview</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Commerce</div>
+    <a href="#pharmacy" class="nav-link"><span class="nav-dot"></span>Pharmacy</a>
+    <a href="#supplier" class="nav-link"><span class="nav-dot"></span>Supplier / Wholesaler</a>
+    <a href="#autoparts" class="nav-link"><span class="nav-dot"></span>Auto Parts</a>
+    <a href="#food" class="nav-link"><span class="nav-dot"></span>Food</a>
+    <a href="#grocery" class="nav-link"><span class="nav-dot"></span>Grocery</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Services & Mobility</div>
+    <a href="#mechanic" class="nav-link"><span class="nav-dot"></span>Mechanic</a>
+    <a href="#riding" class="nav-link"><span class="nav-dot"></span>Riding</a>
+    <a href="#customer" class="nav-link"><span class="nav-dot"></span>Customer Super App</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Finance & Growth</div>
+    <a href="#money" class="nav-link"><span class="nav-dot"></span>Money Transfer</a>
+    <a href="#bonus" class="nav-link"><span class="nav-dot"></span>Bonus & Loyalty</a>
+    <a href="#marketing" class="nav-link"><span class="nav-dot"></span>Marketing & Automation</a>
+    <a href="#notices" class="nav-link"><span class="nav-dot"></span>System Notices</a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Operations & Admin</div>
+    <a href="#offers" class="nav-link"><span class="nav-dot"></span>Special Offers</a>
+    <a href="#medicine-catalog" class="nav-link"><span class="nav-dot"></span>Medicine Catalog</a>
+    <a href="#developer" class="nav-link"><span class="nav-dot"></span>Developer & POS</a>
+    <a href="#hr" class="nav-link"><span class="nav-dot"></span>HR & Employees</a>
+    <a href="#money-admin" class="nav-link"><span class="nav-dot"></span>Transfer Admin</a>
+    <a href="#support" class="nav-link"><span class="nav-dot"></span>Support & FAQs</a>
+    <a href="#config" class="nav-link"><span class="nav-dot"></span>Config & Compliance</a>
+    <a href="#admin-panel" class="nav-link"><span class="nav-dot"></span>Admin Panel Map</a>
+    <a href="#architecture" class="nav-link"><span class="nav-dot"></span>Architecture</a>
+  </div>
+</nav>
+
+<!-- ────────── HERO ────────── -->
+<div class="main">
+  <section class="hero">
+    <div class="hero-eyebrow">Client-Facing Product Documentation</div>
+    <h1 class="hero-title">SuperKillo<br><em>Platform Feature Guide</em></h1>
+    <p class="hero-desc">
+      A comprehensive review of mobile apps, backend services, real-time systems,
+      and admin panel capabilities across commerce, mobility, service, and finance.
+    </p>
+    <div class="pill-row">
+      <span class="hero-pill">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="1" fill="currentColor" opacity=".6"/><rect x="6" width="4" height="4" rx="1" fill="currentColor" opacity=".6"/><rect y="6" width="4" height="4" rx="1" fill="currentColor" opacity=".6"/><rect x="6" y="6" width="4" height="4" rx="1" fill="currentColor" opacity=".6"/></svg>
+        Mobile Apps
+      </span>
+      <span class="hero-pill">Backend APIs</span>
+      <span class="hero-pill">Real-Time Sockets</span>
+      <span class="hero-pill">Admin & Operations</span>
+      <span class="hero-pill">AI Features</span>
+      <span class="hero-pill">Marketing & Automation</span>
+      <span class="hero-pill">Compliance & Audit</span>
+    </div>
+  </section>
+
+  <!-- ────────── CONTENT ────────── -->
+  <div class="content">
+
+    <!-- PLATFORM OVERVIEW -->
+    <div class="card card-overview" id="overview">
+      <div class="section-header">
+        <div class="section-num" style="background: var(--accent); font-size:10px;">SK</div>
+        <div>
+          <div class="section-title">Platform Overview</div>
+        </div>
+      </div>
+      <p class="section-desc">
+        SuperKillo is a unified super-platform where commerce, mobility, service providers, and finance operate on one backend. Customers can buy products, request services, book riders, transfer money, and track every lifecycle from request to settlement — while administrators control KYC, security, operations, and policy.
+      </p>
+
+      <div class="two-col">
+        <div class="pillar-card">
+          <div class="pillar-card-title">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 13 13" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="5.5" height="5.5" rx="1.2"/><rect x="7.5" y="0" width="5.5" height="5.5" rx="1.2"/><rect x="0" y="7.5" width="5.5" height="5.5" rx="1.2"/><rect x="7.5" y="7.5" width="5.5" height="5.5" rx="1.2"/></svg>
+            </div>
+            Core Pillars
+          </div>
+          <ul class="feature-list">
+            <li><strong>Commerce:</strong> Pharmacy, Food, Grocery, Auto Parts, Supplier sourcing</li>
+            <li><strong>Services:</strong> Mechanic quotes, offers, job execution, and approval flow</li>
+            <li><strong>Mobility:</strong> Ride booking, courier dispatch, rider acceptance, live tracking</li>
+            <li><strong>Finance:</strong> Wallet, transfers, withdrawals, gateway processing, refunds</li>
+            <li><strong>Admin:</strong> KYC, compliance, commissions, security, reporting, HR</li>
+          </ul>
+        </div>
+        <div class="pillar-card">
+          <div class="pillar-card-title">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 13 13" xmlns="http://www.w3.org/2000/svg"><circle cx="6.5" cy="6.5" r="5.5" stroke="white" stroke-width="1.5" fill="none"/><circle cx="6.5" cy="6.5" r="2" fill="white"/></svg>
+            </div>
+            Shared Infrastructure
+          </div>
+          <ul class="feature-list">
+            <li><strong>AI layer</strong> for recommendation, virtual assistant, and intelligent drafting</li>
+            <li><strong>Socket layer</strong> for dispatch, chat, status updates, and presence</li>
+            <li><strong>Order lifecycle engine</strong> for split orders, pickup, delivery, completion</li>
+            <li><strong>Commission & tax handling</strong> with module-specific payout calculations</li>
+            <li><strong>Role-based access</strong> model for admin features and operational safety</li>
+            <li><strong>Notification infrastructure:</strong> in-app, email, SMS, and mobile push</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="notice">
+        <strong>Messaging architecture note:</strong> Marketing campaigns drive growth and conversions; system notices communicate operational truth (incidents, maintenance, policy); both coexist with transactional messages (orders, payouts, OTPs) delivered through the same technical channels where appropriate.
+      </div>
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- PHARMACY -->
+    <div class="card" id="pharmacy">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">01</div>
+        <div class="section-title">Pharmacy Module</div>
+      </div>
+      <p class="section-desc">Built as both a healthcare-assist module and a medicine commerce engine — linking AI symptom support, prescription processing, pharmacy matching, chat/approval workflow, checkout, rider logistics, and health continuity records.</p>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Customer Experience</div>
+          <ul class="feature-list">
+            <li><strong>Virtual doctor flow:</strong> describe symptoms via text, voice, or image and receive medically guided suggestions.</li>
+            <li><strong>Prescription upload:</strong> prescriptions are analyzed and transformed into structured medicine suggestions.</li>
+            <li><strong>Nearby pharmacy intelligence:</strong> location-aware listing with stock/availability and delivery checks.</li>
+            <li><strong>Pharmacy chat handoff:</strong> continue clarification in chat when AI suggests uncertain items.</li>
+            <li><strong>Purchase flow:</strong> address, payment, and confirmation handled in-app.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="feature-group">
+            <div class="feature-group-title">Backend / Operations</div>
+            <ul class="feature-list">
+              <li><strong>Single-store first:</strong> attempts complete fulfillment from one pharmacy before split sourcing.</li>
+              <li><strong>Prescription queue:</strong> pharmacies receive queued requests with status control.</li>
+              <li><strong>Top-selling & search endpoints:</strong> powers medicine discovery and fast purchase conversion.</li>
+              <li><strong>Payment/settlement hooks:</strong> provisional vendor crediting and final settlement on completion.</li>
+              <li><strong>Refund integration:</strong> supports post-order refund handling including reverse pickup logistics.</li>
+            </ul>
+          </div>
+          <div class="feature-group">
+            <div class="feature-group-title">Health Integration</div>
+            <ul class="feature-list">
+              <li><strong>Medicine reminders & vitals</strong> connect with ongoing health management data.</li>
+              <li><strong>Doctor visit and lab context</strong> support better medication continuity decisions.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Symptom / prescription input</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">AI extraction & medicine shortlist</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Pharmacy review + chat</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Customer payment</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Rider pickup & delivery</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Completion settlement</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUPPLIER -->
+    <div class="card" id="supplier">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">02</div>
+        <div class="section-title">Supplier (Wholesaler) Module</div>
+      </div>
+      <p class="section-desc">Enables pharmacies/vendors to source medicines and products from wholesalers with quote negotiation, courier-enabled delivery, payment/commission handling, and inventory import after delivery.</p>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Supplier Lifecycle</div>
+          <ul class="feature-list">
+            <li><strong>Wholesaler onboarding & KYC:</strong> create, verify, approve, suspend, and govern wholesaler accounts.</li>
+            <li><strong>Catalog management:</strong> wholesalers maintain products and medicine lists for B2B sourcing.</li>
+            <li><strong>Supplier discovery:</strong> pharmacies can browse wholesalers and evaluate before ordering.</li>
+          </ul>
+        </div>
+        <div class="feature-group">
+          <div class="feature-group-title">Quote & Order</div>
+          <ul class="feature-list">
+            <li><strong>Quote request creation</strong> with needed items and terms.</li>
+            <li><strong>Supplier response options:</strong> accept, reject, or counter with changed conditions.</li>
+            <li><strong>Terms confirmation</strong> before acceptance and payment progression.</li>
+            <li><strong>Delivery coordination</strong> with courier booking for wholesaler-to-pharmacy movement.</li>
+            <li><strong>QR-secured handover</strong> for controlled pickup/delivery verification.</li>
+            <li><strong>Inventory import</strong> of delivered items directly into pharmacy stock records.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Wholesaler publishes catalog</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Pharmacy sends quote</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Wholesaler responds</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Terms confirmed</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Courier pickup / QR verify</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Inventory import</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTO PARTS -->
+    <div class="card" id="autoparts">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">03</div>
+        <div class="section-title">Auto Parts Module</div>
+      </div>
+      <p class="section-desc">A marketplace where customers request parts, vendors send custom offers, and the platform supports part-only or part-plus-service journeys with rider/courier logistics and strong completion controls.</p>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Core Features</div>
+          <ul class="feature-list">
+            <li><strong>AI-assisted request drafting</strong> converts user problem descriptions into structured part requests.</li>
+            <li><strong>Vendor scoring & matching</strong> by location, compatibility, budget, and performance.</li>
+            <li><strong>Custom offer workflow:</strong> vendors submit detailed offers (condition, warranty, timeline, price).</li>
+            <li><strong>Offer acceptance engine</strong> transitions request/order states and prepares payment/delivery.</li>
+            <li><strong>Delivery quote support:</strong> route and courier estimation before dispatch execution.</li>
+            <li><strong>Handover verification</strong> using secure code/QR checks.</li>
+          </ul>
+        </div>
+        <div class="feature-group">
+          <div class="feature-group-title">Integrated Modes</div>
+          <div class="mode-chips">
+            <div class="mode-chip">
+              <strong>Part-only mode</strong>
+              Customer buys part and receives rider/courier delivery.
+            </div>
+            <div class="mode-chip">
+              <strong>Part + mechanic mode</strong>
+              Accepted part offer can enter mechanic bid/service flow before final completion.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Customer raises request</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Vendors send offers</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Customer accepts</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Payment</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Courier dispatch</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Handover verify</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Settlement</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- MECHANIC -->
+    <div class="card" id="mechanic">
+      <span class="cat-badge cat-service">Service</span>
+      <div class="section-header">
+        <div class="section-num">04</div>
+        <div class="section-title">Mechanic Module</div>
+      </div>
+      <p class="section-desc">A complete service system supporting direct quote flow, service request statuses, chat/communication, additional-part requests, approval-based payout release, and admin KYC/governance.</p>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Customer & Mechanic Features</div>
+          <ul class="feature-list">
+            <li><strong>Direct quote request flow</strong> without requiring a vendor-part chain.</li>
+            <li><strong>Quote lifecycle:</strong> pending → submitted → accepted/rejected.</li>
+            <li><strong>Service request states:</strong> pending, quoted, accepted, in-progress, completed, cancelled, rejected.</li>
+            <li><strong>Additional parts request</strong> by mechanic during active service.</li>
+            <li><strong>Chat & notifications</strong> for all milestones.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="feature-group">
+            <div class="feature-group-title">Earnings & Control</div>
+            <ul class="feature-list">
+              <li><strong>Escrow-like pending credits</strong> held until approval/completion trigger.</li>
+              <li><strong>Approval-gated release</strong> on customer approval or job finalization.</li>
+              <li><strong>Distance-based pickup pricing</strong> configurable price-per-km.</li>
+              <li><strong>Rating system</strong> updates mechanic quality metrics post-service.</li>
+            </ul>
+          </div>
+          <div class="feature-group">
+            <div class="feature-group-title">Admin Controls</div>
+            <ul class="feature-list">
+              <li><strong>KYC decisions</strong> with reasons and audit trail.</li>
+              <li><strong>Module stats:</strong> active mechanics, job volumes, revenue, rating summaries.</li>
+              <li><strong>Settings control</strong> for platform-level mechanic pickup pricing.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Quote / offer creation</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Customer acceptance</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Service execution</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Completion request</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Customer approval</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Payout & rating</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOD -->
+    <div class="card" id="food">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">05</div>
+        <div class="section-title">Food Module</div>
+      </div>
+      <p class="section-desc">Optimized for timing-sensitive fulfillment — combining AI assistance, menu/catalog controls, delayed-dispatch strategy based on prep time, promotions, and POS-ready API integrations.</p>
+
+      <ul class="feature-list">
+        <li><strong>AI food assistant:</strong> smart suggestions, meal plan conversations, and guided selection.</li>
+        <li><strong>Preparation-aware dispatch:</strong> rider notification waits until food is closer to ready state to reduce idle time and improve freshness.</li>
+        <li><strong>ETA prediction:</strong> combines route intelligence and prep estimates for realistic delivery windows.</li>
+        <li><strong>POS integration:</strong> vendor APIs and keys for external system synchronization.</li>
+        <li><strong>Promotion & loyalty support:</strong> promo validation, usage tracking, and rewards impact at checkout.</li>
+        <li><strong>Multi-order decomposition:</strong> split complex orders and coordinate pickup/delivery sequence.</li>
+      </ul>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Discover items</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Optional AI help</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Checkout with promos</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Prep-aware rider dispatch</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Live tracking</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Completion</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- GROCERY -->
+    <div class="card" id="grocery">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">06</div>
+        <div class="section-title">Grocery Module</div>
+      </div>
+      <p class="section-desc">Product-centric shopping with strong inventory visibility and fast rider interconnection.</p>
+
+      <ul class="feature-list">
+        <li><strong>AI pantry assistant:</strong> weekly planning and smart reorder guidance.</li>
+        <li><strong>Catalog controls:</strong> categories, stock flags, featured products, and pricing behavior for stores.</li>
+        <li><strong>Fast dispatch model:</strong> grocery checkout commonly enters immediate rider request flow.</li>
+        <li><strong>Promotions & campaign visibility:</strong> offers, coupons, and campaign discovery on customer home surfaces.</li>
+        <li><strong>Multi-pickup support:</strong> parent/child order handling for complex fulfillment structures.</li>
+      </ul>
+
+      <div class="workflow">
+        <div class="workflow-label">Workflow</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Browse stores</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">AI assist or add-to-cart</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Checkout</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Immediate rider assignment</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Tracking & completion</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIDING -->
+    <div class="card" id="riding">
+      <span class="cat-badge cat-service">Mobility</span>
+      <div class="section-header">
+        <div class="section-num">07</div>
+        <div class="section-title">Standalone Riding Module</div>
+      </div>
+      <p class="section-desc">Powers passenger/courier booking, dispatch waves, rider acceptance, OTP safety checks, and lifecycle-linked earnings.</p>
+
+      <ul class="feature-list">
+        <li><strong>Booking orchestration:</strong> creates ride/courier bookings with payment and promo validation.</li>
+        <li><strong>Eligibility-aware request feed:</strong> only suitable riders receive each request based on service type and context.</li>
+        <li><strong>Atomic accept flow:</strong> request acceptance updates assignment and earning records safely.</li>
+        <li><strong>OTP start verification:</strong> trip starts only after secure OTP confirmation at pickup.</li>
+        <li><strong>Live operations:</strong> sockets for location, status, and request lifecycle broadcast.</li>
+      </ul>
+    </div>
+
+    <!-- CUSTOMER APP -->
+    <div class="card" id="customer">
+      <span class="cat-badge cat-platform">Platform</span>
+      <div class="section-header">
+        <div class="section-num">08</div>
+        <div class="section-title">Customer Super App</div>
+      </div>
+      <p class="section-desc">Unifies all module journeys behind one navigation, one account identity, and common payment/wallet/loyalty systems.</p>
+
+      <ul class="feature-list">
+        <li><strong>Unified navigation:</strong> pharmacy, food, grocery, auto-parts, riding, and money transfer in one app.</li>
+        <li><strong>Unified cart & checkout:</strong> module-specific handoff with consistent UX and account context.</li>
+        <li><strong>Address, payment methods & wallet:</strong> reusable account capabilities across all modules.</li>
+        <li><strong>Loyalty & rewards:</strong> point accrual/redemption and customer history view.</li>
+        <li><strong>Smart shopping tools:</strong> AI suggestions and saved plan logic to improve repeat behavior.</li>
+        <li><strong>Authentication:</strong> phone/email login with optional OTP verification; push tokens refresh on supported devices after login.</li>
+        <li><strong>Chat & real-time:</strong> module-threaded conversations synchronized with order and service state.</li>
+      </ul>
+    </div>
+
+    <!-- MONEY TRANSFER -->
+    <div class="card" id="money">
+      <span class="cat-badge cat-finance">Finance</span>
+      <div class="section-header">
+        <div class="section-num">09</div>
+        <div class="section-title">Money Transfer Module</div>
+      </div>
+      <p class="section-desc">Enables secure P2P movement with compliance checks, gateway abstraction, payout processing, and dedicated admin oversight.</p>
+
+      <ul class="feature-list">
+        <li><strong>Transfer creation:</strong> sender to registered receiver with limits, validations, and fee computation.</li>
+        <li><strong>Bank verification constraints:</strong> transfer and withdrawal flows enforce bank-account validity.</li>
+        <li><strong>Gateway flexibility:</strong> Stripe/Paystack flow selection driven by runtime configuration.</li>
+        <li><strong>Payout execution:</strong> receiver can withdraw to bank and track payout status.</li>
+        <li><strong>History & monitoring:</strong> detailed transaction timelines in mobile and admin.</li>
+      </ul>
+    </div>
+
+    <!-- BONUS & LOYALTY -->
+    <div class="card" id="bonus">
+      <span class="cat-badge cat-finance">Finance</span>
+      <div class="section-header">
+        <div class="section-num">10</div>
+        <div class="section-title">Bonus & Loyalty Systems</div>
+      </div>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Rider Bonus Engine</div>
+          <ul class="feature-list">
+            <li><strong>Peak bonus engine</strong> creates demand-based challenges and tracks completion in real time.</li>
+            <li><strong>Challenge acceptance flow:</strong> riders accept active incentive tasks and receive event-based updates.</li>
+            <li><strong>Admin analytics</strong> connect incentives to operational outcomes.</li>
+          </ul>
+        </div>
+        <div class="feature-group">
+          <div class="feature-group-title">Customer Loyalty Engine</div>
+          <ul class="feature-list">
+            <li><strong>Points, caps, expiries, rewards</strong> and redemption logs.</li>
+            <li><strong>Module-specific earning behavior</strong> tailored per commerce type.</li>
+            <li><strong>Platform tuning</strong> for precision incentive management.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- MARKETING -->
+    <div class="card" id="marketing">
+      <span class="cat-badge cat-growth">Growth</span>
+      <div class="section-header">
+        <div class="section-num">11</div>
+        <div class="section-title">Marketing Management & Automation</div>
+      </div>
+      <p class="section-desc">A separate growth layer — distinct from promo codes and operational notices — designed for planned campaigns, measurable engagement, and repeatable audience outreach across modules.</p>
+
+      <div class="two-col">
+        <div class="feature-group">
+          <div class="feature-group-title">Campaigns & Channels</div>
+          <ul class="feature-list">
+            <li><strong>Multi-channel outreach:</strong> combine push, email, and SMS per campaign strategy.</li>
+            <li><strong>Scheduling & timezones:</strong> start/end windows, frequencies (one-off, recurring), and calendar-aware execution.</li>
+            <li><strong>Audience targeting:</strong> filter by user types, modules, segments, and geographic/cohort signals.</li>
+            <li><strong>Content & CTAs:</strong> titles, body copy, images, deep links, and call-to-action text.</li>
+            <li><strong>A/B testing:</strong> variant splits for message optimization.</li>
+          </ul>
+        </div>
+        <div class="feature-group">
+          <div class="feature-group-title">Segments & Automation</div>
+          <ul class="feature-list">
+            <li><strong>Segments:</strong> reusable audience groups for campaigns and reporting.</li>
+            <li><strong>Automation rules:</strong> trigger-based journeys with execution history and monitoring.</li>
+            <li><strong>Analytics loop:</strong> delivery, opens, clicks, conversions, revenue attribution, and health indicators.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="notice">
+        <strong>Distinction:</strong> Promo codes are short redemption mechanics at checkout. Marketing campaigns orchestrate outreach and measurement. System notices are operational broadcasts, not promotions.
+      </div>
+    </div>
+
+    <!-- SYSTEM NOTICES -->
+    <div class="card" id="notices">
+      <span class="cat-badge cat-admin">Admin</span>
+      <div class="section-header">
+        <div class="section-num">12</div>
+        <div class="section-title">System Notices & Operational Broadcasts</div>
+      </div>
+      <p class="section-desc">Dedicated workflow for communicating maintenance windows, incidents, policy updates, or safety guidance — distinct from marketing campaigns and promotional spam risk.</p>
+
+      <ul class="feature-list">
+        <li><strong>Channels:</strong> mobile push (Expo push tokens per user), email, SMS, or in-app inbox-only notices.</li>
+        <li><strong>Lifecycle:</strong> draft, schedule for future time, send immediately, or rely on background workers for due schedules.</li>
+        <li><strong>Audience:</strong> target by user roles (customers, vendors, riders) with counts from live user data.</li>
+        <li><strong>Scale:</strong> delivery runs in controlled batches to avoid overloading a single job.</li>
+        <li><strong>Governance:</strong> sent notices are locked; drafts and scheduled items can be edited or removed before dispatch.</li>
+      </ul>
+    </div>
+
+    <!-- SPECIAL OFFERS -->
+    <div class="card" id="offers">
+      <span class="cat-badge cat-growth">Growth</span>
+      <div class="section-header">
+        <div class="section-num">13</div>
+        <div class="section-title">Special Offers, Vendor Flash Events & Approval Gates</div>
+      </div>
+      <p class="section-desc">Beyond generic promo codes, the platform supports curated promotional programs and vendor-initiated flash or mystery offers that require administrative approval before customers see them.</p>
+
+      <ul class="feature-list">
+        <li><strong>Special offers workspace:</strong> create and monitor platform-wide or targeted offers with an approval path.</li>
+        <li><strong>Vendor offers:</strong> mystery or flash-style promotions route through a pending queue for compliance and quality review.</li>
+        <li><strong>Brand trust gate:</strong> promotional intensity is controlled while still enabling fast merchant creativity.</li>
+      </ul>
+    </div>
+
+    <!-- MEDICINE CATALOG -->
+    <div class="card" id="medicine-catalog">
+      <span class="cat-badge cat-commerce">Commerce</span>
+      <div class="section-header">
+        <div class="section-num">14</div>
+        <div class="section-title">Medicine Catalog, Taxonomy & Data Quality</div>
+      </div>
+      <p class="section-desc">Pharmacy intelligence depends on clean catalog data. Administration tools keep medicines, conditions, and sourcing metadata aligned with customer discovery and AI flows.</p>
+
+      <ul class="feature-list">
+        <li><strong>Master medicine directory:</strong> canonical medicine list powering search, prescriptions, and fulfillment.</li>
+        <li><strong>Wholesaler suggestions:</strong> review catalog additions or corrections proposed through B2B sourcing workflows.</li>
+        <li><strong>Illness categories:</strong> structure symptom and condition browsing so AI and search route users sensibly.</li>
+        <li><strong>Medicine origins / sourcing metadata:</strong> enrich listings for compliance, filtering, and supplier transparency.</li>
+      </ul>
+    </div>
+
+    <!-- DEVELOPER -->
+    <div class="card" id="developer">
+      <span class="cat-badge cat-platform">Platform</span>
+      <div class="section-header">
+        <div class="section-num">15</div>
+        <div class="section-title">Developer, POS & Partner Integrations</div>
+      </div>
+      <p class="section-desc">Food service and omni-channel vendors often rely on external POS or partner systems. Developer-grade controls keep integrations secure over time.</p>
+
+      <ul class="feature-list">
+        <li><strong>POS & partner APIs:</strong> provision credentials for trusted integrations.</li>
+        <li><strong>Key lifecycle:</strong> rotate or revoke keys without downtime surprises; reduce blast radius if a secret leaks.</li>
+        <li><strong>Vendor-side settings:</strong> food module settings align external menus and operational behavior with in-app ordering.</li>
+        <li><strong>Optional runtime configuration:</strong> Firebase/push and messaging-related settings centralized for consistent mobile behavior.</li>
+      </ul>
+    </div>
+
+    <!-- HR -->
+    <div class="card" id="hr">
+      <span class="cat-badge cat-admin">Admin</span>
+      <div class="section-header">
+        <div class="section-num">16</div>
+        <div class="section-title">HR, Employees & Internal Workforce</div>
+      </div>
+      <p class="section-desc">Internal workforce controls separate from marketplace users (customers, riders, vendors).</p>
+
+      <ul class="feature-list">
+        <li><strong>HR dashboard:</strong> leave requests, attendance-oriented stats, and staffing summaries for operations leadership.</li>
+        <li><strong>Employee directory:</strong> manage internal admin and operational staff records alongside HR workflows.</li>
+        <li><strong>Granular admin access:</strong> feature grants and legacy permission mappings ensure each admin sees only approved areas.</li>
+      </ul>
+    </div>
+
+    <!-- MONEY ADMIN -->
+    <div class="card" id="money-admin">
+      <span class="cat-badge cat-finance">Finance</span>
+      <div class="section-header">
+        <div class="section-num">17</div>
+        <div class="section-title">Money Transfer — Administrative Oversight</div>
+      </div>
+      <p class="section-desc">Customer-facing transfers are mirrored by an admin console for monitoring, configuration, and payout governance.</p>
+
+      <ul class="feature-list">
+        <li><strong>Dashboard:</strong> snapshot of volume, risk indicators, and operational posture.</li>
+        <li><strong>Transactions:</strong> searchable ledger of movements for support and reconciliation.</li>
+        <li><strong>Payouts:</strong> oversee withdrawal and settlement pipes tied to user bank destinations.</li>
+        <li><strong>Configuration:</strong> tune limits, fees, provider selection, and policy knobs without redeploying apps.</li>
+        <li><strong>Bank verification / transfer KYC:</strong> administrative review surfaces tied to verified funding endpoints.</li>
+      </ul>
+    </div>
+
+    <!-- SUPPORT -->
+    <div class="card" id="support">
+      <span class="cat-badge cat-admin">Admin</span>
+      <div class="section-header">
+        <div class="section-num">18</div>
+        <div class="section-title">Support, FAQs & Customer Experience Operations</div>
+      </div>
+
+      <ul class="feature-list">
+        <li><strong>Complaints / tickets:</strong> structured intake, threading, and resolution workflows for production incidents and disputes.</li>
+        <li><strong>FAQ management:</strong> publish and refine self-service answers that reduce repeat contacts.</li>
+        <li><strong>Operational awareness:</strong> pending-count cues on navigation highlight queues needing attention.</li>
+      </ul>
+    </div>
+
+    <!-- CONFIG -->
+    <div class="card" id="config">
+      <span class="cat-badge cat-admin">Admin</span>
+      <div class="section-header">
+        <div class="section-num">19</div>
+        <div class="section-title">Configuration, Compliance & Observability</div>
+      </div>
+
+      <div class="two-col">
+        <ul class="feature-list">
+          <li><strong>Global settings:</strong> session timeouts, notification defaults, loyalty parameters, and cross-module toggles.</li>
+          <li><strong>Security center:</strong> security events with investigate/resolve flows and configurable defensive policies.</li>
+          <li><strong>Audit logs:</strong> trace administrative actions for accountability and regulator-ready narratives.</li>
+          <li><strong>Email templates:</strong> maintain transactional and system templates with variable placeholders.</li>
+        </ul>
+        <ul class="feature-list">
+          <li><strong>AI configuration:</strong> central governance of model/prompt defaults powering assistants across modules.</li>
+          <li><strong>Ride types & rider tooling:</strong> configure ride categories and analyze peak bonus performance.</li>
+          <li><strong>Vendor performance:</strong> operational analytics to identify strong or struggling merchants.</li>
+          <li><strong>Cross-module categories:</strong> taxonomy maintenance where product families span storefront experiences.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ADMIN PANEL MAP -->
+    <div class="card" id="admin-panel">
+      <span class="cat-badge cat-admin">Admin</span>
+      <div class="section-header">
+        <div class="section-num">20</div>
+        <div class="section-title">Backend Admin Panel — Domain Map</div>
+      </div>
+      <p class="section-desc">A full command center with domain-specific workbenches. Not only CRUD — it contains policy engines, approval flows, financial controls, incident handling, and reporting/export. The sidebar mirrors operational reality.</p>
+
+      <div class="domain-grid">
+        <div class="domain-row"><div class="domain-key">Dashboard</div><div class="domain-val">KPIs, module summaries, revenue and operational snapshots.</div></div>
+        <div class="domain-row"><div class="domain-key">User Management</div><div class="domain-val">Account lifecycle, activation, roles, and profile governance across customers and supply-side users.</div></div>
+        <div class="domain-row"><div class="domain-key">KYC & Verification</div><div class="domain-val">Unified queue for vendor/rider/mechanic verification with approve/reject, reasons, and audit trail.</div></div>
+        <div class="domain-row"><div class="domain-key">Orders</div><div class="domain-val">Cross-module order intervention — cancellation, completion assists, refund pathways — with action logging.</div></div>
+        <div class="domain-row"><div class="domain-key">Payments Hub</div><div class="domain-val">Payment records, wallet movements, retries/cancellations, refunds workspace, withdrawal approvals, and consolidated stats.</div></div>
+        <div class="domain-row"><div class="domain-key">Vendor Management</div><div class="domain-val">Auto Parts, Pharmacy, Food (restaurants + settings), Grocery, plus shared categories taxonomy.</div></div>
+        <div class="domain-row"><div class="domain-key">Riders</div><div class="domain-val">Fleet oversight, peak bonus analytics, and ride type configuration.</div></div>
+        <div class="domain-row"><div class="domain-key">Mechanics</div><div class="domain-val">Directory and verification aligned with the mechanic service module.</div></div>
+        <div class="domain-row"><div class="domain-key">Promo Codes</div><div class="domain-val">Redemption mechanics, limits, and lifecycle distinct from full marketing campaigns.</div></div>
+        <div class="domain-row"><div class="domain-key">Commission Management</div><div class="domain-val">Rules, activation, module economics, platform fees.</div></div>
+        <div class="domain-row"><div class="domain-key">Medicine Administration</div><div class="domain-val">Medicines master list, wholesaler catalog suggestions, illness categories, medicine origins.</div></div>
+        <div class="domain-row"><div class="domain-key">Marketing Management</div><div class="domain-val">Growth dashboard — campaigns, segments, automation, engagement and conversion analytics.</div></div>
+        <div class="domain-row"><div class="domain-key">Money Transfer (Admin)</div><div class="domain-val">Dashboard, transactions, payouts, configuration, bank verification.</div></div>
+        <div class="domain-row"><div class="domain-key">Special & Vendor Offers</div><div class="domain-val">Platform offers plus pending mystery/flash vendor submissions.</div></div>
+        <div class="domain-row"><div class="domain-key">System Notices</div><div class="domain-val">Operational broadcasts with scheduling and channel selection — not promotional marketing.</div></div>
+        <div class="domain-row"><div class="domain-key">Support</div><div class="domain-val">Complaints/tickets and FAQ content management.</div></div>
+        <div class="domain-row"><div class="domain-key">Reports & Analytics</div><div class="domain-val">Module and financial reporting pipelines with export.</div></div>
+        <div class="domain-row"><div class="domain-key">Developer</div><div class="domain-val">POS/partner API credentials, rotation and revocation.</div></div>
+        <div class="domain-row"><div class="domain-key">Settings Cluster</div><div class="domain-val">General platform settings, security incidents, audit logs, email templates, AI configuration.</div></div>
+        <div class="domain-row"><div class="domain-key">HR & Employees</div><div class="domain-val">Internal workforce — staff HR views and employee records.</div></div>
+        <div class="domain-row"><div class="domain-key">Wholesalers</div><div class="domain-val">B2B supplier account oversight tied to pharmacy sourcing.</div></div>
+      </div>
+
+      <div class="workflow" style="margin-top:24px;">
+        <div class="workflow-label">Admin Operating Pattern</div>
+        <div class="workflow-steps">
+          <span class="workflow-step">Monitor</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Decide (approve / reject / adjust policy)</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Execute operational action</span><span class="workflow-arrow">→</span>
+          <span class="workflow-step">Audit & report outcomes</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARCHITECTURE -->
+    <div class="card" id="architecture">
+      <span class="cat-badge cat-platform">Platform</span>
+      <div class="section-header">
+        <div class="section-num" style="background:var(--gold);">∞</div>
+        <div class="section-title">Interconnected Architecture</div>
+      </div>
+      <p class="section-desc">SuperKillo operates as one interconnected digital operating system across commerce, service fulfillment, logistics, and finance.</p>
+
+      <div class="arch-grid">
+        <div class="arch-item"><strong>Shared rider network</strong>Pharmacy, Food, Grocery, Auto Parts, and supplier-linked deliveries can all feed dispatch.</div>
+        <div class="arch-item"><strong>Shared real-time backbone</strong>Socket events synchronize dispatch, chat, status, and presence across all modules.</div>
+        <div class="arch-item"><strong>Shared settlement logic</strong>Wallet/payout/commission flows connected with module-specific release rules.</div>
+        <div class="arch-item"><strong>Shared governance</strong>Admin controls unify security, compliance, and operational policy across the full platform.</div>
+        <div class="arch-item"><strong>Shared AI strategy</strong>AI assistants integrated into module experiences and centrally governed via admin config.</div>
+        <div class="arch-item"><strong>Growth vs operations</strong>Marketing automation layers on top of the same user graph without confusing shoppers — system notices stay factual and separable from promotions.</div>
+        <div class="arch-item"><strong>Data & catalog spine</strong>Medicine taxonomy, categories, and vendor catalogs feed both customer discovery and admin reporting.</div>
+        <div class="arch-item" style="border-left-color: var(--gold);">
+          <strong>Result</strong>One coherent operating system — commerce, service, logistics, and finance, unified.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-brand">SuperKillo</div>
+  <div class="footer-text">Prepared for client presentation · Platform Feature Documentation</div>
+</footer>
+
+<script>
+  const links = document.querySelectorAll('.nav-link');
+  const sections = document.querySelectorAll('.card[id]');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.nav-link[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { threshold: 0.3 });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

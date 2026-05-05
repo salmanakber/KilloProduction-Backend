@@ -14,6 +14,8 @@ type RefundSettings = {
   refundPlatformCommission: boolean
   autoRefundThreshold?: number
   loyalCompletedOrdersMin?: number
+  /** Minimum completed ride bookings (DELIVERED/COMPLETED) for micro auto-refund trust */
+  loyalCompletedRidesMin?: number
 }
 
 const DEFAULT_SETTINGS: RefundSettings = {
@@ -28,6 +30,7 @@ const DEFAULT_SETTINGS: RefundSettings = {
   refundPlatformCommission: true,
   autoRefundThreshold: 20,
   loyalCompletedOrdersMin: 50,
+  loyalCompletedRidesMin: 15,
 }
 
 function readSettings(raw: unknown): RefundSettings {
@@ -52,6 +55,10 @@ function readSettings(raw: unknown): RefundSettings {
       typeof obj.loyalCompletedOrdersMin === "number" && Number.isFinite(obj.loyalCompletedOrdersMin)
         ? obj.loyalCompletedOrdersMin
         : 50,
+    loyalCompletedRidesMin:
+      typeof obj.loyalCompletedRidesMin === "number" && Number.isFinite(obj.loyalCompletedRidesMin)
+        ? obj.loyalCompletedRidesMin
+        : 15,
   }
 }
 

@@ -235,6 +235,18 @@ export async function GET(request: NextRequest) {
 
     // Transform the booking data
     const broadcastWindowSeconds = 90
+    const effectiveRequestedAtMs = (() => {
+      const requestedAt = (activeBooking as any).requestedAt
+      if (requestedAt instanceof Date && Number.isFinite(requestedAt.getTime())) {
+        return requestedAt.getTime()
+      }
+      const scheduledAt = (activeBooking as any).scheduledAt
+      if (scheduledAt instanceof Date && Number.isFinite(scheduledAt.getTime()) && scheduledAt.getTime() <= Date.now()) {
+        return scheduledAt.getTime()
+      }
+      return activeBooking.createdAt.getTime()
+    })()
+
     const transformedBooking = {
       id: activeBooking.id,
       bookingNumber: activeBooking.bookingNumber,
@@ -253,14 +265,13 @@ export async function GET(request: NextRequest) {
       paymentStatus: (activeBooking as any).paymentStatus || 'PENDING',
       paymentMethod: (activeBooking as any).paymentMethod || null,
       module: (activeBooking as any).module || null,
+      scheduledAt: (activeBooking as any).scheduledAt
+        ? (activeBooking as any).scheduledAt.toISOString()
+        : null,
       createdAt: activeBooking.createdAt.toISOString(),
-      requestedAt: (activeBooking as any).requestedAt
-        ? (activeBooking as any).requestedAt.toISOString()
-        : activeBooking.createdAt.toISOString(),
+      requestedAt: new Date(effectiveRequestedAtMs).toISOString(),
       broadcastExpiresAt: new Date(
-        (((activeBooking as any).requestedAt
-          ? (activeBooking as any).requestedAt.getTime()
-          : activeBooking.createdAt.getTime()) + broadcastWindowSeconds * 1000)
+        effectiveRequestedAtMs + broadcastWindowSeconds * 1000
       ).toISOString(),
       rider: activeBooking.rider ? {
         id: activeBooking.rider.id,

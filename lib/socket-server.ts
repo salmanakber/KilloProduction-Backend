@@ -1144,15 +1144,15 @@ class SocketIOServer {
             },
             actionUrl: `/rider/requests/${merged.requestId ?? data.requestId}`,
           })
-          riderSocket.emit("new_requests", {
+          const payload = {
             ...merged,
             distance: rider.distance,
             riderId: rider.userId,
-          })
+          }
+          riderSocket.emit("new_request", payload)
+          riderSocket.emit("new_requests", payload)
         }
       }
-
-      this.io?.emit("new_requests", merged)
     } catch (error) {
       console.error("❌ Error processing new_request:", error)
     }

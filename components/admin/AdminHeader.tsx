@@ -92,6 +92,7 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
       const response = await fetch("/api/admin/notifications")
       if (response.ok) {
         const data = await response.json()
+        console.log("data", data)
         setNotifications(data.notifications)
       }
     } catch (error) {

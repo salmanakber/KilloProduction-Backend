@@ -194,6 +194,10 @@ export async function GET(request: NextRequest) {
     const courierFiltered = courierBookings.filter((b) =>
       courierMatchesRider(riderFilter, b.module, b.rideType.vehicleType)
     )
+    const courierVisible = courierFiltered.filter((b) => {
+      if (!b.scheduledAt) return true
+      return new Date(b.scheduledAt).getTime() <= Date.now()
+    })
 
     
     
@@ -239,15 +243,20 @@ export async function GET(request: NextRequest) {
     const rideFiltered = rideBookings.filter((b) =>
       rideBookingMatchesRider(riderFilter, b.rideType.vehicleType)
     )
+    const rideVisible = rideFiltered.filter((b) => {
+      if (!b.scheduledAt) return true
+      return new Date(b.scheduledAt).getTime() <= Date.now()
+    })
 
     const nowTs = Date.now()
     const rideMaxAgeMs = 90 * 1000
     const nonRideMaxAgeMs = 90 * 60 * 1000
 
     // Process courier bookings - NO distance calculations here
-    const processedCourierBookings = courierFiltered.map((booking) => {
+    const processedCourierBookings = courierVisible.map((booking) => {
       const ttlMs = (booking.module || "RIDE") === "RIDE" ? rideMaxAgeMs : nonRideMaxAgeMs
-      const expiresAt = new Date(new Date(booking.createdAt).getTime() + ttlMs)
+      const baseTs = booking.scheduledAt ? new Date(booking.scheduledAt).getTime() : new Date(booking.createdAt).getTime()
+      const expiresAt = new Date(baseTs + ttlMs)
       return {
         id: booking.id,
         type: 'courier' as const,
@@ -301,8 +310,9 @@ export async function GET(request: NextRequest) {
     })
 
     // Process ride bookings - NO distance calculations here
-    const processedRideBookings = rideFiltered.map((booking) => {
-      const expiresAt = new Date(new Date(booking.createdAt).getTime() + rideMaxAgeMs)
+    const processedRideBookings = rideVisible.map((booking) => {
+      const baseTs = booking.scheduledAt ? new Date(booking.scheduledAt).getTime() : new Date(booking.createdAt).getTime()
+      const expiresAt = new Date(baseTs + rideMaxAgeMs)
       return {
         id: booking.id,
         type: 'ride' as const,

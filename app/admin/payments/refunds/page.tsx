@@ -80,7 +80,11 @@ export default function RefundManagement() {
         const statsData = await statsRes.json().catch(() => ({}))
         setRefunds(refundData.refunds || [])
         setTotalPages(Math.max(1, Number(refundData?.pagination?.pages || 1)))
-        setRefundSettings(settingsData.settings || null)
+        const rs = settingsData.settings || null
+        setRefundSettings(rs)
+        if (typeof rs?.autoRefundThreshold === "number" && Number.isFinite(rs.autoRefundThreshold)) {
+          setAutoRefundThreshold(rs.autoRefundThreshold)
+        }
         if (typeof statsData?.currencySymbol === "string" && statsData.currencySymbol.trim()) {
           setCurrencySymbol(statsData.currencySymbol)
         }
@@ -133,6 +137,7 @@ export default function RefundManagement() {
           ...(refundSettings || {}),
           autoRefundThreshold,
           loyalCompletedOrdersMin: Number(refundSettings?.loyalCompletedOrdersMin ?? 50),
+          loyalCompletedRidesMin: Number(refundSettings?.loyalCompletedRidesMin ?? 15),
         },
       }
       const res = await fetch("/api/admin/payments/refunds/settings", {
@@ -142,7 +147,7 @@ export default function RefundManagement() {
       })
       if (!res.ok) throw new Error("Failed to save")
       setSavingSettings(false)
-      setActionBanner({ type: "ok", text: `Auto-refund threshold updated to ₦${autoRefundThreshold}.` })
+      setActionBanner({ type: "ok", text: `Auto-refund threshold updated to ${cur}${autoRefundThreshold}.` })
     } catch (e: any) {
       setSavingSettings(false)
       setActionBanner({ type: "err", text: e?.message || "Failed to save settings" })
@@ -329,7 +334,7 @@ export default function RefundManagement() {
           <div>
             <h2 className="text-base font-bold text-slate-900">Auto-Approve Micro Refunds</h2>
             <p className="text-sm text-slate-500 mt-1 max-w-xl">
-              Automatically approve wallet refunds for trusted customers if the amount is below this threshold. Reduces manual overhead.
+              When enabled (threshold &gt; 0), wallet refunds at or below this amount are approved instantly for trusted customers — those with at least the configured counts of completed marketplace orders and completed ride bookings (see below). Physical returns that need courier pickup are never auto-approved.
             </p>
           </div>
         </div>
@@ -405,7 +410,7 @@ export default function RefundManagement() {
               Refund platform commission
             </label>
             <div>
-              <p className="text-xs font-bold uppercase text-slate-500 mb-1">Loyal Customer Completed Orders</p>
+              <p className="text-xs font-bold uppercase text-slate-500 mb-1">Trusted customer — min completed orders</p>
               <input
                 type="number"
                 min={1}
@@ -418,6 +423,22 @@ export default function RefundManagement() {
                 }
                 className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full"
               />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase text-slate-500 mb-1">Trusted customer — min completed rides</p>
+              <input
+                type="number"
+                min={0}
+                value={Number(refundSettings?.loyalCompletedRidesMin ?? 15)}
+                onChange={(e) =>
+                  setRefundSettings((prev: any) => ({
+                    ...(prev || {}),
+                    loyalCompletedRidesMin: Number(e.target.value) || 0,
+                  }))
+                }
+                className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full"
+              />
+              <p className="text-xs text-slate-400 mt-1">Ride bookings with status DELIVERED or COMPLETED.</p>
             </div>
           </div>
         </div>

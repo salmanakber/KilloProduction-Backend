@@ -5,6 +5,10 @@ import { FOOD_RIDER_DISPATCH_QUEUE_NAME } from "@/lib/food-rider-dispatch-queue"
 import { MEAL_PLAN_RECURRING_QUEUE_NAME } from "@/lib/meal-plan-recurring-queue";
 import { MARKETING_SCHEDULED_QUEUE_NAME } from "@/lib/marketing-scheduled-queue";
 import { processFoodRiderDispatchJob } from "@/lib/process-food-rider-dispatch-job";
+import {
+  processScheduledCourierDispatchJob,
+  processScheduledRideDispatchJob,
+} from "@/lib/process-scheduled-ride-dispatch-job";
 import { processMealPlanRecurringJob } from "@/lib/process-meal-plan-recurring-job";
 import { processMarketingScheduledJob } from "@/lib/process-marketing-scheduled-job";
 import { catchUpOverdueScheduledCampaigns } from "@/lib/marketing-scheduled-catchup";
@@ -43,11 +47,17 @@ const foodDispatchWorker = new Worker(
   FOOD_RIDER_DISPATCH_QUEUE_NAME,
   async (job) => {
     try {
-      console.log(`[Worker] Processing job ${job.id}`, job.data);
+      console.log(`[Worker] Processing job ${job.id}`, job.name, job.data);
 
-      await processFoodRiderDispatchJob(
-        job.data as { courierBookingId: string; orderId: string }
-      );
+      if (job.name === "scheduled-ride-dispatch") {
+        await processScheduledRideDispatchJob(job.data as { rideBookingId: string });
+      } else if (job.name === "scheduled-courier-dispatch") {
+        await processScheduledCourierDispatchJob(job.data as { courierBookingId: string });
+      } else {
+        await processFoodRiderDispatchJob(
+          job.data as { courierBookingId: string; orderId: string }
+        );
+      }
 
       console.log(`[Worker] Completed job ${job.id}`);
     } catch (error) {
@@ -155,7 +165,7 @@ void (async () => {
 })();
 
 console.log(
-  `[bullmq-workers] "${FOOD_RIDER_DISPATCH_QUEUE_NAME}" + "${MEAL_PLAN_RECURRING_QUEUE_NAME}" + "${MARKETING_SCHEDULED_QUEUE_NAME}" + "${MONEY_FX_SNAPSHOT_QUEUE_NAME}"`
+  `[bullmq-workers] "${FOOD_RIDER_DISPATCH_QUEUE_NAME}" (food + scheduled-ride-dispatch) + "${MEAL_PLAN_RECURRING_QUEUE_NAME}" + "${MARKETING_SCHEDULED_QUEUE_NAME}" + "${MONEY_FX_SNAPSHOT_QUEUE_NAME}"`
 );
 
 const BONUS_MS = parseMs(process.env.RIDER_BONUS_TICK_MS, 10 * 60 * 1000);

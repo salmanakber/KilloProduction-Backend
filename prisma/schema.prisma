@@ -4270,6 +4270,8 @@ enum NotificationType {
   ORDER
   MECHANIC_ADDITIONAL_PARTS_REQUEST
   REVIEW_RECEIVED
+  refund_requested
+  refund_processed
 }
 
 enum TicketPriority {
