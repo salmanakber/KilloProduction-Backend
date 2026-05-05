@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import {
   LayoutDashboard, Users, ShoppingCart, DollarSign, Truck, Settings,
@@ -236,6 +236,7 @@ interface AdminSidebarProps {
 
 // --- Main Sidebar Component ---
 export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: AdminSidebarProps) {
+  const router = useRouter()
   
   // Calculate effective collapsed state (never collapse on mobile)
   const effectiveCollapsed = isCollapsed && !isMobileOpen;
@@ -244,6 +245,9 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
   const [grants, setGrants] = useState<string[] | null>(null)
   const [modules, setModules] = useState<string[] | null>(null)
   const [accessRole, setAccessRole] = useState<string | null>(null)
+  const [profileImage, setProfileImage] = useState<string>("")
+  const [adminName, setAdminName] = useState<string>("Admin User")
+  const [adminEmail, setAdminEmail] = useState<string>("admin@kilo.com")
 
   useEffect(() => {
     let cancelled = false
@@ -264,6 +268,27 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
     return () => {
       cancelled = true
       clearInterval(t)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadProfile = async () => {
+      try {
+        const res = await fetch("/api/admin/profile", { credentials: "include" })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (typeof data?.avatar === "string") setProfileImage(data.avatar)
+        if (typeof data?.name === "string" && data.name.trim()) setAdminName(data.name.trim())
+        if (typeof data?.email === "string" && data.email.trim()) setAdminEmail(data.email.trim())
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadProfile()
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -493,6 +518,20 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         if (!item.subItems) return ownAllowed
         return ownAllowed || item.subItems.length > 0
       })
+  const handleAdminSignOut = async () => {
+    try {
+      await fetch("/api/auth/signout", {
+        method: "POST",
+        credentials: "include",
+      })
+    } catch (error) {
+      console.error("Admin signout error:", error)
+    }
+    finally {
+      localStorage.removeItem("adminUser")
+      router.replace("/admin/login")
+    }
+  }
 
   const visibleNavItems = filterByAccess(navItems)
 
@@ -547,12 +586,25 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       {/* Floating User Profile Card */}
       <div className={cn("mx-4 mb-6 p-2 bg-white border border-slate-200/80 rounded-[16px] shadow-sm flex flex-col transition-all duration-300 shrink-0", effectiveCollapsed ? "items-center mx-3" : "")}>
         <div className={cn("flex items-center mb-2 transition-all", effectiveCollapsed ? "justify-center p-1" : "gap-3.5 px-2 py-1.5")}>
-            <div className="h-10 w-10 shrink-0 rounded-[12px] bg-slate-100 flex items-center justify-center text-slate-700 font-bold text-[12px] ring-1 ring-slate-200">
-                AD
-            </div>
+            {profileImage ? (
+              <img
+                src={profileImage}
+                alt="Admin avatar"
+                className="h-10 w-10 shrink-0 rounded-[12px] object-cover ring-1 ring-slate-200"
+              />
+            ) : (
+              <div className="h-10 w-10 shrink-0 rounded-[12px] bg-slate-100 flex items-center justify-center text-slate-700 font-bold text-[12px] ring-1 ring-slate-200">
+                {adminName
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((p) => p[0]?.toUpperCase())
+                  .join("") || "AD"}
+              </div>
+            )}
             <div className={cn("flex flex-col whitespace-nowrap overflow-hidden transition-all duration-300", effectiveCollapsed ? "opacity-0 w-0 hidden" : "opacity-100")}>
-                <span className="text-[14px] font-bold text-slate-900 leading-tight">Admin User</span>
-                <span className="text-[12px] font-semibold text-slate-400 mt-1">admin@kilo.com</span>
+                <span className="text-[14px] font-bold text-slate-900 leading-tight">{adminName}</span>
+                <span className="text-[12px] font-semibold text-slate-400 mt-1">{adminEmail}</span>
             </div>
         </div>
         
@@ -561,6 +613,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
             variant="ghost" 
             className="w-full h-10 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center rounded-[10px] transition-colors"
             title="Logout"
+            onClick={handleAdminSignOut}
           >
             <LogOut className="h-5 w-5" strokeWidth={2.5} />
           </Button>
@@ -568,6 +621,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
           <Button 
             variant="ghost" 
             className="w-full justify-center font-bold text-slate-500 hover:text-red-600 hover:bg-red-50 h-10 rounded-[10px] transition-colors"
+            onClick={handleAdminSignOut}
           >
             <LogOut className="h-4 w-4 mr-2.5 shrink-0" strokeWidth={2.5} />
             Logout Account
