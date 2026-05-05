@@ -26,7 +26,7 @@ import {
   TrendingDown,
   Activity
 } from "lucide-react"
-import { formatCompact } from "../../../../lib/moneyFormat"
+import { formatCompact } from "../../../lib/moneyFormat"
 import { 
   AreaChart, 
   Area, 
