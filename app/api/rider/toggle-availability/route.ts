@@ -12,14 +12,33 @@ export async function POST(request: NextRequest) {
 
     const { isAvailable, isOnline, currentLocation } = await request.json()
 
-    // Update rider profile basic info
-    const riderProfile = await prisma.riderProfile.update({
+    // Resolve rider profile first to avoid Prisma P2025 on update.
+    const existingProfile = await prisma.riderProfile.findUnique({
+      where: { userId: session.id },
+      select: { id: true },
+    })
+    if (!existingProfile) {
+      return NextResponse.json(
+        {
+          error: "Rider profile not found. Please complete rider verification/profile setup first.",
+          code: "RIDER_PROFILE_NOT_FOUND",
+        },
+        { status: 409 }
+      )
+    }
+
+    // Update rider profile basic info (safe: row existence verified above).
+    await prisma.riderProfile.updateMany({
       where: { userId: session.id },
       data: {
         isAvailable,
         currentLocation: currentLocation || undefined,
         isOnline: new Date(), // still update for reference
       },
+    })
+
+    const riderProfile = await prisma.riderProfile.findUniqueOrThrow({
+      where: { userId: session.id },
     })
 
     // Handle online/offline session tracking

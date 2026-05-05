@@ -56,6 +56,28 @@ export async function POST(request: NextRequest) {
     }
     
 
+    // Hard guard: rider accounts must have RiderProfile before any login session is issued.
+    if (user.role === "RIDER" && !user.riderProfile) {
+      return NextResponse.json(
+        {
+          error: "Rider profile is missing. Please contact support to complete rider setup.",
+          code: "RIDER_PROFILE_MISSING",
+          redirectToVerification: true,
+          user: {
+            id: user.id,
+            phone: user.phone,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            isVerified: user.isVerified,
+            isActive: user.isActive,
+            status: user.status,
+          },
+        },
+        { status: 403 }
+      )
+    }
+
     // Check if account is deactivated - generate temporary token for verification center
     const sys = await prisma.systemSettings.findFirst()
     const maxAttempts = sys?.maxLoginAttempts ?? 5

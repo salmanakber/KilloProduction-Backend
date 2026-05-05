@@ -38,6 +38,10 @@ export async function middleware(req: NextRequest) {
   }
 
   try {
+    if (!JWT_SECRET) {
+      console.error("middleware: JWT_SECRET is not set")
+      return NextResponse.redirect(new URL("/admin/login", req.url))
+    }
     // ✅ Verify token using `jose` (Edge-compatible)
     const { payload } = await jwtVerify(token, encoder.encode(JWT_SECRET))
     const userRole = String(payload.role || "")

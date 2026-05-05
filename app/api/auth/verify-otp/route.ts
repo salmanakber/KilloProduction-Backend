@@ -46,6 +46,28 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
+
+    // Hard guard: rider accounts must have RiderProfile before session issuance.
+    if (user.role === "RIDER" && !user.riderProfile) {
+      return NextResponse.json(
+        {
+          error: "Rider profile is missing. Please contact support to complete rider setup.",
+          code: "RIDER_PROFILE_MISSING",
+          redirectToVerification: true,
+          user: {
+            id: user.id,
+            phone: user.phone,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            isVerified: user.isVerified,
+            isActive: user.isActive,
+            status: user.status,
+          },
+        },
+        { status: 403 }
+      )
+    }
     
     const isFirstCustomerVerification = user.role === "CUSTOMER" && !user.isVerified
     if (isFirstCustomerVerification) {

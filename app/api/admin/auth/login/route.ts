@@ -2,7 +2,6 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { SignJWT } from "jose"
-import { serialize } from "cookie"
 import { firstGrantedAdminPath, parseAdminAccess } from "@/lib/admin-access"
 
 export async function POST(request: NextRequest) {
@@ -14,10 +13,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Email and password are required" }, { status: 400 })
     }
 
+    const jwtSecret = process.env.JWT_SECRET
+    if (!jwtSecret) {
+      console.error("Admin login error: JWT_SECRET is not set")
+      return NextResponse.json({ message: "Server configuration error" }, { status: 500 })
+    }
+
     // Find admin user
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
-        email,
+        email: { equals: email, mode: "insensitive" },
         role: { in: ["ADMIN", "SUPER_ADMIN"] },
       },
       include: {
@@ -47,7 +52,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Create JWT using `jose`
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET!)
+    const secret = new TextEncoder().encode(jwtSecret)
     const adminAccess = parseAdminAccess(user.adminProfile?.permissions, user.role)
     const redirectPath = firstGrantedAdminPath(adminAccess.grants || [], adminAccess.modules || [])
     const token = await new SignJWT({
@@ -77,15 +82,6 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Set cookie with token
-    const cookie = serialize("admin-token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24, // 1 day
-    })
-
     const response = NextResponse.json({
       message: "Login successful",
       redirectPath,
@@ -99,7 +95,16 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    response.headers.set("Set-Cookie", cookie)
+    // Cookie must survive reverse-proxy setups on VPS.
+    const forwardedProto = request.headers.get("x-forwarded-proto")
+    const isHttps = forwardedProto === "https"
+    response.cookies.set("admin-token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? isHttps : false,
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24, // 1 day
+    })
 
     return response
   } catch (error) {
