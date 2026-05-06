@@ -22,16 +22,28 @@ export function applyFxMargin(baseRate: number, marginPercent: number): number {
 async function fetchBaseRateFromProvider(fromCurrency: string, toCurrency: string): Promise<number | null> {
   const apiKey = await getExchangeApiKeySafe()
 
-  if (!apiKey) {
-    const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${fromCurrency}`)
-    const data = await response.json()
-    return data.rates?.[toCurrency] ?? null
+  const tryFreeProvider = async (): Promise<number | null> => {
+    try {
+      const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${fromCurrency}`)
+      if (!response.ok) return null
+      const data = await response.json()
+      return data?.rates?.[toCurrency] ?? null
+    } catch {
+      return null
+    }
   }
 
-  const response = await fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/latest/${fromCurrency}`)
-  const data = await response.json()
-  if (data.result !== "success") return null
-  return data.conversion_rates?.[toCurrency] ?? null
+  if (!apiKey) return tryFreeProvider()
+
+  try {
+    const response = await fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/latest/${fromCurrency}`)
+    if (!response.ok) return await tryFreeProvider()
+    const data = await response.json()
+    if (data.result !== "success") return await tryFreeProvider()
+    return data.conversion_rates?.[toCurrency] ?? null
+  } catch {
+    return await tryFreeProvider()
+  }
 }
 
 async function getMoneyTransferConfigSafe(): Promise<{
@@ -60,6 +72,9 @@ async function getExchangeApiKeySafe(): Promise<string | undefined> {
 
 export async function getMoneyTransferFxRate(fromCurrency: string, toCurrency: string): Promise<number | null> {
   try {
+    if (fromCurrency.trim().toUpperCase() === toCurrency.trim().toUpperCase()) {
+      return 1
+    }
     const config = await getMoneyTransferConfigSafe()
     const marginRaw = config?.exchangeRateMargin ?? 0.02
     const marginPercent = normalizeMarginPercent(marginRaw)

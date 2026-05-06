@@ -3,6 +3,11 @@ import { NotificationBridge } from "@/lib/notification-bridge"
 import { getMoneyTransferFxRate } from "@/lib/money-fx-rate"
 import { MoneyScheduleFrequency } from "@prisma/client"
 
+function isMissingTableError(error: unknown): boolean {
+  const e = error as any
+  return e?.code === "P2021"
+}
+
 function addInterval(date: Date, frequency: MoneyScheduleFrequency): Date {
   const d = new Date(date.getTime())
   switch (frequency) {
@@ -27,16 +32,25 @@ function addInterval(date: Date, frequency: MoneyScheduleFrequency): Date {
  */
 export async function processMoneyScheduledDue(): Promise<{ processed: number }> {
   const now = new Date()
-  const due = await prisma.moneyScheduledTransfer.findMany({
-    where: {
-      status: "ACTIVE",
-      nextRunAt: { lte: now },
-    },
-    take: 50,
-    include: {
-      receiver: { select: { name: true, email: true, phone: true } },
-    },
-  })
+  let due: any[] = []
+  try {
+    due = await prisma.moneyScheduledTransfer.findMany({
+      where: {
+        status: "ACTIVE",
+        nextRunAt: { lte: now },
+      },
+      take: 50,
+      include: {
+        receiver: { select: { name: true, email: true, phone: true } },
+      },
+    })
+  } catch (e) {
+    if (isMissingTableError(e)) {
+      console.warn("processMoneyScheduledDue: table missing, skipping")
+      return { processed: 0 }
+    }
+    throw e
+  }
 
   let processed = 0
   for (const s of due) {
@@ -64,25 +78,33 @@ export async function processMoneyScheduledDue(): Promise<{ processed: number }>
 
     const lastRun = new Date()
     if (s.frequency === "ONCE") {
-      await prisma.moneyScheduledTransfer.update({
-        where: { id: s.id },
-        data: {
-          status: "COMPLETED",
-          lastRunAt: lastRun,
-        },
-      })
+      try {
+        await prisma.moneyScheduledTransfer.update({
+          where: { id: s.id },
+          data: {
+            status: "COMPLETED",
+            lastRunAt: lastRun,
+          },
+        })
+      } catch (e) {
+        if (!isMissingTableError(e)) throw e
+      }
     } else {
       let next = addInterval(lastRun, s.frequency)
       while (next <= now) {
         next = addInterval(next, s.frequency)
       }
-      await prisma.moneyScheduledTransfer.update({
-        where: { id: s.id },
-        data: {
-          lastRunAt: lastRun,
-          nextRunAt: next,
-        },
-      })
+      try {
+        await prisma.moneyScheduledTransfer.update({
+          where: { id: s.id },
+          data: {
+            lastRunAt: lastRun,
+            nextRunAt: next,
+          },
+        })
+      } catch (e) {
+        if (!isMissingTableError(e)) throw e
+      }
     }
     processed += 1
   }
@@ -93,10 +115,19 @@ export async function processMoneyScheduledDue(): Promise<{ processed: number }>
 const NOTIFY_COOLDOWN_MS = 24 * 60 * 60 * 1000
 
 export async function processMoneyRateAlerts(): Promise<{ notified: number }> {
-  const alerts = await prisma.moneyRateAlert.findMany({
-    where: { status: "ACTIVE" },
-    take: 200,
-  })
+  let alerts: any[] = []
+  try {
+    alerts = await prisma.moneyRateAlert.findMany({
+      where: { status: "ACTIVE" },
+      take: 200,
+    })
+  } catch (e) {
+    if (isMissingTableError(e)) {
+      console.warn("processMoneyRateAlerts: table missing, skipping")
+      return { notified: 0 }
+    }
+    throw e
+  }
 
   let notified = 0
   for (const a of alerts) {
@@ -124,10 +155,14 @@ export async function processMoneyRateAlerts(): Promise<{ notified: number }> {
           screen: "RateAlertScreen",
         },
       })
-      await prisma.moneyRateAlert.update({
-        where: { id: a.id },
-        data: { lastNotifiedAt: new Date() },
-      })
+      try {
+        await prisma.moneyRateAlert.update({
+          where: { id: a.id },
+          data: { lastNotifiedAt: new Date() },
+        })
+      } catch (e) {
+        if (!isMissingTableError(e)) throw e
+      }
       notified += 1
     } catch (e) {
       console.error("processMoneyRateAlerts", a.id, e)
