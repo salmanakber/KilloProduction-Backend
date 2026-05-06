@@ -67,6 +67,14 @@ function detectEmergency(text: string): boolean {
   return EMERGENCY_PATTERNS.some((p) => p.test(text));
 }
 
+function isLikelyMedicalIntent(text: string): boolean {
+  const t = normalize(text);
+  if (!t) return false;
+  return /\b(symptom|health|medical|medicine|medication|drug|tablet|capsule|dose|dosage|side effect|allergy|allergic|diagnosis|condition|illness|sick|doctor|clinic|hospital|blood pressure|sugar|diabetes|asthma|infection|pregnan|period|menstrual|mental health|anxiety|depression|sleep|diet|nutrition|pain|fever|cough|rash|itch|vomit|nausea|dizzy|fatigue)\b/i.test(
+    t,
+  );
+}
+
 type IntakeSlot =
   | "main_symptom"
   | "duration"
@@ -145,14 +153,14 @@ function quickHeuristic(
 
   // Only hard-reject on clearly non-health intents.
   const explicitNonMedicalPatterns = [
-    /\b(weather|temperature|rain|forecast)\b/i,
+    /\b(weather|rain|forecast|humidity)\b/i,
     /\b(cricket|football|soccer|nba|match score)\b/i,
     /\b(joke|funny|meme)\b/i,
     /\b(movie|series|netflix)\b/i,
     /\b(write code|debug code|programming)\b/i,
   ];
   const explicitNonMedical = explicitNonMedicalPatterns.some((p) => p.test(t));
-  if (explicitNonMedical) {
+  if (explicitNonMedical && !isLikelyMedicalIntent(full)) {
     return {
       category: "non_medical",
       mode: "reject_non_medical",
@@ -250,6 +258,19 @@ export async function POST(request: NextRequest) {
             "Your symptoms could be urgent. Please call emergency services or go to the nearest emergency center now. I can continue the conversation after you are safe.",
           suggestedQuestions: [],
           source: "emergency-guard",
+        });
+      }
+
+      // Never reject if the user message is likely medical; recover to intake flow.
+      if (parsed?.mode === "reject_non_medical" && isLikelyMedicalIntent(`${text} ${latestInput}`)) {
+        const missing = getMissingSlot(mergedUserText(text, history));
+        return safeJsonResponse({
+          category: "unclear",
+          mode: "ask_more_details",
+          summary: parsed.summary || "",
+          nextPrompt: humanIntakeQuestion(missing || "main_symptom"),
+          suggestedQuestions: [],
+          source: "medical-intent-recovery",
         });
       }
 
