@@ -29,7 +29,16 @@ export async function GET(_request: NextRequest) {
       moneyTransfer: moneyCfg?.isEnabled ?? true,
     }
 
-    return NextResponse.json({ modules, fetchedAt: new Date().toISOString() })
+    return NextResponse.json(
+      { modules, fetchedAt: new Date().toISOString() },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      },
+    )
   } catch (error) {
     console.error("[system/modules] error", error)
     return NextResponse.json(
@@ -44,7 +53,14 @@ export async function GET(_request: NextRequest) {
         },
         fetchedAt: new Date().toISOString(),
       },
-      { status: 200 }
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      },
     )
   }
 }
