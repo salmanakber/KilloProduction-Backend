@@ -233,7 +233,7 @@ export default function SystemSettings() {
       })
       if (response.ok) setHasChanges(false)
         
-        toast({ title: "Success", description: "Settings saved successfully", variant: "destructive" })
+        toast({ title: "Success", description: "Settings saved successfully" })
     } catch (error) {
       console.error("Failed to save settings:", error)
     } finally {

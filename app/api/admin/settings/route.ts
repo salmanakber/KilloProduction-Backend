@@ -468,3 +468,13 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Failed to update system settings" }, { status: 500 })
   }
 }
+
+// Some production proxies/CDNs may block PUT for app routes.
+// Support POST/PATCH as compatibility aliases for the same update flow.
+export async function POST(request: NextRequest) {
+  return PUT(request)
+}
+
+export async function PATCH(request: NextRequest) {
+  return PUT(request)
+}
