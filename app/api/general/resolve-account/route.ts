@@ -67,11 +67,47 @@ console.log('paystackSecretKey', paystackSecretKey)
       )
     }
 
+    const resolvedAccountName = String(data.data.account_name || "").trim().toUpperCase()
+    const resolvedAccountNumber = String(data.data.account_number || accountNumber).trim()
+    const resolvedBankCode = String(data.data.bank_code || bankCode).trim()
+
+    // Auto-mark matching saved accounts as verified for this authenticated user.
+    // This keeps Prisma verification status aligned with successful provider verification.
+    try {
+      await prisma.bankAccount.updateMany({
+        where: {
+          userId: user.id,
+          accountNumber: resolvedAccountNumber,
+          OR: [{ routingNumber: resolvedBankCode }, { swiftCode: resolvedBankCode }],
+        },
+        data: {
+          isVerified: true,
+          accountHolderName: resolvedAccountName,
+        },
+      })
+
+      await prisma.vendorBankAccount.updateMany({
+        where: {
+          vendorId: user.id,
+          accountNumber: resolvedAccountNumber,
+          OR: [{ routingNumber: resolvedBankCode }, { swiftCode: resolvedBankCode }],
+        },
+        data: {
+          isVerified: true,
+          verificationStatus: "VERIFIED",
+          accountName: resolvedAccountName,
+        },
+      })
+    } catch (syncError) {
+      // Do not fail account resolution if syncing verification flags fails.
+      console.warn("resolve-account verification sync warning:", syncError)
+    }
+
     return NextResponse.json({
       success: true,
-      accountName: data.data.account_name,
-      accountNumber: data.data.account_number,
-      bankCode: data.data.bank_code,
+      accountName: resolvedAccountName,
+      accountNumber: resolvedAccountNumber,
+      bankCode: resolvedBankCode,
     })
   } catch (error: any) {
     console.error("Error resolving account name:", error)

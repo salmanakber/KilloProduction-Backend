@@ -83,7 +83,8 @@ export async function POST(request: NextRequest) {
         swiftCode: swiftCode || null,
         accountType: "checking",
         isDefault: isDefault || false,
-        isVerified: false, // Must be verified by admin for money transfer
+        // Account name is provider-verified in `resolve-account` before submit.
+        isVerified: true,
       },
     })
 

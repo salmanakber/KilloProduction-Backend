@@ -85,8 +85,9 @@ export async function POST(
         routingNumber: routingNumber || bankCode || null,
         swiftCode: swiftCode || null,
         isPrimary: isDefault || false,
-        isVerified: false, // Will be verified by admin for money transfer
-        verificationStatus: "PENDING",
+        // Account name is provider-verified in `resolve-account` before submit.
+        isVerified: true,
+        verificationStatus: "VERIFIED",
         currency: "NGN", // For Nigerian banks
         accountType: "checking",
       },

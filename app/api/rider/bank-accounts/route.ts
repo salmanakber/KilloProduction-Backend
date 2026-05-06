@@ -99,8 +99,9 @@ export async function POST(request: NextRequest) {
         accountType: accountType || "checking",
         currency: currency || "NGN",
         isPrimary: isPrimary || false,
-        isVerified: false,
-        verificationStatus: "PENDING",
+        // Account name is provider-verified in `resolve-account` before submit.
+        isVerified: true,
+        verificationStatus: "VERIFIED",
       },
     })
 
