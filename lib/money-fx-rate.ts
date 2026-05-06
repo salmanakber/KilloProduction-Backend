@@ -20,8 +20,7 @@ export function applyFxMargin(baseRate: number, marginPercent: number): number {
 }
 
 async function fetchBaseRateFromProvider(fromCurrency: string, toCurrency: string): Promise<number | null> {
-  const config = await prisma.moneyTransferConfig.findFirst()
-  const apiKey = config?.exchangeRateApiKey || process.env.EXCHANGE_RATE_API_KEY
+  const apiKey = await getExchangeApiKeySafe()
 
   if (!apiKey) {
     const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${fromCurrency}`)
@@ -35,9 +34,33 @@ async function fetchBaseRateFromProvider(fromCurrency: string, toCurrency: strin
   return data.conversion_rates?.[toCurrency] ?? null
 }
 
+async function getMoneyTransferConfigSafe(): Promise<{
+  exchangeRateApiKey?: string | null
+  exchangeRateMargin?: number | null
+} | null> {
+  try {
+    return await prisma.moneyTransferConfig.findFirst({
+      select: {
+        exchangeRateApiKey: true,
+        exchangeRateMargin: true,
+      },
+    })
+  } catch (e) {
+    // Deployment can be temporarily out-of-sync on migrations; keep FX endpoint alive.
+    console.warn("getMoneyTransferConfigSafe:", e)
+    return null
+  }
+}
+
+async function getExchangeApiKeySafe(): Promise<string | undefined> {
+  const config = await getMoneyTransferConfigSafe()
+  const key = config?.exchangeRateApiKey || process.env.EXCHANGE_RATE_API_KEY
+  return key || undefined
+}
+
 export async function getMoneyTransferFxRate(fromCurrency: string, toCurrency: string): Promise<number | null> {
   try {
-    const config = await prisma.moneyTransferConfig.findFirst()
+    const config = await getMoneyTransferConfigSafe()
     const marginRaw = config?.exchangeRateMargin ?? 0.02
     const marginPercent = normalizeMarginPercent(marginRaw)
 
@@ -91,27 +114,33 @@ export async function recordFxSnapshotWhenChanged(
   toCurrency: string,
   rate: number
 ): Promise<"inserted" | "unchanged"> {
-  const { from, to } = normalizeFxPair(fromCurrency, toCurrency)
-  if (!Number.isFinite(rate) || rate <= 0) return "unchanged"
+  try {
+    const { from, to } = normalizeFxPair(fromCurrency, toCurrency)
+    if (!Number.isFinite(rate) || rate <= 0) return "unchanged"
 
-  const latest = await prisma.moneyFxRateSnapshot.findFirst({
-    where: { fromCurrency: from, toCurrency: to },
-    orderBy: { createdAt: "desc" },
-  })
+    const latest = await prisma.moneyFxRateSnapshot.findFirst({
+      where: { fromCurrency: from, toCurrency: to },
+      orderBy: { createdAt: "desc" },
+    })
 
-  if (!latest) {
+    if (!latest) {
+      await prisma.moneyFxRateSnapshot.create({
+        data: { fromCurrency: from, toCurrency: to, rate },
+      })
+      return "inserted"
+    }
+
+    if (!fxSnapshotRateIsDistinct(latest.rate, rate)) {
+      return "unchanged"
+    }
+
     await prisma.moneyFxRateSnapshot.create({
       data: { fromCurrency: from, toCurrency: to, rate },
     })
     return "inserted"
-  }
-
-  if (!fxSnapshotRateIsDistinct(latest.rate, rate)) {
+  } catch (e) {
+    // Snapshot persistence failure should never break mobile exchange-rate reads.
+    console.warn("recordFxSnapshotWhenChanged:", e)
     return "unchanged"
   }
-
-  await prisma.moneyFxRateSnapshot.create({
-    data: { fromCurrency: from, toCurrency: to, rate },
-  })
-  return "inserted"
 }
