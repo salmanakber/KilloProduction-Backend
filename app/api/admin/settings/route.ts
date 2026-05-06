@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
         language: systemSettings?.language || "en",
         currency: systemSettings?.currency || "NGN",
         dateFormat: systemSettings?.dateFormat || "DD/MM/YYYY",
-        maintenanceMode: systemSettings?.maintenanceMode || false,
+        maintenanceMode: systemSettings?.maintenanceMode ?? false,
         maintenanceMessage:
           systemSettings?.maintenanceMessage || "System is under maintenance. Please try again later.",
       },
@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
         supportCenter: {
           email: (systemSettings?.compnyinfo as any)?.supportCenter?.email || "",
           phone: (systemSettings?.compnyinfo as any)?.supportCenter?.phone || "",
-          liveChat: (systemSettings?.compnyinfo as any)?.supportCenter?.liveChat || false,
+          liveChat: (systemSettings?.compnyinfo as any)?.supportCenter?.liveChat ?? false,
           whatsapp: (systemSettings?.compnyinfo as any)?.supportCenter?.whatsapp || "",
           workingHours: (systemSettings?.compnyinfo as any)?.supportCenter?.workingHours || [],
         },
@@ -110,22 +110,22 @@ export async function GET(request: NextRequest) {
       security: {
         passwordPolicy: {
           minLength: systemSettings?.passwordMinLength || 8,
-          requireUppercase: systemSettings?.passwordRequireUppercase || true,
-          requireLowercase: systemSettings?.passwordRequireLowercase || true,
-          requireNumbers: systemSettings?.passwordRequireNumbers || true,
-          requireSpecialChars: systemSettings?.passwordRequireSpecialChars || true,
+          requireUppercase: systemSettings?.passwordRequireUppercase ?? true,
+          requireLowercase: systemSettings?.passwordRequireLowercase ?? true,
+          requireNumbers: systemSettings?.passwordRequireNumbers ?? true,
+          requireSpecialChars: systemSettings?.passwordRequireSpecialChars ?? true,
           maxAge: systemSettings?.passwordMaxAge || 90,
         },
         sessionTimeout: systemSettings?.sessionTimeout || 480,
         maxLoginAttempts: systemSettings?.maxLoginAttempts || 5,
         lockoutDuration: systemSettings?.lockoutDuration || 30,
-        twoFactorRequired: systemSettings?.twoFactorRequired || false,
+        twoFactorRequired: systemSettings?.twoFactorRequired ?? false,
         ipWhitelist: systemSettings?.ipWhitelist || [],
       },
       notifications: {
-        emailEnabled: systemSettings?.emailEnabled || true,
-        smsEnabled: systemSettings?.smsEnabled || true,
-        pushEnabled: systemSettings?.pushEnabled || true,
+        emailEnabled: systemSettings?.emailEnabled ?? true,
+        smsEnabled: systemSettings?.smsEnabled ?? true,
+        pushEnabled: systemSettings?.pushEnabled ?? true,
         emailProvider: systemSettings?.emailProvider || "sendgrid",
         smsProvider: systemSettings?.smsProvider || "twilio",
         defaultSender: systemSettings?.defaultSender || "Kilo Super App",
@@ -183,34 +183,34 @@ export async function GET(request: NextRequest) {
       },
       modules: {
         pharmacy: {
-          enabled: systemSettings?.pharmacyEnabled || true,
-          autoApproval: systemSettings?.pharmacyAutoApproval || false,
-          requirePrescription: systemSettings?.pharmacyRequirePrescription || true,
+          enabled: systemSettings?.pharmacyEnabled ?? true,
+          autoApproval: systemSettings?.pharmacyAutoApproval ?? false,
+          requirePrescription: systemSettings?.pharmacyRequirePrescription ?? true,
           deliveryRadius: systemSettings?.pharmacyDeliveryRadius || 10,
         },
         autoParts: {
-          enabled: systemSettings?.autoPartsEnabled || true,
-          autoApproval: systemSettings?.autoPartsAutoApproval || false,
-          warrantyRequired: systemSettings?.autoPartsWarrantyRequired || true,
+          enabled: systemSettings?.autoPartsEnabled ?? true,
+          autoApproval: systemSettings?.autoPartsAutoApproval ?? false,
+          warrantyRequired: systemSettings?.autoPartsWarrantyRequired ?? true,
           returnPeriod: systemSettings?.autoPartsReturnPeriod || 30,
         },
         food: {
-          enabled: systemSettings?.foodEnabled || true,
-          autoApproval: systemSettings?.foodAutoApproval || false,
+          enabled: systemSettings?.foodEnabled ?? true,
+          autoApproval: systemSettings?.foodAutoApproval ?? false,
           maxDeliveryTime: systemSettings?.foodMaxDeliveryTime || 60,
-          qualityChecks: systemSettings?.foodQualityChecks || true,
+          qualityChecks: systemSettings?.foodQualityChecks ?? true,
         },
         grocery: {
-          enabled: systemSettings?.groceryEnabled || true,
-          autoApproval: systemSettings?.groceryAutoApproval || false,
+          enabled: systemSettings?.groceryEnabled ?? true,
+          autoApproval: systemSettings?.groceryAutoApproval ?? false,
           freshnessPeriod: systemSettings?.groceryFreshnessPeriod || 7,
-          bulkOrders: systemSettings?.groceryBulkOrders || true,
+          bulkOrders: systemSettings?.groceryBulkOrders ?? true,
         },
         riding: {
-          enabled: systemSettings?.ridingEnabled || true,
-          autoApproval: systemSettings?.ridingAutoApproval || false,
-          backgroundCheck: systemSettings?.ridingBackgroundCheck || true,
-          insuranceRequired: systemSettings?.ridingInsuranceRequired || true,
+          enabled: systemSettings?.ridingEnabled ?? true,
+          autoApproval: systemSettings?.ridingAutoApproval ?? false,
+          backgroundCheck: systemSettings?.ridingBackgroundCheck ?? true,
+          insuranceRequired: systemSettings?.ridingInsuranceRequired ?? true,
         },
       },
       loyaltyPoints: loyaltyPointsMap,
@@ -472,7 +472,7 @@ export async function PUT(request: NextRequest) {
 // Some production proxies/CDNs may block PUT for app routes.
 // Support POST/PATCH as compatibility aliases for the same update flow.
 export async function POST(request: NextRequest) {
-  return PUT(request)
+return PUT(request)
 }
 
 export async function PATCH(request: NextRequest) {
