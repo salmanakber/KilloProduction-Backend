@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { cloudinary } from '@/lib/cloudinary'
+
+async function uploadRiderAvatar(imageBase64: string) {
+  return new Promise<string>((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream({ folder: "kilo/rider-profiles" }, (error, result) => {
+        if (error || !result?.secure_url) return reject(error || new Error("Upload failed"))
+        resolve(result.secure_url)
+      })
+      .end(Buffer.from(imageBase64, "base64"))
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -204,7 +216,11 @@ export async function PUT(request: NextRequest) {
       insurance,
       insuranceExpiry,
       maxDeliveryDistance,
-      emergencyContact
+      emergencyContact,
+      name,
+      firstName,
+      lastName,
+      avatarBase64,
     } = body
 
     // Ensure rider profile exists before updating
@@ -271,10 +287,38 @@ export async function PUT(request: NextRequest) {
     })
 
     // Also update user profile emergency contact if provided
-    if (emergencyContact) {
-      await prisma.userProfile.update({
+    let avatarUrl: string | undefined
+    if (avatarBase64 && typeof avatarBase64 === "string") {
+      const base64 = avatarBase64.includes(",") ? avatarBase64.split(",")[1] : avatarBase64
+      if (base64) {
+        avatarUrl = await uploadRiderAvatar(base64)
+      }
+    }
+
+    if (name || avatarUrl) {
+      await prisma.user.update({
+        where: { id: session.id },
+        data: {
+          ...(name ? { name } : {}),
+          ...(avatarUrl ? { avatar: avatarUrl } : {}),
+        },
+      })
+    }
+
+    if (emergencyContact || firstName || lastName) {
+      await prisma.userProfile.upsert({
         where: { userId: session.id },
-        data: { emergencyContact }
+        update: {
+          ...(emergencyContact ? { emergencyContact } : {}),
+          ...(firstName ? { firstName } : {}),
+          ...(lastName ? { lastName } : {}),
+        },
+        create: {
+          userId: session.id,
+          firstName: firstName || "",
+          lastName: lastName || "",
+          emergencyContact: emergencyContact || null,
+        },
       })
     }
 

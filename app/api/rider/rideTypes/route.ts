@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
         vehicleType: true,
         isActive: true,
         createdAt: true,
+        imageUrl: true,
+        mediaType: true,
       },
       orderBy: {
         basePrice: 'asc',
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await request.json()
-    const { name, description, icon, basePrice, pricePerKm, pricePerMinute, capacity, features, vehicleTypes, weightRanges } = data
+    const { name, description, icon, basePrice, pricePerKm, pricePerMinute, capacity, features, vehicleTypes, weightRanges, imageUrl, mediaType } = data
 
     // Validate required fields
     if (!name || !icon || basePrice === undefined || pricePerKm === undefined) {
@@ -84,6 +86,8 @@ export async function POST(request: NextRequest) {
         vehicleType: vehicleTypes || null,
         weightRanges: weightRanges || null,
         isActive: true,
+        imageUrl: imageUrl || null,
+        mediaType: mediaType || null,
       },
     })
 
