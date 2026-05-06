@@ -249,7 +249,8 @@ export async function POST(request: NextRequest) {
 
     const parsed = extractFirstJsonObject(aiText);
     if (parsed?.category && parsed?.nextPrompt) {
-      if (detectEmergency(`${latestInput || ""} ${text}`) || parsed?.mode === "emergency_redirect") {
+      const emergencyDetected = detectEmergency(mergedUserText(`${latestInput || ""} ${text}`, history));
+      if (emergencyDetected) {
         return safeJsonResponse({
           category: "medical",
           mode: "emergency_redirect",
@@ -258,6 +259,17 @@ export async function POST(request: NextRequest) {
             "Your symptoms could be urgent. Please call emergency services or go to the nearest emergency center now. I can continue the conversation after you are safe.",
           suggestedQuestions: [],
           source: "emergency-guard",
+        });
+      }
+      if (parsed?.mode === "emergency_redirect") {
+        const missing = getMissingSlot(mergedUserText(text, history));
+        return safeJsonResponse({
+          category: "unclear",
+          mode: "ask_more_details",
+          summary: parsed?.summary || "",
+          nextPrompt: humanIntakeQuestion(missing || "associated_symptoms"),
+          suggestedQuestions: [],
+          source: "safe-emergency-downgrade",
         });
       }
 
