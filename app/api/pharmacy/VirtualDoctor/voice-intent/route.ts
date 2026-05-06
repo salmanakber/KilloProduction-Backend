@@ -38,14 +38,110 @@ function extractFirstJsonObject(text: string): any | null {
   }
 }
 
+type ChatMsg = { role?: string; text?: string };
+
+const EMERGENCY_PATTERNS: RegExp[] = [
+  /\b(chest pain|chest pressure)\b/i,
+  /\b(shortness of breath|can.?t breathe|cannot breathe|difficulty breathing)\b/i,
+  /\b(fainted|fainting|passed out|unconscious)\b/i,
+  /\b(seizure|convulsion)\b/i,
+  /\b(stroke|face drooping|slurred speech|one side weak)\b/i,
+  /\b(suicidal|kill myself|end my life|self harm)\b/i,
+  /\b(severe bleeding|bleeding heavily|blood won.?t stop)\b/i,
+  /\b(anaphylaxis|throat swelling|swollen tongue)\b/i,
+];
+
+function normalize(s: string): string {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function mergedUserText(text: string, history: ChatMsg[] = []): string {
+  const joinedHistory = history
+    .filter((m) => String(m?.role || "").toLowerCase() === "user")
+    .map((m) => String(m?.text || ""))
+    .join(" ");
+  return `${joinedHistory} ${text}`.trim();
+}
+
+function detectEmergency(text: string): boolean {
+  return EMERGENCY_PATTERNS.some((p) => p.test(text));
+}
+
+type IntakeSlot =
+  | "main_symptom"
+  | "duration"
+  | "severity"
+  | "associated_symptoms"
+  | "medical_history"
+  | "current_medications"
+  | "allergies";
+
+function getMissingSlot(fullText: string): IntakeSlot | null {
+  const t = normalize(fullText);
+  // Keep this broad so any health concern can start intake, not just common symptom words.
+  if (t.split(/\s+/).filter(Boolean).length < 2) {
+    return "main_symptom";
+  }
+  if (!/\b(hour|hours|day|days|week|weeks|month|months|since|started|from yesterday|today|last night|\d+\s*(day|week|month|hour))\b/i.test(t)) {
+    return "duration";
+  }
+  if (!/\b(mild|moderate|severe|unbearable|pain scale|out of 10|[1-9]\/10|worse|worst|better)\b/i.test(t)) {
+    return "severity";
+  }
+  if (!/\b(also|with|along with|plus|and i have|other symptoms|symptoms include)\b/i.test(t) && !/\b(cough|sore throat|runny nose|chills|body ache|vomit|nausea|diarrhea|dizziness|weakness)\b/i.test(t)) {
+    return "associated_symptoms";
+  }
+  if (!/\b(history|diabetes|hypertension|asthma|ulcer|kidney|liver|heart disease|pregnan|chronic|no history|none)\b/i.test(t)) {
+    return "medical_history";
+  }
+  if (!/\b(taking|medication|medicine|drug|tablet|capsule|insulin|paracetamol|ibuprofen|none)\b/i.test(t)) {
+    return "current_medications";
+  }
+  if (!/\b(allergy|allergies|allergic|no allergies|none)\b/i.test(t)) {
+    return "allergies";
+  }
+  return null;
+}
+
+function humanIntakeQuestion(slot: IntakeSlot): string {
+  switch (slot) {
+    case "main_symptom":
+      return "I am here with you. Could you tell me your main symptom in simple words?";
+    case "duration":
+      return "Thanks for sharing that. How long have you been feeling this way?";
+    case "severity":
+      return "Understood. How strong is it right now (mild, moderate, or severe)?";
+    case "associated_symptoms":
+      return "Got it. Are you also noticing any other symptoms, even small ones?";
+    case "medical_history":
+      return "Before I continue, do you have any medical conditions like diabetes, asthma, blood pressure, or anything similar?";
+    case "current_medications":
+      return "Are you currently taking any medicines or supplements?";
+    case "allergies":
+      return "Do you have any medicine allergies that I should know about?";
+    default:
+      return "Could you share one more detail so I can guide you safely?";
+  }
+}
+
 function quickHeuristic(
   text: string,
   opts?: { history?: Array<{ role?: string; text?: string }>; latestInput?: string },
 ): { category: "medical" | "non_medical" | "unclear"; nextPrompt: string; mode: string } {
-  const t = (text || "").toLowerCase();
+  const full = mergedUserText(text, opts?.history as ChatMsg[] | undefined);
+  const t = full.toLowerCase();
   const latest = (opts?.latestInput || text || "").toLowerCase();
   const history = Array.isArray(opts?.history) ? opts?.history : [];
   const userTurns = history.filter((m) => String(m?.role).toLowerCase() === "user").length;
+
+  if (detectEmergency(`${latest} ${full}`)) {
+    return {
+      category: "medical",
+      mode: "emergency_redirect",
+      nextPrompt:
+        "Your symptoms may need urgent care. Please contact emergency services or go to the nearest emergency center now. I can continue after you are safe.",
+    };
+  }
 
   // Only hard-reject on clearly non-health intents.
   const explicitNonMedicalPatterns = [
@@ -60,27 +156,38 @@ function quickHeuristic(
     return {
       category: "non_medical",
       mode: "reject_non_medical",
-      nextPrompt: "I can help with health concerns. Please describe your symptoms or health issue.",
+      nextPrompt: "I can help with health concerns. Please tell me what symptoms you are feeling.",
     };
   }
 
-  const hasDuration = /\b(day|days|week|weeks|month|months|year|years|since|for)\b/i.test(latest) || /\b\d+\b/.test(latest);
-  const hasSeverity = /\b(mild|moderate|severe|worse|worst|better|pain scale|intense)\b/i.test(latest);
-  const enoughDetail = latest.trim().split(/\s+/).length >= 6 || hasDuration || hasSeverity || userTurns >= 2;
-
-  if (!enoughDetail) {
+  const missing = getMissingSlot(full);
+  const enoughDetail = !missing || userTurns >= 5;
+  if (!enoughDetail && missing) {
     return {
       category: "unclear",
       mode: "ask_more_details",
-      nextPrompt: "Thanks. Please share more details: how long this has been happening, severity, age, and any other symptoms.",
+      nextPrompt: humanIntakeQuestion(missing),
     };
   }
 
   return {
     category: "medical",
     mode: "confirm_proceed",
-    nextPrompt: "Thanks, I have enough details. Do you want me to proceed with analysis and suggestions?",
+    nextPrompt: "Thank you. I have enough details now and will move to analysis and safe medicine matching.",
   };
+}
+
+function hasMinimumIntakeDetails(text: string, history?: Array<{ role?: string; text?: string }>): boolean {
+  const t = normalize(String(text || ""));
+  const userTurns = (history || []).filter((m) => String(m?.role || "").toLowerCase() === "user").length;
+  const hasDuration = /\b(hour|hours|day|days|week|weeks|month|months|year|years|since|for|started|yesterday|today|last)\b/i.test(t) || /\b\d+\b/.test(t);
+  const hasSeverity = /\b(mild|moderate|severe|worse|worst|better|intense|high|low|out of 10|\/10)\b/i.test(t);
+  const hasUsefulNarrative = t.split(/\s+/).filter(Boolean).length >= 8;
+
+  // Broad guard: accept detailed narratives and multi-turn context for any medical topic.
+  if (userTurns >= 3) return true;
+  if (hasUsefulNarrative && userTurns >= 2) return true;
+  return hasDuration && (hasSeverity || hasUsefulNarrative);
 }
 
 export async function POST(request: NextRequest) {
@@ -111,14 +218,18 @@ export async function POST(request: NextRequest) {
             category: "medical|non_medical|unclear",
             summary: "string",
             nextPrompt: "string",
-            mode: "confirm_proceed|ask_more_details|reject_non_medical",
+            mode: "confirm_proceed|ask_more_details|reject_non_medical|emergency_redirect",
             suggestedQuestions: [{ text: "string", icon: "string", category: "symptom|medicine|condition|general" }],
           },
           rules: [
             "If the user is not asking about health/medical symptoms, set category=non_medical and mode=reject_non_medical with a polite apology.",
-            "If medical but too little info, set category=unclear and mode=ask_more_details.",
-            "If medical and enough detail, set category=medical and mode=confirm_proceed. Summarize professionally and ask if you should proceed.",
-            "Keep nextPrompt professional, concise, and safe. Do not diagnose with certainty.",
+            "If there are emergency red flags (e.g. chest pain, trouble breathing, severe bleeding, stroke signs, suicidal intent), set mode=emergency_redirect first.",
+            "If medical but intake is incomplete, set category=unclear and mode=ask_more_details.",
+            "During intake, ask only ONE short, natural follow-up question at a time.",
+            "Use empathetic, plain, and conversational language; avoid robotic wording.",
+            "Adapt the next question based on what is still missing (duration, severity, associated symptoms, history, medications, allergies).",
+            "If enough detail is available, set category=medical and mode=confirm_proceed with a calm transition to analysis.",
+            "Keep nextPrompt concise and safe. Do not diagnose with certainty.",
           ],
         },
         { category: "TEXT_TO_TEXT", maxTokens: 1200, disableTools: true }
@@ -130,6 +241,32 @@ export async function POST(request: NextRequest) {
 
     const parsed = extractFirstJsonObject(aiText);
     if (parsed?.category && parsed?.nextPrompt) {
+      if (detectEmergency(`${latestInput || ""} ${text}`) || parsed?.mode === "emergency_redirect") {
+        return safeJsonResponse({
+          category: "medical",
+          mode: "emergency_redirect",
+          summary: parsed?.summary || "",
+          nextPrompt:
+            "Your symptoms could be urgent. Please call emergency services or go to the nearest emergency center now. I can continue the conversation after you are safe.",
+          suggestedQuestions: [],
+          source: "emergency-guard",
+        });
+      }
+
+      // Guardrail: do not proceed too early on first vague symptom message.
+      const minimumDetailsReady = hasMinimumIntakeDetails(latestInput || text, history);
+      if ((parsed.mode === "confirm_proceed" || parsed.category === "medical") && !minimumDetailsReady) {
+        const missing = getMissingSlot(mergedUserText(text, history));
+        return safeJsonResponse({
+          category: "unclear",
+          mode: "ask_more_details",
+          summary: parsed.summary || "",
+          nextPrompt: humanIntakeQuestion(missing || "duration"),
+          suggestedQuestions: Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [],
+          source: "ai-min-intake-guard",
+        });
+      }
+
       // Prevent repetitive follow-up loops when user already answered.
       const lastAssistantPrompt = [...history]
         .reverse()
@@ -144,7 +281,7 @@ export async function POST(request: NextRequest) {
           category: "medical",
           mode: "confirm_proceed",
           summary: parsed.summary || "",
-          nextPrompt: "Thanks, I have enough details now. If everything is correct, tap Confirm & Proceed.",
+          nextPrompt: "Thanks for your answers. I now have enough information and will proceed with analysis.",
           suggestedQuestions: Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [],
           source: "ai-loop-guard",
         });
