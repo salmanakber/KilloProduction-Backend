@@ -32,6 +32,9 @@ export async function GET(_request: NextRequest) {
       sessionTimeoutMinutes: row?.sessionTimeout ?? 480,
       maxLoginAttempts: row?.maxLoginAttempts ?? 5,
       lockoutDurationMinutes: row?.lockoutDuration ?? 30,
+      biometric: {
+        enabled: row?.twoFactorRequired === true,
+      },
       oauth: {
         google: {
           enabled: googleOn && Boolean(g.webClientId || g.iosClientId || g.androidClientId),

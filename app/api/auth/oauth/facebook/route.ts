@@ -80,6 +80,46 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (user?.lockedUntil && user.lockedUntil > new Date()) {
+      return NextResponse.json(
+        {
+          error: "Account temporarily locked after too many failed attempts. Try again later.",
+          lockedUntil: user.lockedUntil.toISOString(),
+        },
+        { status: 423 }
+      )
+    }
+
+    if (user && !user.isActive) {
+      const tempToken = await generateToken(
+        {
+          userId: user.id,
+          role: user.role,
+          modules: getUserModules(user),
+          isTemporary: true,
+        },
+        "1h"
+      )
+      return NextResponse.json(
+        {
+          error: "Account is deactivated",
+          tempToken,
+          redirectToVerification: true,
+          user: {
+            id: user.id,
+            phone: user.phone,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            isVerified: user.isVerified,
+            isActive: user.isActive,
+            status: user.status,
+          },
+        },
+        { status: 403 }
+      )
+    }
+
     const pic = me.picture?.data?.url as string | undefined
 
     if (!user) {

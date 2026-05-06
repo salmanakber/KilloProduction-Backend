@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
 
     // Check if account is deactivated - generate temporary token for verification center
     const sys = await prisma.systemSettings.findFirst()
-    const maxAttempts = sys?.maxLoginAttempts ?? 5
-    const lockMinutes = sys?.lockoutDuration ?? 30
+    const maxAttempts = Math.max(1, Number(sys?.maxLoginAttempts ?? 5))
+    const lockMinutes = Math.max(1, Number(sys?.lockoutDuration ?? 30))
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       await prisma.auditLog.create({
@@ -109,8 +109,7 @@ export async function POST(request: NextRequest) {
         role: user.role,
         modules: getUserModules(user),
         isTemporary: true,
-        expiresIn: "1h",
-      })
+      }, "1h")
       
       return NextResponse.json({ 
         error: "Account is deactivated",

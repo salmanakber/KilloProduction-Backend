@@ -632,7 +632,7 @@ export default function SystemSettings() {
                       <InputGroup label="Lockout (mins)"><TextInput type="number" value={settings.security.lockoutDuration} onChange={(e) => updateSettings("security", "lockoutDuration", Number(e.target.value))} /></InputGroup>
                     </div>
                     <div className="border-t border-gray-100 mt-8 pt-4">
-                      <ToggleSwitch label="Two-Factor Authentication" description="Require 2FA for all administrative accounts" checked={settings.security.twoFactorRequired} onChange={(c) => updateSettings("security", "twoFactorRequired", c)} />
+                      <ToggleSwitch label="Fingerprint / Face ID Login" description="Enable biometric login (Face ID / Fingerprint) for customers on mobile" checked={settings.security.twoFactorRequired} onChange={(c) => updateSettings("security", "twoFactorRequired", c)} />
                     </div>
                   </div>
                 </div>
