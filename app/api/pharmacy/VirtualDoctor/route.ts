@@ -35,7 +35,8 @@ function safeJsonResponse(data: unknown, init?: { status?: number; headers?: Rec
 }
 
 /**
- * Extract basic medical terms from text when NLP fails
+ * Conservative fallback extractor used only if AI extraction fails.
+ * Keep broad enough for safety, but AI_DOCTOR remains the primary logic.
  */
 function extractBasicMedicalTerms(text: string): {
   symptoms: string[];
@@ -229,7 +230,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Extracted text:', extractedText.substring(0, 200) + '...');
 
-    // Parse medical data using AI config system (skip if already extracted from image)
+    // Parse medical data using AI config system (primary path).
+    // Fallback keyword extraction is used only if AI parsing fails.
     if (medicalData.symptoms.length === 0 && medicalData.illnesses.length === 0 && medicalData.medicines.length === 0) {
       console.log('🧠 Parsing medical data with AI config system...');
       try {
@@ -260,7 +262,7 @@ export async function POST(request: NextRequest) {
       medicinesCount: medicalData.medicines.length
     });
 
-    // If no medical data was extracted, try to extract from the original text
+    // If AI parsing returned empty, try conservative keyword extraction as a final backup.
     if (medicalData.symptoms.length === 0 && medicalData.illnesses.length === 0 && medicalData.medicines.length === 0) {
       console.log('⚠️ No medical data extracted, trying to extract from original text...');
       

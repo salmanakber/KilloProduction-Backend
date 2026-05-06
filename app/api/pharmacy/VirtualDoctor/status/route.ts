@@ -33,9 +33,9 @@ export async function GET(request: NextRequest) {
       },
       api_status: apiStatus,
       processing_order: [
-        '1. Primary AI Medicine Matching',
+        '1. Primary AI_DOCTOR configuration pipeline',
         useGitHubAI ? `2. GitHub AI Medicine Matching (${process.env.GITHUB_AI_PROVIDER || 'azure'} provider)` : '2. GitHub AI Disabled',
-        '3. Keyword Matching (fallback)'
+        '3. Conservative heuristic fallback (only on AI failure)'
       ],
       available_providers: {
         azure: 'Azure REST client (recommended)',
