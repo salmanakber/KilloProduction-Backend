@@ -8,6 +8,7 @@ import { SenderType } from "@prisma/client"
 import {systemSettings} from "@/lib/systemSettings"
 
 
+
 export async function GET(request: NextRequest, { params }: { params: { userId: string } }) {
   try {
     const session = await authenticateRequest()
@@ -146,14 +147,49 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
-    const { status, isVerified, isActive, ...otherUpdates } = await request.json()
+    const { status, isVerified, isActive, accountAction, ...otherUpdates } = await request.json()
 
     const updateData: any = {}
+    const targetUser = await prisma.user.findUnique({
+      where: { id: params.userId },
+      select: { id: true, deletedAt: true, isActive: true, status: true },
+    })
+    if (!targetUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    if (accountAction === "RESTORE_ACCOUNT") {
+      if (!targetUser.deletedAt) {
+        return NextResponse.json({ error: "This account is not scheduled for recovery." }, { status: 400 })
+      }
+      const maxRecoveryMs = 30 * 24 * 60 * 60 * 1000
+      const canRecover = Date.now() - new Date(targetUser.deletedAt).getTime() <= maxRecoveryMs
+      if (!canRecover) {
+        return NextResponse.json({ error: "Recovery window expired (over 30 days)." }, { status: 400 })
+      }
+      updateData.deletedAt = null
+      updateData.isActive = true
+      updateData.status = "ACTIVE"
+    }
+
+    if (accountAction === "DEACTIVATE_ACCOUNT") {
+      updateData.isActive = false
+      updateData.status = "INACTIVE"
+    }
+
+    if (accountAction === "ACTIVATE_ACCOUNT") {
+      updateData.isActive = true
+      updateData.status = "ACTIVE"
+      updateData.deletedAt = null
+    }
 
     if (status !== undefined) {
       // Map frontend status to backend isActive
       updateData.status = status // Directly use status enum
       updateData.isActive = status === "ACTIVE" // Keep isActive for legacy or specific checks
+      if (status === "ACTIVE") {
+        updateData.deletedAt = null
+      }
     }
     if (isVerified !== undefined) {
       updateData.isVerified = isVerified
@@ -174,27 +210,36 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
     await prisma.auditLog.create({
       data: {
         performedBy: session.id,
-        action: "UPDATE_USER",
+        action: accountAction ? String(accountAction) : "UPDATE_USER",
         entityType: "User",
         entityId: params.userId,
         details: {
           changes: updateData,
+          accountAction: accountAction || null,
         },
       },
     })
 
     
 
-    // Send notification to user if status changed
-    if (status && updatedUser) {
+    const effectiveStatus =
+      status ||
+      (accountAction === "ACTIVATE_ACCOUNT" || accountAction === "RESTORE_ACCOUNT"
+        ? "ACTIVE"
+        : accountAction === "DEACTIVATE_ACCOUNT"
+        ? "INACTIVE"
+        : null)
 
-      if(status === "ACTIVE") {
+    // Send notification + email when status/accountAction changes
+    if (effectiveStatus && updatedUser) {
+
+      if (effectiveStatus === "ACTIVE" && updatedUser.email) {
         sendEmailFromTemplate(updatedUser.email!, "ACCOUNT_VERIFIED_WELCOME", {
           username: updatedUser.name,
           app_name: settings.compnyinfo?.company?.name || "Kilo Super App",
           support_email: settings.compnyinfo?.supportCenter?.email || "support@killo.com",
         }, "GLOBAL", "ACCOUNT")
-      } else if(status === "INACTIVE") {
+      } else if (effectiveStatus === "INACTIVE" && updatedUser.email) {
         sendEmailFromTemplate(updatedUser.email!, "USER_DEACTIVATION", {
           user_name: updatedUser.name,
           user_email: updatedUser.email,
@@ -204,7 +249,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
           support_url: settings.compnyinfo?.company?.contact.website + "/support" || "https://killo.com/support",
         }, "GLOBAL", "ACCOUNT")
       }
-      else if(status === "SUSPENDED") {
+      else if (effectiveStatus === "SUSPENDED" && updatedUser.email) {
         sendEmailFromTemplate(updatedUser.email!, "ACCOUNT_SUSPENDED", {
           user_name: updatedUser.name,
           user_email: updatedUser.email,
@@ -221,8 +266,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
     // Send email notification
     await NotificationBridge.sendNotification({
       userId: params.userId,
-      title: `Your account has been ${status?.toLowerCase()}`,
-      message: `Your account has been ${status?.toLowerCase()}`,
+      title: `Your account has been ${String(effectiveStatus || "").toLowerCase()}`,
+      message:
+        accountAction === "RESTORE_ACCOUNT"
+          ? "Your account has been restored by admin."
+          : accountAction === "ACTIVATE_ACCOUNT"
+          ? "Your account has been reactivated by admin."
+          : accountAction === "DEACTIVATE_ACCOUNT"
+          ? "Your account has been deactivated by admin."
+          : `Your account has been ${String(effectiveStatus || "").toLowerCase()}`,
       type: "SYSTEM",
       module: "ADMIN",
       data: { 

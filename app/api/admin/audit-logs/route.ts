@@ -13,11 +13,13 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1")
     const limit = parseInt(searchParams.get("limit") || "50")
     const action = searchParams.get("action")
+    const actionPrefix = searchParams.get("actionPrefix")
     const entityType = searchParams.get("entityType")
     const skip = (page - 1) * limit
 
     const where: any = {}
     if (action) where.action = action
+    if (actionPrefix) where.action = { startsWith: actionPrefix }
     if (entityType) where.entityType = entityType
 
     const [logs, total] = await Promise.all([

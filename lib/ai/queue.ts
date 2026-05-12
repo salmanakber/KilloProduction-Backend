@@ -18,7 +18,7 @@ export interface AIAnalysisRequest {
   imageUrl?: string // For image-to-text
   tools?: any[] // Enabled tools from configuration
   customFunctions?: any[] // Custom function schemas
-  providerPreference?: "auto" | "openrouter" | "huggingface" | "github" // Provider selection preference
+  providerPreference?: "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google" // Provider selection preference
 }
 
 export interface AIAnalysisResponse {
@@ -33,6 +33,193 @@ export interface AIAnalysisResponse {
   latency?: number
 }
 
+type GroqResponse = {
+  choices?: Array<{ message?: { content?: string } }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+}
+
+type GoogleStudioResponse = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+    totalTokenCount?: number
+  }
+}
+
+type GoogleListModelsResponse = {
+  models?: Array<{
+    name?: string
+    supportedGenerationMethods?: string[]
+  }>
+}
+
+function normalizeGoogleModelCandidates(inputModelId: string): string[] {
+  const raw = String(inputModelId || "").trim()
+  const withoutPrefix = raw.replace(/^models\//i, "")
+  const tail = withoutPrefix.includes("/") ? withoutPrefix.split("/").pop() || withoutPrefix : withoutPrefix
+  const candidates = [
+    withoutPrefix,
+    tail,
+    "gemini-1.5-flash",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-flash-latest",
+    "gemini-2.0-flash",
+  ]
+  return Array.from(new Set(candidates.filter(Boolean)))
+}
+
+/**
+ * IDs like `google/gemini-2.0-flash-exp:free` are OpenRouter (and similar) catalog slugs.
+ * They must use the OpenRouter HTTP API with an OpenRouter key — not Google AI Studio REST.
+ * Native Gemini IDs are usually `gemini-1.5-flash` or `models/gemini-...`.
+ */
+function isOpenRouterStyleModelId(modelId: string): boolean {
+  const raw = String(modelId || "").trim()
+  if (!raw || /^https?:\/\//i.test(raw) || raw.includes("huggingface.co")) return false
+  const slash = raw.indexOf("/")
+  if (slash <= 0 || slash >= raw.length - 1) return false
+  const org = raw.slice(0, slash).toLowerCase()
+  if (org === "models") return false
+
+  return (
+    org === "google" ||
+    org.startsWith("meta") ||
+    org.includes("openai") ||
+    org.includes("anthropic") ||
+    org.includes("mistral") ||
+    org.includes("deepseek") ||
+    org.includes("qwen") ||
+    org.includes("x-ai") ||
+    org === "xai" ||
+    org.includes("cohere") ||
+    org.includes("perplexity") ||
+    org.includes("nvidia") ||
+    org.includes("microsoft") ||
+    org.includes("amazon") ||
+    org.includes("togethercomputer") ||
+    org.includes("nousresearch") ||
+    org.includes("openchat")
+  )
+}
+
+function moveGoogleNativeModelsLast(models: any[]): any[] {
+  const native: any[] = []
+  const rest: any[] = []
+  for (const m of models) {
+    const provider = String(m.provider || "").toLowerCase()
+    const mid = String(m.modelId || "")
+    const isNativeGoogle =
+      !isOpenRouterStyleModelId(mid) &&
+      !provider.includes("openrouter") &&
+      (provider.includes("google") || provider.includes("ai studio") || provider.includes("gemini"))
+    if (isNativeGoogle) native.push(m)
+    else rest.push(m)
+  }
+  return [...rest, ...native]
+}
+
+async function fetchGoogleSupportedModels(apiKey: string): Promise<string[]> {
+  const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`
+  const res = await fetch(listUrl, { method: "GET" })
+  const data = (await res.json().catch(() => ({}))) as GoogleListModelsResponse
+  if (!res.ok) {
+    throw new Error(`Google AI Studio listModels error (${res.status})`)
+  }
+  return (data.models || [])
+    .filter((m) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes("generateContent"))
+    .map((m) => String(m.name || "").replace(/^models\//i, "").trim())
+    .filter(Boolean)
+}
+
+async function callGroq(modelId: string, messages: OpenRouterMessage[], apiKey: string, opts: {
+  temperature?: number
+  maxTokens?: number
+  topP?: number
+}): Promise<GroqResponse> {
+  if (!apiKey) throw new Error("Groq API key is missing")
+  const payload = {
+    model: modelId,
+    messages: messages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    })),
+    temperature: opts.temperature ?? 0.7,
+    max_tokens: opts.maxTokens ?? 4096,
+    top_p: opts.topP ?? 1.0,
+  }
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`Groq error (${res.status}): ${data?.error?.message || JSON.stringify(data)}`)
+  return data
+}
+
+async function callGoogleAIStudio(modelId: string, messages: OpenRouterMessage[], apiKey: string, opts: {
+  temperature?: number
+  maxTokens?: number
+  topP?: number
+}): Promise<GoogleStudioResponse> {
+  if (!apiKey) throw new Error("Google AI Studio API key is missing")
+  const promptText = messages
+    .map((m) => `${String(m.role).toUpperCase()}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
+    .join("\n\n")
+  const payload = {
+    contents: [{ parts: [{ text: promptText }] }],
+    generationConfig: {
+      temperature: opts.temperature ?? 0.7,
+      maxOutputTokens: opts.maxTokens ?? 4096,
+      topP: opts.topP ?? 1.0,
+    },
+  }
+  const candidates = normalizeGoogleModelCandidates(modelId)
+  let lastError: string | null = null
+
+  for (const candidate of candidates) {
+    const encodedModel = encodeURIComponent(candidate)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodedModel}:generateContent?key=${encodeURIComponent(apiKey)}`
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) return data
+    lastError = data?.error?.message || JSON.stringify(data)
+    // Only continue trying alternates for not-found style failures.
+    if (res.status !== 404) {
+      throw new Error(`Google AI Studio error (${res.status}): ${lastError}`)
+    }
+  }
+
+  // Final recovery: list supported models and retry using first compatible one.
+  try {
+    const supported = await fetchGoogleSupportedModels(apiKey)
+    const preferred = supported.find((m) => /gemini.*(flash|pro)/i.test(m)) || supported[0]
+    if (preferred) {
+      const retryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(preferred)}:generateContent?key=${encodeURIComponent(apiKey)}`
+      const retryRes = await fetch(retryUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const retryData = await retryRes.json().catch(() => ({}))
+      if (retryRes.ok) return retryData
+      throw new Error(retryData?.error?.message || JSON.stringify(retryData))
+    }
+  } catch (e: any) {
+    lastError = e?.message || lastError
+  }
+
+  throw new Error(`Google AI Studio error (404): ${lastError || "No compatible generateContent model found for this API key"}`)
+}
+
 function stripVisualPromptBuilderState(systemPrompt: string): string {
   // The admin visual builder embeds a large JSON state block in the saved prompt so it can be re-hydrated in the UI.
   // That block should NEVER be sent to the model (wastes tokens and increases truncation risk).
@@ -42,22 +229,56 @@ function stripVisualPromptBuilderState(systemPrompt: string): string {
 }
 
 /**
- * Get active models for a category, ordered by priority
+ * Load models eligible for the queue. Includes RATE_LIMITED so a temporary API 429
+ * does not permanently remove that provider from rotation (otherwise only leftover
+ * ONLINE models run — often misordering fallback).
  */
 async function getActiveModels(category: AIModelCategory): Promise<any[]> {
-  return prisma.aIModel.findMany({
+  const rows = await prisma.aIModel.findMany({
     where: {
       category,
       isActive: true,
       status: {
-        in: ["ONLINE", "ISSUES"], // Try ISSUES models too, might work
+        in: ["ONLINE", "ISSUES", "RATE_LIMITED"],
       },
     },
-    orderBy: [
-      { priority: "asc" },
-      { createdAt: "asc" },
-    ],
+    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
   })
+
+  const statusRank: Record<string, number> = {
+    ONLINE: 0,
+    ISSUES: 1,
+    RATE_LIMITED: 2,
+  }
+
+  return [...rows].sort((a, b) => {
+    const sa = statusRank[String(a.status)] ?? 9
+    const sb = statusRank[String(b.status)] ?? 9
+    if (sa !== sb) return sa - sb
+    return (a.priority ?? 0) - (b.priority ?? 0)
+  })
+}
+
+/**
+ * Keep preferred attempt order (e.g. OpenRouter first in "auto"), then append any other
+ * active models so a narrowed preference does not block cross-provider fallback.
+ */
+function mergeModelAttemptOrder(primary: any[], pool: any[]): any[] {
+  const seen = new Set<string>()
+  const out: any[] = []
+  for (const m of primary) {
+    const id = String(m?.id ?? "")
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(m)
+  }
+  for (const m of pool) {
+    const id = String(m?.id ?? "")
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(m)
+  }
+  return out
 }
 
 /**
@@ -150,6 +371,12 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
     throw new Error(`No active models found for category: ${request.category}`)
   }
 
+  console.log(
+    `[callAIWithQueue] Loaded ${models.length} ${request.category} row(s): ${models
+      .map((m) => `${m.name || m.modelId} [${m.provider}] (${m.status})`)
+      .join(", ")}`,
+  )
+
   // Filter models with available quota
   const availableModels = models.filter(hasQuotaAvailable)
 
@@ -157,7 +384,16 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
     throw new Error(`All models have exceeded their quota limits for category: ${request.category}`)
   }
 
-  // Separate models by provider - OpenRouter, Hugging Face, GitHub Models
+  const quotaSkipped = models.filter((m) => !hasQuotaAvailable(m))
+  if (quotaSkipped.length > 0) {
+    console.warn(
+      `[callAIWithQueue] ${quotaSkipped.length} model(s) skipped (quota): ${quotaSkipped
+        .map((m) => `${m.name || m.modelId} [${m.provider}]`)
+        .join(", ")}`,
+    )
+  }
+
+  // Separate models by provider - OpenRouter, Hugging Face, GitHub, Groq, Google AI Studio
   const huggingFaceModels = availableModels.filter(m => {
     const provider = m.provider?.toLowerCase() || ""
     return provider.includes("huggingface") || provider.includes("hugging") || m.modelId.includes("huggingface.co")
@@ -166,12 +402,28 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
     const provider = m.provider?.toLowerCase() || ""
     return provider.includes("github")
   })
+  const groqModels = availableModels.filter(m => {
+    const provider = m.provider?.toLowerCase() || ""
+    return provider.includes("groq")
+  })
+  const googleStudioModels = availableModels.filter(m => {
+    const provider = m.provider?.toLowerCase() || ""
+    if (isOpenRouterStyleModelId(m.modelId)) return false
+    if (provider.includes("openrouter")) return false
+    return provider.includes("google") || provider.includes("ai studio") || provider.includes("gemini")
+  })
   const openRouterModels = availableModels.filter(m => {
     const provider = m.provider?.toLowerCase() || ""
+    if (provider.includes("huggingface") || provider.includes("hugging") || m.modelId.includes("huggingface.co")) {
+      return false
+    }
+    if (provider.includes("github")) return false
+    if (provider.includes("groq")) return false
+    if (isOpenRouterStyleModelId(m.modelId)) return true
     return (
-      !provider.includes("huggingface") &&
-      !provider.includes("hugging") &&
-      !provider.includes("github") &&
+      !provider.includes("google") &&
+      !provider.includes("ai studio") &&
+      !provider.includes("gemini") &&
       !m.modelId.includes("huggingface.co")
     )
   })
@@ -186,19 +438,35 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
     modelsToTry = huggingFaceModels.length > 0 ? huggingFaceModels : availableModels // Fallback to all if no HF models
   } else if (preference === "github") {
     modelsToTry = githubModels.length > 0 ? githubModels : availableModels // Fallback to all if no GitHub models
+  } else if (preference === "groq") {
+    modelsToTry = groqModels.length > 0 ? groqModels : availableModels
+  } else if (preference === "google") {
+    modelsToTry = googleStudioModels.length > 0 ? googleStudioModels : availableModels
   } else {
     // "auto" - Prefer HuggingFace for IMAGE_TO_TEXT (more stable for images),
     // otherwise keep the usual OpenRouter → GitHub → HuggingFace order.
     if (request.category === "IMAGE_TO_TEXT") {
-      modelsToTry = [...huggingFaceModels, ...openRouterModels, ...githubModels]
+      modelsToTry = [...huggingFaceModels, ...openRouterModels, ...githubModels, ...groqModels, ...googleStudioModels]
     } else {
-      modelsToTry = [...openRouterModels, ...githubModels, ...huggingFaceModels]
+      modelsToTry = [...openRouterModels, ...githubModels, ...huggingFaceModels, ...groqModels, ...googleStudioModels]
     }
   }
   
   if (modelsToTry.length === 0) {
     modelsToTry = availableModels // Ultimate fallback
   }
+
+  // Always union with full quota-available list so one provider failing cannot end the request
+  // if another provider still has models (fixes preference === "openrouter" | "groq" | etc.).
+  modelsToTry = mergeModelAttemptOrder(modelsToTry, availableModels)
+  // Native Google AI Studio tends to 503 under load; try other providers first when priorities collide.
+  modelsToTry = moveGoogleNativeModelsLast(modelsToTry)
+
+  console.log(
+    `[callAIWithQueue] ${request.category} attempt order (${modelsToTry.length}): ${modelsToTry
+      .map((m) => `${m.name || m.modelId} [${m.provider}]`)
+      .join(" → ")}`,
+  )
 
   let lastError: Error | null = null
 
@@ -236,10 +504,17 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
         messages.push(...request.messages)
       }
 
-      // Check provider and route accordingly
+      // Check provider and route accordingly (must match buckets above)
       const provider = model.provider?.toLowerCase() || ""
-      const isHuggingFace = provider.includes("huggingface") || provider.includes("hugging") || model.modelId.includes("huggingface.co")
+      const mid = String(model.modelId || "")
+      const isHuggingFace =
+        provider.includes("huggingface") || provider.includes("hugging") || mid.includes("huggingface.co")
       const isGitHub = provider.includes("github")
+      const isGroq = provider.includes("groq")
+      const isGoogleStudio =
+        !isOpenRouterStyleModelId(mid) &&
+        !provider.includes("openrouter") &&
+        (provider.includes("google") || provider.includes("ai studio") || provider.includes("gemini"))
 
       if (isHuggingFace) {
         // Hugging Face API call
@@ -365,6 +640,89 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
                 input: ghResponse.usage.prompt_tokens,
                 output: ghResponse.usage.completion_tokens,
                 total: ghResponse.usage.total_tokens,
+              }
+            : undefined,
+          latency,
+        }
+      } else if (isGroq) {
+        const groqResponse = await callGroq(model.modelId, messages, model.apiKey, {
+          temperature: request.temperature ?? model.temperature ?? 0.7,
+          maxTokens: request.maxTokens ?? model.maxTokens ?? 4096,
+          topP: request.topP ?? model.topP ?? 1.0,
+        })
+        const latency = Date.now() - startTime
+        const content = groqResponse.choices?.[0]?.message?.content || ""
+        if (!content.trim()) throw new Error("Groq returned empty response")
+
+        await updateModelUsage(model.id, groqResponse.usage?.total_tokens || content.length)
+        await logUsage(
+          model.id,
+          request.category,
+          request.useCase,
+          "SUCCESS",
+          latency,
+          groqResponse.usage?.prompt_tokens,
+          groqResponse.usage?.completion_tokens,
+          undefined
+        )
+        if (model.status === "ISSUES") {
+          await prisma.aIModel.update({
+            where: { id: model.id },
+            data: { status: "ONLINE", lastHealthCheck: new Date() },
+          })
+        }
+        return {
+          content,
+          modelId: model.id,
+          modelName: model.name,
+          tokensUsed: groqResponse.usage
+            ? {
+                input: groqResponse.usage.prompt_tokens || 0,
+                output: groqResponse.usage.completion_tokens || 0,
+                total: groqResponse.usage.total_tokens || 0,
+              }
+            : undefined,
+          latency,
+        }
+      } else if (isGoogleStudio) {
+        const googleResponse = await callGoogleAIStudio(model.modelId, messages, model.apiKey, {
+          temperature: request.temperature ?? model.temperature ?? 0.7,
+          maxTokens: request.maxTokens ?? model.maxTokens ?? 4096,
+          topP: request.topP ?? model.topP ?? 1.0,
+        })
+        const latency = Date.now() - startTime
+        const content = (googleResponse.candidates?.[0]?.content?.parts || [])
+          .map((p) => p?.text || "")
+          .join("\n")
+          .trim()
+        if (!content) throw new Error("Google AI Studio returned empty response")
+
+        await updateModelUsage(model.id, googleResponse.usageMetadata?.totalTokenCount || content.length)
+        await logUsage(
+          model.id,
+          request.category,
+          request.useCase,
+          "SUCCESS",
+          latency,
+          googleResponse.usageMetadata?.promptTokenCount,
+          googleResponse.usageMetadata?.candidatesTokenCount,
+          undefined
+        )
+        if (model.status === "ISSUES") {
+          await prisma.aIModel.update({
+            where: { id: model.id },
+            data: { status: "ONLINE", lastHealthCheck: new Date() },
+          })
+        }
+        return {
+          content,
+          modelId: model.id,
+          modelName: model.name,
+          tokensUsed: googleResponse.usageMetadata
+            ? {
+                input: googleResponse.usageMetadata.promptTokenCount || 0,
+                output: googleResponse.usageMetadata.candidatesTokenCount || 0,
+                total: googleResponse.usageMetadata.totalTokenCount || 0,
               }
             : undefined,
           latency,
@@ -640,14 +998,29 @@ export async function callAIWithQueue(request: AIAnalysisRequest): Promise<AIAna
       lastError = error
       const latency = Date.now() - startTime
 
+      const prov = String(model?.provider || "unknown")
+      const label = String(model?.name || model?.modelId || model?.id || "model")
+      console.warn(
+        `[callAIWithQueue] ${label} (${prov}) failed: ${error?.message || error}. Trying next model if available…`,
+      )
+
       // Check error types
       const isRateLimited = error.message?.includes("429") || error.message?.includes("rate limit")
       const isOpenRouter404 = error.message?.includes("404") && error.message?.includes("OpenRouter")
       const isDataPolicyError = error.message?.includes("data policy") || error.message?.includes("No endpoints found")
       
-      // Check if this is an OpenRouter model that failed
+      // OpenRouter / aggregator HTTP path (includes google/... slugs mislabeled as Google AI Studio)
       const provider = model.provider?.toLowerCase() || ""
-      const isOpenRouterModel = !provider.includes("huggingface") && !provider.includes("hugging") && !model.modelId.includes("huggingface.co")
+      const mid = String(model.modelId || "")
+      const isHuggingFace =
+        provider.includes("huggingface") || provider.includes("hugging") || mid.includes("huggingface.co")
+      const isGitHub = provider.includes("github")
+      const isGroq = provider.includes("groq")
+      const isGoogleStudio =
+        !isOpenRouterStyleModelId(mid) &&
+        !provider.includes("openrouter") &&
+        (provider.includes("google") || provider.includes("ai studio") || provider.includes("gemini"))
+      const isOpenRouterModel = !isHuggingFace && !isGitHub && !isGroq && !isGoogleStudio
       
       // If OpenRouter has data policy issues (404), log and continue to next model (which should be HuggingFace if available)
       if ((isOpenRouter404 || isDataPolicyError) && isOpenRouterModel) {
@@ -725,7 +1098,7 @@ export async function analyzeWithAI(
     imageUrl?: string
     customPrompt?: string
     maxTokens?: number // Allow overriding maxTokens for specific calls
-    providerPreference?: "auto" | "openrouter" | "huggingface" | "github" // Provider selection preference
+    providerPreference?: "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google" // Provider selection preference
     disableTools?: boolean // Disable enabledTools + customFunctions from DB config (prevents tool-calling loops)
   }
 ): Promise<AIAnalysisResponse> {

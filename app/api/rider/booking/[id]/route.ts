@@ -164,6 +164,8 @@ export async function GET(
       updatedAt: booking.updatedAt,
       // Additional fields for ride bookings
       ...(rideBooking && {
+        /** Ride rows have no `module` column; align with sockets/notifications for client OTP vs QR logic. */
+        module: "RIDING",
         pickupLandmark: (booking as any).pickupLandmark,
         dropLandmark: (booking as any).dropLandmark,
         passengerCount: (booking as any).passengerCount,
@@ -182,6 +184,7 @@ export async function GET(
       }),
       // Additional fields for courier bookings
       ...(courierBooking && {
+        module: (booking as any).module ?? null,
         notes: (booking as any).notes,
         recipientName: (booking as any).recipientName,
         recipientPhone: (booking as any).recipientPhone,

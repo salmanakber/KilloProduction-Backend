@@ -83,7 +83,7 @@
     export default function AiConfigPage() {
     const [activeTab, setActiveTab] = useState("dashboard")
     const [isModalOpen, setIsModalOpen] = useState(false)
-  const [modalProvider, setModalProvider] = useState<"openrouter" | "huggingface" | "github" | null>(null)
+  const [modalProvider, setModalProvider] = useState<"openrouter" | "huggingface" | "github" | "groq" | "google" | null>(null)
 
     return (
         <div className="w-full min-h-screen bg-[#FAFAFA] text-slate-900 font-sans selection:bg-green-100 selection:text-green-900">
@@ -141,13 +141,15 @@
         {isModalOpen && modalProvider === "openrouter" && <OpenRouterModal onClose={() => { setIsModalOpen(false); setModalProvider(null); }} />}
         {isModalOpen && modalProvider === "huggingface" && <HuggingFaceModal onClose={() => { setIsModalOpen(false); setModalProvider(null); }} />}
       {isModalOpen && modalProvider === "github" && <GitHubModelsModal onClose={() => { setIsModalOpen(false); setModalProvider(null); }} />}
+      {isModalOpen && modalProvider === "groq" && <ProviderManualModal providerName="Groq" keyStorageKey="groq_api_key" providerValue="Groq" defaultModelId="llama-3.1-8b-instant" onClose={() => { setIsModalOpen(false); setModalProvider(null); }} />}
+      {isModalOpen && modalProvider === "google" && <ProviderManualModal providerName="Google AI Studio" keyStorageKey="google_ai_studio_api_key" providerValue="Google AI Studio" defaultModelId="gemini-1.5-pro" onClose={() => { setIsModalOpen(false); setModalProvider(null); }} />}
         </div>
     )
     }
 
     // --- 1. Dashboard View ---
 
-function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter" | "huggingface" | "github") => void }) {
+function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter" | "huggingface" | "github" | "groq" | "google") => void }) {
     const [models, setModels] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState("")
@@ -259,6 +261,20 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
               <GithubIcon size={14} className="text-purple-500" /> 
               GitHub
                 </button>
+            <button
+              onClick={() => onAddModel("groq")}
+              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+            >
+              <Zap size={14} className="text-fuchsia-500" />
+              Groq
+            </button>
+            <button
+              onClick={() => onAddModel("google")}
+              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+            >
+              <Bot size={14} className="text-indigo-500" />
+              Google AI Studio
+            </button>
             </div>
             </div>
         </div>
@@ -365,7 +381,11 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
     const [apiKey, setApiKey] = useState("")
     const [hfApiKey, setHfApiKey] = useState("")
     const [hfApiKeyHidden, setHfApiKeyHidden] = useState(true)
-  const [testProvider, setTestProvider] = useState<"auto" | "openrouter" | "huggingface" | "github">("auto")
+    const [groqApiKey, setGroqApiKey] = useState("")
+    const [groqApiKeyHidden, setGroqApiKeyHidden] = useState(true)
+    const [googleApiKey, setGoogleApiKey] = useState("")
+    const [googleApiKeyHidden, setGoogleApiKeyHidden] = useState(true)
+  const [testProvider, setTestProvider] = useState<"auto" | "openrouter" | "huggingface" | "github" | "groq" | "google">("auto")
     
     // Logic State
     const [systemPrompt, setSystemPrompt] = useState("")
@@ -462,8 +482,12 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
         fetchConfigurations()
         const storedKey = localStorage.getItem("openrouter_api_key")
         const storedHfKey = localStorage.getItem("huggingface_api_key")
+        const storedGroqKey = localStorage.getItem("groq_api_key")
+        const storedGoogleKey = localStorage.getItem("google_ai_studio_api_key")
         if (storedKey) setApiKey(storedKey)
         if (storedHfKey) setHfApiKey(storedHfKey)
+        if (storedGroqKey) setGroqApiKey(storedGroqKey)
+        if (storedGoogleKey) setGoogleApiKey(storedGoogleKey)
     }, [])
 
     const fetchConfigurations = async () => {
@@ -550,6 +574,18 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
         setTerminalLines(prev => [...prev, { text: "Hugging Face API Key updated in local storage.", type: "success" }])
     }
 
+    const handleSaveGroqApiKey = () => {
+        if (!groqApiKey.trim()) return
+        localStorage.setItem("groq_api_key", groqApiKey)
+        setTerminalLines(prev => [...prev, { text: "Groq API Key updated in local storage.", type: "success" }])
+    }
+
+    const handleSaveGoogleApiKey = () => {
+        if (!googleApiKey.trim()) return
+        localStorage.setItem("google_ai_studio_api_key", googleApiKey)
+        setTerminalLines(prev => [...prev, { text: "Google AI Studio API Key updated in local storage.", type: "success" }])
+    }
+
     const toggleTool = (toolName: string) => {
         setEnabledTools((prev) =>
         prev.includes(toolName)
@@ -562,7 +598,18 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
         if (!testPrompt.trim()) return
 
         setTesting(true)
-        const providerText = testProvider === "auto" ? "Auto (OpenRouter → Hugging Face)" : testProvider === "openrouter" ? "OpenRouter" : "Hugging Face"
+        const providerText =
+          testProvider === "auto"
+            ? "Auto (OpenRouter → GitHub → Hugging Face → Groq → Google AI Studio)"
+            : testProvider === "openrouter"
+            ? "OpenRouter"
+            : testProvider === "huggingface"
+            ? "Hugging Face"
+            : testProvider === "github"
+            ? "GitHub Models"
+            : testProvider === "groq"
+            ? "Groq"
+            : "Google AI Studio"
         setTerminalLines(prev => [...prev, { text: `> ${testPrompt}`, type: "user" }, { text: `Testing with: ${providerText}...`, type: "system" }])
 
         try {
@@ -1035,7 +1082,63 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
                                 </button>
                             </div>
 
-                        <p className="text-[10px] text-gray-400 pt-2 border-t border-gray-200">Note: API Keys are stored locally. OpenRouter is tried first, Hugging Face is used as fallback.</p>
+                            <div className="border-t border-gray-200"></div>
+
+                            {/* Groq */}
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Zap size={14} className="text-fuchsia-500"/>
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase">Groq API Key</label>
+                                </div>
+                                <div className="relative">
+                                    <input 
+                                        type={groqApiKeyHidden ? "password" : "text"}
+                                        value={groqApiKey}
+                                        onChange={(e) => setGroqApiKey(e.target.value)}
+                                        placeholder="gsk_..."
+                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-10 py-2 text-xs font-mono text-gray-600 focus:ring-fuchsia-500 focus:border-fuchsia-500"
+                                    />
+                                    <button 
+                                        onClick={() => setGroqApiKeyHidden(!groqApiKeyHidden)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                    >
+                                        {groqApiKeyHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
+                                    </button>
+                                </div>
+                                <button onClick={handleSaveGroqApiKey} className="bg-fuchsia-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-fuchsia-700 transition-colors">
+                                    Save Groq Key
+                                </button>
+                            </div>
+
+                            <div className="border-t border-gray-200"></div>
+
+                            {/* Google AI Studio */}
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Bot size={14} className="text-indigo-500"/>
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase">Google AI Studio API Key</label>
+                                </div>
+                                <div className="relative">
+                                    <input 
+                                        type={googleApiKeyHidden ? "password" : "text"}
+                                        value={googleApiKey}
+                                        onChange={(e) => setGoogleApiKey(e.target.value)}
+                                        placeholder="AIza..."
+                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-3 pr-10 py-2 text-xs font-mono text-gray-600 focus:ring-indigo-500 focus:border-indigo-500"
+                                    />
+                                    <button 
+                                        onClick={() => setGoogleApiKeyHidden(!googleApiKeyHidden)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                    >
+                                        {googleApiKeyHidden ? <Eye size={14}/> : <EyeOff size={14}/>}
+                                    </button>
+                                </div>
+                                <button onClick={handleSaveGoogleApiKey} className="bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                                    Save Google AI Studio Key
+                                </button>
+                            </div>
+
+                        <p className="text-[10px] text-gray-400 pt-2 border-t border-gray-200">Note: API Keys are stored locally in this browser only. Auto testing follows your queue fallback order.</p>
                         </div>
                     )}
 
@@ -1050,13 +1153,15 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
                                 <label className="text-[10px] font-bold text-gray-500 uppercase text-xs">Provider:</label>
                                 <select 
                                     value={testProvider}
-                                    onChange={(e) => setTestProvider(e.target.value as "auto" | "openrouter" | "huggingface" | "github")}
+                                    onChange={(e) => setTestProvider(e.target.value as "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google")}
                                     className="text-xs font-bold bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 focus:ring-green-500 focus:border-green-500"
                                 >
-                                    <option value="auto">Auto (OR → GH → HF)</option>
+                                    <option value="auto">Auto (OR → GH → HF → GQ → GG)</option>
                                     <option value="openrouter">OpenRouter Only</option>
                                     <option value="github">GitHub Models Only</option>
                                     <option value="huggingface">Hugging Face Only</option>
+                                    <option value="groq">Groq Only</option>
+                                    <option value="google">Google AI Studio Only</option>
                                 </select>
                             </div>
                         </div>
@@ -1143,6 +1248,14 @@ function DashboardCardView({ onAddModel }: { onAddModel: (provider: "openrouter"
                             <div className="flex items-center gap-2 text-xs">
                                 <div className={`w-2 h-2 rounded-full ${hfApiKey ? "bg-yellow-500" : "bg-red-500"}`}></div>
                                 <span className="text-gray-600">Hugging Face: {hfApiKey ? "Configured" : "Missing"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <div className={`w-2 h-2 rounded-full ${groqApiKey ? "bg-fuchsia-500" : "bg-red-500"}`}></div>
+                                <span className="text-gray-600">Groq: {groqApiKey ? "Configured" : "Missing"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <div className={`w-2 h-2 rounded-full ${googleApiKey ? "bg-indigo-500" : "bg-red-500"}`}></div>
+                                <span className="text-gray-600">Google AI Studio: {googleApiKey ? "Configured" : "Missing"}</span>
                             </div>
                         </div>
                     </div>
@@ -2367,6 +2480,98 @@ console.log("GitHub Models", githubModels)
     </div>
   )}
 </div>
+      </div>
+    </div>
+  )
+}
+
+function ProviderManualModal({
+  onClose,
+  providerName,
+  providerValue,
+  keyStorageKey,
+  defaultModelId,
+}: {
+  onClose: () => void
+  providerName: string
+  providerValue: string
+  keyStorageKey: string
+  defaultModelId: string
+}) {
+  const [name, setName] = useState(`${providerName} Model`)
+  const [modelId, setModelId] = useState(defaultModelId)
+  const [apiKey, setApiKey] = useState("")
+  const [description, setDescription] = useState("")
+  const [contextLength, setContextLength] = useState<number>(32768)
+  const [category, setCategory] = useState<"TEXT_TO_TEXT" | "IMAGE_TO_TEXT">("TEXT_TO_TEXT")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem(keyStorageKey)
+    if (stored) setApiKey(stored)
+  }, [keyStorageKey])
+
+  const handleConnect = async () => {
+    if (!modelId.trim() || !apiKey.trim()) return
+    setSaving(true)
+    try {
+      localStorage.setItem(keyStorageKey, apiKey)
+      const res = await fetch("/api/admin/ai-config/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim() || `${providerName} Model`,
+          modelId: modelId.trim(),
+          provider: providerValue,
+          description: description.trim(),
+          category,
+          apiKey: apiKey.trim(),
+          contextLength: Number.isFinite(contextLength) ? contextLength : 32768,
+          modality: category === "IMAGE_TO_TEXT" ? "image" : "text",
+          pricing: {},
+        }),
+      })
+      if (res.ok) {
+        window.location.reload()
+        onClose()
+      } else {
+        const txt = await res.text()
+        alert(`Failed to connect model: ${txt}`)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl p-6 max-w-xl w-full shadow-2xl ring-1 ring-black/5 space-y-4">
+        <h3 className="text-lg font-bold text-gray-900">Connect {providerName} Model</h3>
+        <p className="text-xs text-gray-500">Enter model details and credentials. Credentials are stored in localStorage only.</p>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Display name" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+        <input value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="Model ID (e.g. gemini-1.5-pro)" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
+        <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key" type="password" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm h-20 resize-none" />
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            value={contextLength}
+            onChange={(e) => setContextLength(parseInt(e.target.value || "32768"))}
+            placeholder="Context length"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+            type="number"
+            min={1024}
+          />
+          <select value={category} onChange={(e) => setCategory(e.target.value as "TEXT_TO_TEXT" | "IMAGE_TO_TEXT")} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+            <option value="TEXT_TO_TEXT">TEXT_TO_TEXT</option>
+            <option value="IMAGE_TO_TEXT">IMAGE_TO_TEXT</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+          <button disabled={saving || !modelId.trim() || !apiKey.trim()} onClick={handleConnect} className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50">
+            {saving ? "Connecting..." : "Connect Model"}
+          </button>
+        </div>
       </div>
     </div>
   )

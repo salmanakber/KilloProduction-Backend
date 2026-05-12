@@ -415,6 +415,15 @@ async function main() {
   // Create rider fare settings for different modules
   const riderFareSettings = [
     {
+      module: 'RIDING',
+      commissionType: 'RIDER_COMMISSION',
+      rate: 10, // % of trip fare (CustomerRiding); tune in admin / Commission Settings
+      minAmount: 0,
+      maxAmount: null,
+      description: 'Platform rider commission on standalone ride trips (CustomerRiding)',
+      isActive: true,
+    },
+    {
       module: 'PHARMACY',
       commissionType: 'RIDER_COMMISSION',
       rate: 100, // 100 NGN per km

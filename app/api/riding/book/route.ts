@@ -10,6 +10,18 @@ import {
   scheduleScheduledRideDispatchJob,
 } from "@/lib/food-rider-dispatch-queue"
 
+const DEFAULT_BID_CAP_PERCENT = 20
+
+function getBidCapPercent(): number {
+  const raw = Number(process.env.RIDING_BID_CAP_PERCENT ?? DEFAULT_BID_CAP_PERCENT)
+  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_BID_CAP_PERCENT
+  return raw
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await authenticateRequest(request)
@@ -54,7 +66,8 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!rideTypeId || !pickupAddress || !dropAddress || 
         !pickupLatitude || !pickupLongitude || !dropLatitude || !dropLongitude) {
-          
+
+          console.log("Missing required fields: rideTypeId, pickupAddress, dropAddress, coordinates")
       return NextResponse.json({ 
         
         error: "Missing required fields: rideTypeId, pickupAddress, dropAddress, coordinates" 
@@ -70,6 +83,7 @@ export async function POST(request: NextRequest) {
 
     if (!rideType) {
       
+      console.log("Invalid ride type")
       return NextResponse.json({ error: "Invalid ride type" }, { status: 400 })
     }
 
@@ -128,19 +142,22 @@ export async function POST(request: NextRequest) {
     const payableTotal = Math.round((finalFare + platformFee) * 100) / 100
     const normalizedPaymentMethod = String(paymentMethod || "").toUpperCase()
     if (!["CARD", "WALLET"].includes(normalizedPaymentMethod)) {
+      console.log("Only card or wallet payments are supported for this booking flow")
       return NextResponse.json({
         error: "Only card or wallet payments are supported for this booking flow",
       }, { status: 400 })
     }
 
-    // Handle payment validation for wallet and card payments
-    if (normalizedPaymentMethod === 'WALLET' || normalizedPaymentMethod === 'CARD') {
-      if (!paymentData) {
-        return NextResponse.json({ 
-          error: "Payment data is required" 
-        }, { status: 400 })
-      }
+    // Card payment still requires payment payload (wallet-cap flow may not).
+    if (normalizedPaymentMethod === "CARD" && !paymentData) {
+      console.log("Payment data is required")
+      return NextResponse.json({
+        error: "Payment data is required"
+      }, { status: 400 })
+    }
 
+    // Handle payment validation for wallet and card payments when payload is provided.
+    if ((normalizedPaymentMethod === 'WALLET' || normalizedPaymentMethod === 'CARD') && paymentData) {
       // Validate payment amount matches final fare (after promo discount)
       const processingFee = Math.max(0, Number(paymentData.paymentProcessingFee || 0))
       const expectedPaymentTotal = Math.round((payableTotal + processingFee) * 100) / 100
@@ -172,6 +189,33 @@ export async function POST(request: NextRequest) {
             error: "Payment ID is required for card payments" 
           }, { status: 400 })
         }
+      }
+    }
+
+    // Wallet-cap flow: no immediate payment payload, but wallet must cover max possible bid.
+    if (normalizedPaymentMethod === "WALLET" && !paymentData) {
+      const bidCapPercent = getBidCapPercent()
+      const maxBidCapFare = round2(finalFare * (1 + bidCapPercent / 100))
+      const maxBidPlatformFee = await checkoutPlatformFeeAmount("RIDING", maxBidCapFare)
+      const requiredWalletCoverageAmount = round2(maxBidCapFare + maxBidPlatformFee)
+
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId: user.id },
+        select: { id: true, balance: true, isActive: true },
+      })
+      if (!wallet || !wallet.isActive) {
+        return NextResponse.json({
+          error: "Active wallet is required for ride bookings",
+        }, { status: 400 })
+      }
+      if (Number(wallet.balance || 0) < requiredWalletCoverageAmount) {
+        return NextResponse.json({
+          error: "Insufficient wallet balance for max bid cap coverage",
+          requiredWalletCoverageAmount,
+          currentWalletBalance: Number(wallet.balance || 0),
+          bidCapPercent,
+          maxBidCapFare,
+        }, { status: 400 })
       }
     }
 
@@ -315,6 +359,17 @@ export async function POST(request: NextRequest) {
             })
           }
 
+          // Customer already charged at booking time (card or wallet withdraw): mark ride paid so completion does not debit again.
+          const settledAtBooking =
+            Boolean(paymentData) &&
+            (normalizedPaymentMethod === "CARD" || normalizedPaymentMethod === "WALLET")
+          if (settledAtBooking) {
+            await tx.rideBooking.update({
+              where: { id: newBooking.id },
+              data: { paymentStatus: "PAID" },
+            })
+          }
+
           return newBooking
         } else {
           // Courier booking
@@ -445,6 +500,16 @@ export async function POST(request: NextRequest) {
                   increment: 1,
                 },
               },
+            })
+          }
+
+          const courierSettledAtBooking =
+            Boolean(paymentData) &&
+            (normalizedPaymentMethod === "CARD" || normalizedPaymentMethod === "WALLET")
+          if (courierSettledAtBooking) {
+            await tx.courierBooking.update({
+              where: { id: newBooking.id },
+              data: { paymentStatus: "PAID" },
             })
           }
 

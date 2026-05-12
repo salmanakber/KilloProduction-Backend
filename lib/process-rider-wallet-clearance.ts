@@ -3,10 +3,49 @@ import { completeWalletTransaction } from "@/lib/wallet-transaction-service"
 import { NotificationBridge } from "@/lib/notification-bridge"
 
 /**
+ * Rider net payouts from `creditNetPayoutWallet` use `reference` earning-payout:ride|courier:*.
+ * Rows created before `clearsAt` was wired (or any bug leaving it null) never clear — backfill from row `createdAt`.
+ */
+export async function backfillMissingEarningPayoutClearsAt(): Promise<{ updated: number }> {
+  const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
+    "@/lib/rider-wallet-clearance-settings"
+  )
+  const days = await getRiderWalletClearanceDays()
+  const rows = await prisma.walletTransaction.findMany({
+    where: {
+      status: "PENDING",
+      type: "CREDIT",
+      clearsAt: null,
+      OR: [
+        { reference: { startsWith: "earning-payout:ride:" } },
+        { reference: { startsWith: "earning-payout:courier:" } },
+      ],
+    },
+    take: 200,
+    orderBy: { createdAt: "asc" },
+    select: { id: true, createdAt: true },
+  })
+  let updated = 0
+  for (const r of rows) {
+    const clearsAt = computeWalletClearsAt(days, r.createdAt)
+    await prisma.walletTransaction.update({
+      where: { id: r.id },
+      data: { clearsAt },
+    })
+    updated++
+  }
+  return { updated }
+}
+
+/**
  * Move held rider CREDIT rows to COMPLETED when clearsAt has passed.
  * Idempotent per transaction via completeWalletTransaction.
  */
 export async function processRiderWalletClearance(): Promise<{ cleared: number }> {
+  await backfillMissingEarningPayoutClearsAt().catch((e) =>
+    console.error("[processRiderWalletClearance] backfill clearsAt", e)
+  )
+
   const now = new Date()
   const batch = await prisma.walletTransaction.findMany({
     where: {

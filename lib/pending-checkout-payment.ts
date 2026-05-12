@@ -12,7 +12,7 @@ export function isPreCheckoutClientRef(clientRef: string): boolean {
 
 /**
  * Resolves or creates a Prisma `Payment` row for checkout-before-order flows.
- * Stripe/webhooks use `Payment.id` in metadata as `orderId` — must never be a cart placeholder.
+ * Stripe/webhooks use `Payment.id` in metadata as `orderId` — must never issuebe a cart placeholder.
  * For `cart-*` / `pending-*` refs, `Payment.orderId` stays null until pharmacy/cart checkout links the real order.
  */
 export async function resolvePendingCheckoutPayment(params: {

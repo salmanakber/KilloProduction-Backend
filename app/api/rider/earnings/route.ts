@@ -192,7 +192,6 @@ export async function GET(request: NextRequest) {
     // Calculate statistics
     const totalTrips = allEarnings.filter((e) => e.type === 'DELIVERY_FEE').length
     const periodTrips = periodEarnings.filter((e) => e.type === 'DELIVERY_FEE').length
-    console.log("111122", totalEarnings)
     const averageEarningPerTrip =
       totalTrips > 0 ? totalEarnings / totalTrips : 0
 

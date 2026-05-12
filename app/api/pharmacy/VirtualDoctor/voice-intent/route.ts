@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AIUseCase } from "@prisma/client";
 import { analyzeWithAI } from "@/lib/ai/queue";
+import { authenticateRequest } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -111,25 +113,78 @@ function getMissingSlot(fullText: string): IntakeSlot | null {
   return null;
 }
 
-function humanIntakeQuestion(slot: IntakeSlot): string {
+/** Tailor questions like a clinician would, using what the patient already said. */
+function contextualIntakeQuestion(fullText: string, slot: IntakeSlot): string {
+  const t = normalize(fullText);
+
+  const mentionsSleep =
+    /\b(sleep|insomnia|can'?t sleep|cant sleep|wake up at night|nightmare|snor|restless|tired but wired)\b/i.test(t);
+  const mentionsFluCold =
+    /\b(flu|influenza|cold|runny nose|stuffy nose|congestion|sore throat|sniffles)\b/i.test(t);
+  const mentionsFever =
+    /\b(fever|febrile|temperature|chills|feeling hot|burning up|sweats|night sweat)\b/i.test(t);
+  const mentionsPain =
+    /\b(pain|ache|hurts|cramp|stiff|throb)\b/i.test(t);
+  const mentionsGi =
+    /\b(stomach|nausea|vomit|diarrhea|constipation|bowel|acid reflux|heartburn)\b/i.test(t);
+  const mentionsMental =
+    /\b(anxiety|panic|depress|stress|mood|worried)\b/i.test(t);
+
   switch (slot) {
     case "main_symptom":
-      return "I am here with you. Could you tell me your main symptom in simple words?";
+      return "I'm with you. In your own words, what's bothering you most today?";
     case "duration":
-      return "Thanks for sharing that. How long have you been feeling this way?";
+      if (mentionsSleep) {
+        return "How long has sleep been difficult — a few nights, weeks, or longer? Did anything stressful happen around when it started?";
+      }
+      if (mentionsFluCold) {
+        return "When did these symptoms start — today, yesterday, or longer ago? Are they getting better or worse?";
+      }
+      if (mentionsFever) {
+        return "How long have you had the fever — hours or days? Does it come and go or stay steady?";
+      }
+      if (mentionsGi) {
+        return "When did this stomach issue begin, and has it been constant or on-and-off?";
+      }
+      return "Thanks for telling me. Roughly how long has this been going on?";
     case "severity":
-      return "Understood. How strong is it right now (mild, moderate, or severe)?";
+      if (mentionsSleep) {
+        return "How much is this affecting your days — are you still functioning at work or school, or is it wiping you out?";
+      }
+      if (mentionsFever) {
+        return "How unwell do you feel right now — mild, pretty rough, or severe enough that standing or walking is hard?";
+      }
+      if (mentionsPain) {
+        return "On a day-to-day level, how intense is it — mild annoyance, moderate, or severe? Anything that makes it clearly worse or better?";
+      }
+      return "How strong are your symptoms right now — mild, moderate, or severe?";
     case "associated_symptoms":
-      return "Got it. Are you also noticing any other symptoms, even small ones?";
+      if (mentionsFluCold || mentionsFever) {
+        return "Besides what you mentioned, do you have cough, shortness of breath, chest pain, severe headache, rash, or trouble keeping fluids down?";
+      }
+      if (mentionsSleep) {
+        return "When you try to sleep, is it trouble falling asleep, waking through the night, or waking too early? Any loud snoring or gasping?";
+      }
+      if (mentionsMental) {
+        return "Along with that, are you having trouble sleeping, appetite changes, racing thoughts, or feeling hopeless?";
+      }
+      return "Anything else going on at the same time — even small changes in appetite, energy, breathing, or bathroom habits?";
     case "medical_history":
-      return "Before I continue, do you have any medical conditions like diabetes, asthma, blood pressure, or anything similar?";
+      return "Do you have any ongoing conditions I should know about — like diabetes, high blood pressure, asthma, heart or kidney problems, or pregnancy?";
     case "current_medications":
-      return "Are you currently taking any medicines or supplements?";
+      return "What medicines or supplements are you taking now (including over-the-counter)?";
     case "allergies":
-      return "Do you have any medicine allergies that I should know about?";
+      return "Any allergies to medicines, foods, or anything else that caused a bad reaction?";
     default:
       return "Could you share one more detail so I can guide you safely?";
   }
+}
+
+function humanIntakeQuestion(slot: IntakeSlot, fullText?: string): string {
+  if (fullText && fullText.trim()) {
+    return contextualIntakeQuestion(fullText, slot);
+  }
+  return contextualIntakeQuestion("", slot);
 }
 
 function quickHeuristic(
@@ -174,7 +229,7 @@ function quickHeuristic(
     return {
       category: "unclear",
       mode: "ask_more_details",
-      nextPrompt: humanIntakeQuestion(missing),
+      nextPrompt: humanIntakeQuestion(missing, full),
     };
   }
 
@@ -205,6 +260,37 @@ export async function POST(request: NextRequest) {
     const latestInput = (body?.latestInput || "").toString().trim();
     const language = (body?.language || "english").toString();
     const history = Array.isArray(body?.history) ? body.history : [];
+    const session = await authenticateRequest(request).catch(() => null);
+
+    let patientContext: {
+      name?: string | null;
+      age?: number | null;
+      gender?: string | null;
+      bodyBp?: string | null;
+      bodyTemp?: string | null;
+      source: "health_vitals" | "user_profile" | "user_name" | "none";
+    } = { source: "none" };
+    if (session?.id) {
+      const [user, profile, vitals] = await Promise.all([
+        prisma.user.findUnique({ where: { id: session.id }, select: { name: true } }),
+        prisma.userProfile.findUnique({ where: { userId: session.id }, select: { dateOfBirth: true, gender: true, bodyBp: true, bodyTemp: true } }),
+        prisma.healthVital.findUnique({ where: { userId: session.id }, select: { age: true, name: true, gender: true } }),
+      ]);
+      let age: number | null = vitals?.age ?? null;
+      if (!age && profile?.dateOfBirth) {
+        const diff = Date.now() - profile.dateOfBirth.getTime();
+        const ageDate = new Date(diff);
+        age = Math.abs(ageDate.getUTCFullYear() - 1970);
+      }
+      patientContext = {
+        name: vitals?.name || user?.name || null,
+        age,
+        gender: vitals?.gender || profile?.gender || null,
+        bodyBp: profile?.bodyBp || null,
+        bodyTemp: profile?.bodyTemp || null,
+        source: vitals ? "health_vitals" : profile ? "user_profile" : user ? "user_name" : "none",
+      };
+    }
 
     if (!text) {
       return safeJsonResponse({ error: "Missing text" }, { status: 400 });
@@ -234,7 +320,8 @@ export async function POST(request: NextRequest) {
             "If there are emergency red flags (e.g. chest pain, trouble breathing, severe bleeding, stroke signs, suicidal intent), set mode=emergency_redirect first.",
             "If medical but intake is incomplete, set category=unclear and mode=ask_more_details.",
             "During intake, ask only ONE short, natural follow-up question at a time.",
-            "Use empathetic, plain, and conversational language; avoid robotic wording.",
+            "Sound like a caring clinician in plain language; mirror the user's concern (e.g. sleep → onset, night waking, snoring, stress; flu/fever → timeline, breathing, fluids, red flags).",
+            "Use empathetic, plain, and conversational language; avoid robotic checklist phrasing.",
             "Adapt the next question based on what is still missing (duration, severity, associated symptoms, history, medications, allergies).",
             "If enough detail is available, set category=medical and mode=confirm_proceed with a calm transition to analysis.",
             "Keep nextPrompt concise and safe. Do not diagnose with certainty.",
@@ -256,32 +343,37 @@ export async function POST(request: NextRequest) {
           mode: "emergency_redirect",
           summary: parsed?.summary || "",
           nextPrompt:
-            "Your symptoms could be urgent. Please call emergency services or go to the nearest emergency center now. I can continue the conversation after you are safe.",
+            "Your symptoms could be urgent. If severe, seek emergency care now. I can still prepare a medicine shortlist and nearby pharmacy consult, and a human pharmacist will review before any prescription action.",
           suggestedQuestions: [],
+          patientContext,
           source: "emergency-guard",
         });
       }
       if (parsed?.mode === "emergency_redirect") {
-        const missing = getMissingSlot(mergedUserText(text, history));
+        const merged = mergedUserText(text, history);
+        const missing = getMissingSlot(merged);
         return safeJsonResponse({
           category: "unclear",
           mode: "ask_more_details",
           summary: parsed?.summary || "",
-          nextPrompt: humanIntakeQuestion(missing || "associated_symptoms"),
+          nextPrompt: humanIntakeQuestion(missing || "associated_symptoms", merged),
           suggestedQuestions: [],
+          patientContext,
           source: "safe-emergency-downgrade",
         });
       }
 
       // Never reject if the user message is likely medical; recover to intake flow.
       if (parsed?.mode === "reject_non_medical" && isLikelyMedicalIntent(`${text} ${latestInput}`)) {
-        const missing = getMissingSlot(mergedUserText(text, history));
+        const merged = mergedUserText(text, history);
+        const missing = getMissingSlot(merged);
         return safeJsonResponse({
           category: "unclear",
           mode: "ask_more_details",
           summary: parsed.summary || "",
-          nextPrompt: humanIntakeQuestion(missing || "main_symptom"),
+          nextPrompt: humanIntakeQuestion(missing || "main_symptom", merged),
           suggestedQuestions: [],
+          patientContext,
           source: "medical-intent-recovery",
         });
       }
@@ -289,13 +381,15 @@ export async function POST(request: NextRequest) {
       // Guardrail: do not proceed too early on first vague symptom message.
       const minimumDetailsReady = hasMinimumIntakeDetails(latestInput || text, history);
       if ((parsed.mode === "confirm_proceed" || parsed.category === "medical") && !minimumDetailsReady) {
-        const missing = getMissingSlot(mergedUserText(text, history));
+        const merged = mergedUserText(text, history);
+        const missing = getMissingSlot(merged);
         return safeJsonResponse({
           category: "unclear",
           mode: "ask_more_details",
           summary: parsed.summary || "",
-          nextPrompt: humanIntakeQuestion(missing || "duration"),
+          nextPrompt: humanIntakeQuestion(missing || "duration", merged),
           suggestedQuestions: Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [],
+          patientContext,
           source: "ai-min-intake-guard",
         });
       }
@@ -316,6 +410,7 @@ export async function POST(request: NextRequest) {
           summary: parsed.summary || "",
           nextPrompt: "Thanks for your answers. I now have enough information and will proceed with analysis.",
           suggestedQuestions: Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [],
+          patientContext,
           source: "ai-loop-guard",
         });
       }
@@ -325,12 +420,13 @@ export async function POST(request: NextRequest) {
         summary: parsed.summary || "",
         nextPrompt: parsed.nextPrompt,
         suggestedQuestions: Array.isArray(parsed.suggestedQuestions) ? parsed.suggestedQuestions : [],
+        patientContext,
         source: "ai",
       });
     }
 
     const fallback = quickHeuristic(text, { history, latestInput });
-    return safeJsonResponse({ ...fallback, summary: "", suggestedQuestions: [], source: "heuristic" });
+    return safeJsonResponse({ ...fallback, summary: "", suggestedQuestions: [], patientContext, source: "heuristic" });
   } catch (error: any) {
     console.error("VirtualDoctor voice-intent failed:", error);
     return safeJsonResponse({ error: "Failed to process voice intent", details: error?.message || String(error) }, { status: 500 });

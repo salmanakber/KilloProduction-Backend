@@ -65,6 +65,8 @@ export async function GET(request: NextRequest) {
       loyaltyPoints: loyaltyPoints._sum.points || 0
     }
 
+    console.log("walletData", walletData)
+
     return NextResponse.json(walletData)
   } catch (error) {
     console.error('Error fetching wallet data:', error)

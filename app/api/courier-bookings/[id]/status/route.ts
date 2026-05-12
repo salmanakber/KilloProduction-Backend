@@ -81,6 +81,7 @@ export async function PUT(
       courierBooking.status === "ARRIVED_AT_PICKUP"
     ) {
       const otp = String(rideStartOtp || "").trim()
+      
       if (!otp || !(await verifyRideStartOtp(`COURIER_BOOKING:${courierBookingId}`, otp))) {
         return NextResponse.json({ error: "Valid ride start OTP is required" }, { status: 400 })
       }
@@ -142,25 +143,34 @@ export async function PUT(
               equals: courierBookingId,
             },
           },
-          include: { order: true },
         })
         if (payment) {
           const refund = getRefundMeta(payment.metadata)
           const pending = Boolean(refund?.settlementPendingPickupOtp)
           const refundMethod = String(refund?.refundMethod || "ORIGINAL_PAYMENT")
           const refundAmount = Number(refund?.computedRefundAmount || payment.amount || 0)
-          const deliveryFee = Number(payment.order?.deliveryFee || 0)
           const deliveryFeeBearer = String(refund?.deliveryFeeBearer || "CUSTOMER")
           const refundPlatformCommission = refund?.refundPlatformCommission !== false
 
+          /** `Payment` has no Prisma relation to `Order`; refunds may tie only to courier/ride booking (no order row). */
+          const linkedOrder =
+            payment.orderId != null
+              ? await prisma.order.findUnique({
+                  where: { id: payment.orderId },
+                  select: { deliveryFee: true, vendorId: true },
+                })
+              : null
+          const deliveryFee = Number(linkedOrder?.deliveryFee ?? 0)
+          const orderVendorId = linkedOrder?.vendorId ?? null
+
           if (pending) {
             await prisma.$transaction(async (tx) => {
-              if (payment.orderId && payment.order?.vendorId) {
-                const vendorWallet = await tx.wallet.findUnique({ where: { userId: payment.order.vendorId } })
+              if (payment.orderId && orderVendorId) {
+                const vendorWallet = await tx.wallet.findUnique({ where: { userId: orderVendorId } })
                 if (vendorWallet) {
                   const credited = await tx.walletTransaction.findFirst({
                     where: {
-                      userId: payment.order.vendorId,
+                      userId: orderVendorId,
                       orderId: payment.orderId,
                       status: "COMPLETED",
                       amount: { gt: 0 },
@@ -174,7 +184,7 @@ export async function PUT(
                     await tx.wallet.update({ where: { id: vendorWallet.id }, data: { balance: nextVendorBalance } })
                     await tx.walletTransaction.create({
                       data: {
-                        userId: payment.order.vendorId,
+                        userId: orderVendorId,
                         type: "DEBIT",
                         amount: -Math.abs(debitAmount),
                         balance: nextVendorBalance,

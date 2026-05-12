@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 
+
 export async function GET(request: NextRequest) {
   try {
     const user = await authenticateRequest()
@@ -28,8 +29,10 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    if (role !== "ALL") {
+    if (role !== "ALL" && role !== "WHOLESALER") {
       where.role = role
+    } else {
+      where.role = { not: "WHOLESALER" }
     }
 
     if (status !== "ALL") {
@@ -104,8 +107,13 @@ export async function GET(request: NextRequest) {
           phone: user.phone,
           role: user.role,
           module: userModule,
-          status: user.isActive ? "ACTIVE" : "INACTIVE",
+          status: user.status || (user.isActive ? "ACTIVE" : "INACTIVE"),
           isVerified: user.isVerified,
+          deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
+          recoverableUntil:
+            user.deletedAt
+              ? new Date(new Date(user.deletedAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+              : null,
           joinedAt: user.createdAt.toISOString(),
           lastActive: user.userProfile?.lastLoginAt
             ? new Date(user.userProfile.lastLoginAt).toLocaleDateString()

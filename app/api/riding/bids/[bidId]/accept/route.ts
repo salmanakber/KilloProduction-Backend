@@ -89,8 +89,6 @@ export async function POST(
     const bid = rideBid || courierBid;
     const booking = rideBid?.rideBooking || courierBid?.courierBooking;
     const bookingType = rideBid ? 'ride' : 'courier';
-console.log('💰 Bid:', bid)
-console.log('💰 Booking:', booking)
     if (!bid || !booking) {
       return NextResponse.json({ success: false, error: "Bid not found" }, { status: 404 })
     }
@@ -196,47 +194,17 @@ console.log('💰 Booking:', booking)
     try {
       const riderId = bookingType === 'ride' ? bid.riderId : bid.rider.id
       const finalAmount = bid.bidAmount
-      
-      // Calculate original amount:
-      // For ride bookings: use estimatedFare if available, otherwise calculate from bidAmount + discount
-      // For courier bookings: calculate from fare + discount (fare is the final/discounted amount)
-      let originalAmount = 0
-      
-      if (bookingType === 'ride') {
-        const estimatedFare = (booking as any).estimatedFare || 0
-        // If there's a promo code and estimatedFare seems wrong (equals bidAmount), calculate it
-        if (promoCodeDiscount > 0 && estimatedFare === finalAmount) {
-          originalAmount = finalAmount + promoCodeDiscount
-          console.log("⚠️ Bid acceptance: estimatedFare equals bidAmount with promo, calculating original:", originalAmount)
-        } else {
-          originalAmount = estimatedFare || (finalAmount + promoCodeDiscount)
-        }
-      } else {
-        // Courier booking: fare is the final amount, calculate original by adding discount
-        const fare = (booking as any).fare || 0
-        originalAmount = promoCodeDiscount > 0 
-          ? fare + promoCodeDiscount  // Add discount back to get original
-          : fare  // No promo code, so fare is the original
-      }
-      
-      console.log("📊 Bid acceptance amounts:", {
-        bookingId: booking.id,
-        bookingType,
-        estimatedFare: bookingType === 'ride' ? (booking as any).estimatedFare : undefined,
-        fare: bookingType === 'courier' ? (booking as any).fare : undefined,
-        bidAmount: finalAmount,
-        promoCodeDiscount,
-        calculatedOriginalAmount: originalAmount,
-        finalAmount,
-      })
-      
+      // Agreed price is always the accepted bid (pre-fetch `booking.fare` is stale for courier).
+      const originalAmount =
+        promoCodeDiscount > 0 ? finalAmount + promoCodeDiscount : finalAmount
+
       if (originalAmount > 0) {
         await createRiderEarning({
           riderId: riderId,
           rideBookingId: bookingType === 'ride' ? booking.id : undefined,
           courierBookingId: bookingType === 'courier' ? booking.id : undefined,
-          totalAmount: originalAmount, // Original amount before discount
-          finalAmount: finalAmount, // Final amount after discount (bid amount)
+          totalAmount: originalAmount,
+          finalAmount: finalAmount,
           description: `Earning from ${bookingType} booking #${booking.bookingNumber} (bid accepted)`,
           promoCodeDiscount: promoCodeDiscount,
           promoCodeId: promoCodeId,

@@ -3,6 +3,25 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
+import {
+  computeBidExpiresAt,
+  expirePendingRideBidsForBooking,
+  rideBookingRequestEndsAtMs,
+} from "@/lib/riding-bid-expiry"
+
+const DEFAULT_BID_CAP_PERCENT = 20
+
+function getBidCapPercent(): number {
+  const raw = Number(process.env.RIDING_BID_CAP_PERCENT ?? DEFAULT_BID_CAP_PERCENT)
+  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_BID_CAP_PERCENT
+  return raw
+}
+
+function calculateMaxBidCapAmount(estimatedFare: number): number {
+  const capPercent = getBidCapPercent()
+  const capped = estimatedFare * (1 + capPercent / 100)
+  return Math.round(capped * 100) / 100
+}
 
 export async function POST(
   request: NextRequest,
@@ -27,13 +46,31 @@ export async function POST(
       return NextResponse.json({ error: "Not authorized to bid" }, { status: 403 })
     }
 
-    // Check if ride booking exists and is still available
+    // Check if ride booking exists and is still available (other riders may bid after first bid moves to BIDDING)
     const rideBooking = await prisma.rideBooking.findUnique({
       where: { id: rideBookingId },
     })
 
-    if (!rideBooking || rideBooking.status !== "REQUESTED") {
+    if (!rideBooking || !["REQUESTED", "BIDDING"].includes(rideBooking.status)) {
       return NextResponse.json({ error: "Ride request is no longer available" }, { status: 400 })
+    }
+
+    await expirePendingRideBidsForBooking(rideBookingId)
+
+    const requestEndsAtMs = rideBookingRequestEndsAtMs(rideBooking)
+    if (Date.now() >= requestEndsAtMs) {
+      return NextResponse.json({ error: "Request bidding window has ended" }, { status: 400 })
+    }
+    const normalizedBidAmount = Number(bidAmount)
+    if (!Number.isFinite(normalizedBidAmount) || normalizedBidAmount <= 0) {
+      return NextResponse.json({ error: "Invalid bid amount" }, { status: 400 })
+    }
+    const maxBidCapAmount = calculateMaxBidCapAmount(Number(rideBooking.estimatedFare || 0))
+    if (normalizedBidAmount > maxBidCapAmount) {
+      return NextResponse.json({
+        error: `Bid cannot exceed max cap (${maxBidCapAmount.toFixed(2)})`,
+        maxBidCapAmount,
+      }, { status: 400 })
     }
 
     // Check if rider already has an active bid
@@ -49,15 +86,19 @@ export async function POST(
       return NextResponse.json({ error: "You already have an active bid for this ride" }, { status: 400 })
     }
 
-    // Create the bid with 1 minute expiry
+    const bidExpiresAt = computeBidExpiresAt(requestEndsAtMs)
+    if (bidExpiresAt.getTime() <= Date.now()) {
+      return NextResponse.json({ error: "Request bidding window has ended" }, { status: 400 })
+    }
+
     const bid = await prisma.rideBid.create({
       data: {
         rideBookingId,
         riderId: user.id,
-        bidAmount,
+        bidAmount: normalizedBidAmount,
         estimatedTime,
         message,
-        expiresAt: new Date(Date.now() + 60 * 1000), // 1 minute expiry
+        expiresAt: bidExpiresAt,
       },
       include: {
         rider: {
@@ -78,11 +119,12 @@ export async function POST(
       },
     })
 
-    // Update ride booking status to BIDDING
-    await prisma.rideBooking.update({
-      where: { id: rideBookingId },
-      data: { status: "BIDDING" },
-    })
+    if (rideBooking.status === "REQUESTED") {
+      await prisma.rideBooking.update({
+        where: { id: rideBookingId },
+        data: { status: "BIDDING" },
+      })
+    }
 
     await NotificationBridge.sendNotification({
       userId: rideBooking.customerId,

@@ -54,6 +54,7 @@ export function issueRideStartOtp(bookingId: string) {
 }
 
 export async function verifyRideStartOtp(bookingId: string, otp: string) {
+  
   const expectedHash = hashOtp(bookingId, otp)
   if (redisClient) {
     const key = `${REDIS_PREFIX}${bookingId}`

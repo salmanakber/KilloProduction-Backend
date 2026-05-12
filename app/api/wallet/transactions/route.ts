@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
           status: true,
           orderId: true,
           metadata: true,
+          clearsAt: true,
           createdAt: true
         },
         orderBy: {

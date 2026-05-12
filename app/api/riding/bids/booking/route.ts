@@ -66,6 +66,14 @@ export async function GET(
       );
     }
 
+    if (bookingType === "ride") {
+      const { expirePendingRideBidsForBooking } = await import("@/lib/riding-bid-expiry")
+      await expirePendingRideBidsForBooking(bookingId)
+    } else {
+      const { expirePendingCourierBidsForBooking } = await import("@/lib/riding-bid-expiry")
+      await expirePendingCourierBidsForBooking(bookingId)
+    }
+
     // Fetch bids based on booking type
     let transformedBids: any[] = [];
     

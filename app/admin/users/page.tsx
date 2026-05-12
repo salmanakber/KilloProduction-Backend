@@ -5,7 +5,6 @@ import {
   Search,
   Filter,
   Download,
-  Plus,
   Edit,
   Eye,
   MoreHorizontal,
@@ -43,7 +42,10 @@ import { UserViewModal } from "@/components/components/admin/UserViewModal"
 import { useToast } from "../../../hooks/use-toast"
 import type { User } from "../../type/index"
 
-interface AdminUser extends User {}
+interface AdminUser extends User {
+  deletedAt?: string | null
+  recoverableUntil?: string | null
+}
 
 export default function UserManagement() {
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -149,6 +151,38 @@ export default function UserManagement() {
     }
   }
 
+  const handleAccountAction = async (userId: string, accountAction: "RESTORE_ACCOUNT" | "ACTIVATE_ACCOUNT" | "DEACTIVATE_ACCOUNT") => {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountAction }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to apply account action")
+      }
+
+      toast({
+        title: "Account Updated",
+        description:
+          accountAction === "RESTORE_ACCOUNT"
+            ? "Account was recovered successfully."
+            : accountAction === "ACTIVATE_ACCOUNT"
+            ? "Account was activated successfully."
+            : "Account was deactivated successfully.",
+      })
+      fetchUsers()
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Unable to update account.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleBulkAction = async (action: string) => {
     try {
       const response = await fetch("/api/admin/users/bulk", {
@@ -231,10 +265,6 @@ export default function UserManagement() {
             <Download className="h-4 w-4 mr-2 text-slate-500" />
             Export
           </Button>
-          <Button className="flex items-center bg-gradient-to-tr from-green-500 to-emerald-600 shadow-md shadow-green-200 hover:shadow-green-300 text-white rounded-xl h-10 font-bold border-0 transition-all hover:-translate-y-0.5">
-            <Plus className="h-4 w-4 mr-2" />
-            Add User
-          </Button>
         </div>
       </div>
 
@@ -278,7 +308,6 @@ export default function UserManagement() {
                   <SelectItem value="CUSTOMER">Customer</SelectItem>
                   <SelectItem value="VENDOR">Vendor</SelectItem>
                   <SelectItem value="RIDER">Rider</SelectItem>
-                  <SelectItem value="WHOLESALER">Wholesaler</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -579,6 +608,17 @@ export default function UserManagement() {
                             <DropdownMenuItem onClick={() => handleStatusChange(user.id, "INACTIVE")} disabled={user.status === "INACTIVE"} className="rounded-md font-medium cursor-pointer focus:bg-slate-50 focus:text-slate-700">
                               <XCircle className="h-4 w-4 mr-2 text-slate-400" /> Deactivate
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAccountAction(user.id, "ACTIVATE_ACCOUNT")} className="rounded-md font-medium cursor-pointer focus:bg-emerald-50 focus:text-emerald-700">
+                              <UserCheck className="h-4 w-4 mr-2 text-emerald-500" /> Force Activate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAccountAction(user.id, "DEACTIVATE_ACCOUNT")} className="rounded-md font-medium cursor-pointer focus:bg-slate-50 focus:text-slate-700">
+                              <UserX className="h-4 w-4 mr-2 text-slate-400" /> Force Deactivate
+                            </DropdownMenuItem>
+                            {!!user.deletedAt && (
+                              <DropdownMenuItem onClick={() => handleAccountAction(user.id, "RESTORE_ACCOUNT")} className="rounded-md font-medium cursor-pointer focus:bg-blue-50 focus:text-blue-700">
+                                <CheckCircle className="h-4 w-4 mr-2 text-blue-500" /> Recover Deleted (30d)
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleStatusChange(user.id, "SUSPENDED")} disabled={user.status === "SUSPENDED"} className="rounded-md font-medium cursor-pointer focus:bg-red-50 focus:text-red-700 text-red-600">
                               <Clock className="h-4 w-4 mr-2 text-red-500" /> Suspend
                             </DropdownMenuItem>

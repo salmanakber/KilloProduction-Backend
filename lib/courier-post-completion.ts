@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { debitDeferredCustomerRideWallet } from "@/lib/deferred-ride-wallet-settlement"
 import {
   completeOrderWalletTransactions,
   ensureOrderCompletionPendingWallets,
@@ -43,6 +44,31 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
   }
 
   const courierBooking = updatedBooking
+  const courierMod = String(courierBooking.module || "").toUpperCase()
+  const isRideLikeCourier = courierMod === "RIDE" || courierMod === "RIDING"
+
+  /** Ride-like courier completions use this API (no Order row); deferred WALLET matches ride-bookings flow. */
+  if (isRideLikeCourier) {
+    try {
+      await debitDeferredCustomerRideWallet({
+        customerId: courierBooking.customerId,
+        paymentMethod: courierBooking.paymentMethod,
+        paymentStatus: courierBooking.paymentStatus,
+        fareToCharge: Number(courierBooking.fare || 0),
+        completionDebitReference: `courier:${courierBookingId}:completion-debit`,
+        linkedRecordId: courierBookingId,
+        description: `Ride payment for courier booking ${courierBookingId}`,
+        metadata: {
+          transactionType: "RIDE_COMPLETION_PAYMENT",
+          courierBookingId,
+          module: "RIDING",
+        },
+      })
+    } catch (e) {
+      console.error("[courier-post-completion] deferred ride wallet debit:", e)
+    }
+  }
+
   const deliveryFee = updatedBooking.fare || 0
   const riderId = updatedBooking.riderId
 
@@ -330,6 +356,7 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
         riderId &&
         deliveryFee > 0
       ) {
+        const deferRiderWalletClearance = isRideLikeCourier && netRiderSingle > 0
         await ensureOrderCompletionPendingWallets({
           orderId: updatedOrder.id,
           vendorId: updatedOrder.vendorId,
@@ -338,8 +365,12 @@ export async function runCourierCompletionSideEffects(courierBookingId: string):
           vendorAmount: 0,
           courierBookingId,
           description: `Delivery completion order ${updatedOrder.id}`,
+          deferRiderCreditClearance: deferRiderWalletClearance,
         })
-        await completeOrderWalletTransactions(updatedOrder.id)
+        await completeOrderWalletTransactions(
+          updatedOrder.id,
+          deferRiderWalletClearance ? { skipMetaTypes: ["DELIVERY_PAYMENT"] } : undefined
+        )
       }
     }
     await prisma.courierBooking.update({

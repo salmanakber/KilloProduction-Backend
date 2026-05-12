@@ -1,6 +1,6 @@
 import { CommissionType, type Module } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { createWalletTransaction, completeWalletTransaction } from "@/lib/wallet-transaction-service"
+import { createWalletTransaction } from "@/lib/wallet-transaction-service"
 import { calculateCommission } from "@/lib/commission-service"
 import { bumpRiderBonusOnDeliveryEarning } from "@/lib/rider-bonus-engine"
 interface CreateRiderEarningParams {
@@ -28,9 +28,22 @@ const COURIER_MODULE_MAP: Record<string, Module> = {
 }
 
 /**
+ * Linked `Order.module` values that override RIDING for **RideBooking** rows (true interconnect).
+ * Excludes `COURIER`: point-to-point ride jobs often get a synthetic `Order` with `module: COURIER`
+ * from `/riding/book`, which must not steal the RIDING commission row.
+ */
+const RIDE_INTERCONNECT_COMMISSION_MODULES = new Set<Module>([
+  "PHARMACY",
+  "FOOD",
+  "GROCERY",
+  "AUTO_PARTS",
+  "WHOLESALER",
+])
+
+/**
  * Resolves which `commissionSetting.module` to use for RIDER_COMMISSION on delivery/ride payouts.
- * Prefer the linked marketplace Order.module (pharmacy, food, grocery, auto parts) when present;
- * wholesale courier jobs use WHOLESALER; rides use RIDING.
+ * Ride rows with a linked marketplace `Order` (interconnect) use that order's module; standalone
+ * CustomerRiding trips use RIDING. Courier: WHOLESALER, linked order module, or courier.module map.
  */
 export async function resolveRiderCommissionModule(params: {
   rideBookingId?: string | null
@@ -38,7 +51,19 @@ export async function resolveRiderCommissionModule(params: {
   /** When already loaded (e.g. completion handler), avoids an extra order read. */
   orderModule?: Module | null
 }): Promise<Module> {
-  if (params.rideBookingId) return "RIDING"
+  if (params.rideBookingId) {
+    if (params.orderModule) return params.orderModule
+    const rideLinkedOrder = await prisma.order.findFirst({
+      where: { rideBookingId: params.rideBookingId },
+      select: { module: true },
+      orderBy: { createdAt: "desc" },
+    })
+    const mod = rideLinkedOrder?.module
+    if (mod && RIDE_INTERCONNECT_COMMISSION_MODULES.has(mod)) {
+      return mod
+    }
+    return "RIDING"
+  }
   if (params.courierBookingId) {
     const cb = await prisma.courierBooking.findUnique({
       where: { id: params.courierBookingId },
@@ -47,6 +72,11 @@ export async function resolveRiderCommissionModule(params: {
     if (cb?.module?.toUpperCase() === "WHOLESALER") {
       return "WHOLESALER"
     }
+    /** CustomerRiding / ride-like courier rows (`module` RIDE|RIDING): always use RIDING settings, not linked `Order` (often `COURIER`). */
+    const courierMod = (cb?.module || "").toUpperCase()
+    if (courierMod === "RIDE" || courierMod === "RIDING") {
+      return "RIDING"
+    }
     const hinted = params.orderModule ?? null
     if (hinted) return hinted
     if (cb?.orderId) {
@@ -54,7 +84,9 @@ export async function resolveRiderCommissionModule(params: {
         where: { id: cb.orderId },
         select: { module: true },
       })
-      if (ord?.module) return ord.module
+      if (ord?.module) {
+        return ord.module
+      }
     }
     const key = (cb?.module || "COURIER").toUpperCase()
     return COURIER_MODULE_MAP[key] || "COURIER"
@@ -79,8 +111,32 @@ export async function createRiderEarning({
   promoCodeId,
 }: CreateRiderEarningParams) {
   try {
-    const originalAmount = totalAmount
-    const actualFinalAmount = finalAmount ?? totalAmount
+    /** Standalone CustomerRiding: one pending earning per ride; no wallet row until trip completes (avoids double-count vs RiderEarning pending). */
+    const isStandaloneRide = Boolean(rideBookingId && !courierBookingId)
+    if (isStandaloneRide && rideBookingId) {
+      const ref = `earning-payout:ride:${rideBookingId}`
+      await prisma.$transaction(async (tx) => {
+        await tx.walletTransaction.deleteMany({
+          where: { userId: riderId, reference: ref, status: "PENDING" },
+        })
+        await tx.riderCommission.deleteMany({
+          where: { rideBookingId, riderId, status: "PENDING" },
+        })
+        await tx.riderEarning.deleteMany({
+          where: { rideBookingId, riderId, status: "PENDING" },
+        })
+      })
+    }
+
+    const listOrGrossAmount = Math.max(0, Number(totalAmount) || 0)
+    const resolvedFinal = finalAmount != null ? Number(finalAmount) : null
+    const actualFinalAmount =
+      resolvedFinal != null && Number.isFinite(resolvedFinal)
+        ? Math.max(0, resolvedFinal)
+        : listOrGrossAmount
+    /** Customer-agreed / charged trip fare for commission + payout (e.g. accepted bid), not list estimate. */
+    const fareForPayout =
+      actualFinalAmount > 0 ? actualFinalAmount : listOrGrossAmount
 
     const commissionModule = await resolveRiderCommissionModule({
       rideBookingId,
@@ -92,7 +148,7 @@ export async function createRiderEarning({
     try {
       const calc = await calculateCommission(
         commissionModule,
-        originalAmount,
+        fareForPayout,
         CommissionType.RIDER_COMMISSION
       )
       commissionAmount = calc.commissionAmount
@@ -120,7 +176,7 @@ export async function createRiderEarning({
 
     const netAmount = Math.max(
       0,
-      originalAmount - finalCommissionAmount - riderDiscountAmount
+      fareForPayout - finalCommissionAmount - riderDiscountAmount
     )
 
     const riderEarning = await prisma.riderEarning.create({
@@ -129,7 +185,7 @@ export async function createRiderEarning({
         rideBookingId: rideBookingId || null,
         orderId: orderId || null,
         type: "DELIVERY_FEE",
-        amount: originalAmount,
+        amount: fareForPayout,
         commission: finalCommissionAmount,
         netAmount,
         status: "PENDING",
@@ -146,7 +202,7 @@ export async function createRiderEarning({
         courierBookingId: courierBookingId || null,
         module: commissionModule,
         commissionType: CommissionType.RIDER_COMMISSION,
-        orderAmount: originalAmount,
+        orderAmount: fareForPayout,
         commissionRate,
         commissionAmount: finalCommissionAmount,
         status: "PENDING",
@@ -154,35 +210,7 @@ export async function createRiderEarning({
     })
 
     /** Peak bonus progress is tied to completed deliveries (see markRiderEarningAsPaid), not accept time. */
-
-    const payoutReference = rideBookingId
-      ? `earning-payout:ride:${rideBookingId}`
-      : courierBookingId
-        ? `earning-payout:courier:${courierBookingId}`
-        : null
-    if (payoutReference && netAmount > 0) {
-      const existingPayout = await prisma.walletTransaction.findFirst({
-        where: { userId: riderId, reference: payoutReference },
-      })
-      if (!existingPayout) {
-        await createWalletTransaction({
-          userId: riderId,
-          type: "CREDIT",
-          amount: Math.round(netAmount * 100) / 100,
-          description: rideBookingId
-            ? `Ride payout for booking ${rideBookingId}`
-            : `Courier payout for booking ${courierBookingId}`,
-          status: "PENDING",
-          reference: payoutReference,
-          metadata: {
-            transactionType: "EARNING_PAYOUT",
-            module: commissionModule,
-            rideBookingId: rideBookingId ?? undefined,
-            courierBookingId: courierBookingId ?? undefined,
-          },
-        })
-      }
-    }
+    /** Wallet CREDIT with `clearsAt` is created only in `markRiderEarningAsPaid` → `creditNetPayoutWallet` so clearance worker can settle it. */
 
     return {
       ...riderEarning,
@@ -243,19 +271,45 @@ async function creditNetPayoutWallet(params: {
 
   const existing = await prisma.walletTransaction.findFirst({
     where: { userId: riderId, reference },
+    orderBy: { createdAt: "desc" },
   })
+  if (existing?.status === "COMPLETED") return
+
+  const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
+    "@/lib/rider-wallet-clearance-settings"
+  )
+  const days = await getRiderWalletClearanceDays()
+  const clearsAtComputed = computeWalletClearsAt(days)
+
+  if (existing?.status === "PENDING") {
+    const amountRounded = Math.round(totalNet * 100) / 100
+    const description = rideBookingId
+      ? `Ride payout for booking ${rideBookingId} (clears in ${days} day${days === 1 ? "" : "s"})`
+      : `Courier payout for booking ${courierBookingId} (clears in ${days} day${days === 1 ? "" : "s"})`
+    await prisma.walletTransaction.update({
+      where: { id: existing.id },
+      data: {
+        amount: amountRounded,
+        description,
+        /** Always ensure clearance is scheduled (standalone ride payouts must hit the worker). */
+        clearsAt: existing.clearsAt ?? clearsAtComputed,
+        metadata: {
+          transactionType: "EARNING_PAYOUT",
+          rideBookingId: rideBookingId ?? undefined,
+          courierBookingId: courierBookingId ?? undefined,
+        },
+      },
+    })
+    return
+  }
+
   if (existing) return
 
   if (courierBookingId && (await riderAlreadyReceivedCourierDeliveryWallet(riderId, courierBookingId))) {
     return
   }
 
-  const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
-    "@/lib/rider-wallet-clearance-settings"
-  )
-  const days = await getRiderWalletClearanceDays()
-
-  await createWalletTransaction({
+  const created = await createWalletTransaction({
     userId: riderId,
     type: "CREDIT",
     amount: Math.round(totalNet * 100) / 100,
@@ -264,13 +318,20 @@ async function creditNetPayoutWallet(params: {
       : `Courier payout for booking ${courierBookingId} (clears in ${days} day${days === 1 ? "" : "s"})`,
     status: "PENDING",
     reference,
-    clearsAt: computeWalletClearsAt(days),
+    clearsAt: clearsAtComputed,
     metadata: {
       transactionType: "EARNING_PAYOUT",
       rideBookingId: rideBookingId ?? undefined,
       courierBookingId: courierBookingId ?? undefined,
     },
   })
+
+  if (created?.id && !created.clearsAt) {
+    await prisma.walletTransaction.update({
+      where: { id: created.id },
+      data: { clearsAt: clearsAtComputed },
+    })
+  }
 }
 
 /**
@@ -332,7 +393,7 @@ export async function markRiderEarningAsPaid(
     const totalNet = pendingRows.reduce((s, e) => s + (e.netAmount || 0), 0)
 
     const updatedEarning = await prisma.riderEarning.updateMany({
-      where: { ...earningWhere, status: "PENDING" },
+      where: { ...earningWhere, riderId, status: "PENDING" },
       data: {
         status: "PAID",
         paidAt: new Date(),
@@ -341,7 +402,7 @@ export async function markRiderEarningAsPaid(
 
     if (rideBookingId) {
       await prisma.riderCommission.updateMany({
-        where: { rideBookingId, status: "PENDING" },
+        where: { rideBookingId, riderId, status: "PENDING" },
         data: { status: "PAID", paidAt: new Date() },
       })
     } else if (courierBookingId) {
@@ -374,22 +435,18 @@ export async function markRiderEarningAsPaid(
     }
 
     if (rideBookingId) {
-      const pendingPayout = await prisma.walletTransaction.findFirst({
-        where: {
-          userId: riderId,
-          reference: `earning-payout:ride:${rideBookingId}`,
-          status: "PENDING",
-        },
+      /** Rebuild payout from pending earnings total (old flow could leave wrong PENDING amount vs. bid). */
+      const ref = `earning-payout:ride:${rideBookingId}`
+      await prisma.walletTransaction.deleteMany({
+        where: { userId: riderId, reference: ref, status: "PENDING" },
       })
-      if (pendingPayout) {
-        await completeWalletTransaction(pendingPayout.id)
-      } else {
+      if (totalNet > 0) {
         await creditNetPayoutWallet({
           riderId,
           totalNet,
           rideBookingId,
-          courierBookingId,
-          skipWallet,
+          courierBookingId: undefined,
+          skipWallet: false,
         })
       }
     } else {

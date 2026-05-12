@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Active statuses (excluding completed, expired, cancelled, delivered)
+    // Customer "active" drawer: include EXPIRED so the app can show rebroadcast until the user leaves or creates a new request.
     const activeStatuses: RideStatus[] = [
       'REQUESTED',
       'ACCEPTED', 
@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       'PICKED_UP',
       'IN_TRANSIT',
       'BIDDING',
+      'EXPIRED',
       'ARRIVED_AT_PICKUP',
       'ARRIVED_AT_DROPOFF',
       'EN_ROUTE_TO_PICKUP',
@@ -194,6 +195,58 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    if (bookingType === "RIDE") {
+      const { expirePendingRideBidsForBooking } = await import("@/lib/riding-bid-expiry")
+      await expirePendingRideBidsForBooking(activeBooking.id)
+      ;(activeBooking as any).rideBids = await prisma.rideBid.findMany({
+        where: { rideBookingId: activeBooking.id, status: "PENDING" },
+        include: {
+          rider: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              avatar: true,
+              riderProfile: {
+                select: {
+                  id: true,
+                  vehicleType: true,
+                  licensePlate: true,
+                  rating: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { bidAmount: "asc" },
+      })
+    } else if (bookingType === "COURIER") {
+      const { expirePendingCourierBidsForBooking } = await import("@/lib/riding-bid-expiry")
+      await expirePendingCourierBidsForBooking(activeBooking.id)
+      ;(activeBooking as any).bids = await prisma.courierBid.findMany({
+        where: { courierBookingId: activeBooking.id, status: "PENDING" },
+        include: {
+          rider: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              avatar: true,
+              riderProfile: {
+                select: {
+                  id: true,
+                  vehicleType: true,
+                  licensePlate: true,
+                  rating: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { bidAmount: "asc" },
+      })
+    }
+
     // Helper function to calculate rating and trips from Review model
     const getRiderRatingAndTrips = async (riderProfileId: string | null | undefined) => {
       if (!riderProfileId) {
@@ -246,6 +299,9 @@ export async function GET(request: NextRequest) {
       }
       return activeBooking.createdAt.getTime()
     })()
+
+    const toIso = (v: unknown) =>
+      v instanceof Date && Number.isFinite(v.getTime()) ? v.toISOString() : v ? String(v) : null
 
     const transformedBooking = {
       id: activeBooking.id,
@@ -303,6 +359,9 @@ export async function GET(request: NextRequest) {
             bidAmount: bid.bidAmount,
             estimatedTime: bid.estimatedTime,
             message: bid.message,
+            status: bid.status,
+            expiresAt: toIso(bid.expiresAt),
+            createdAt: toIso(bid.createdAt),
             rider: {
               id: bid.rider.id,
               name: bid.rider.name || 'Unknown Rider',
@@ -325,6 +384,9 @@ export async function GET(request: NextRequest) {
             bidAmount: bid.bidAmount,
             estimatedTime: bid.estimatedTime,
             message: bid.message,
+            status: bid.status,
+            expiresAt: toIso(bid.expiresAt),
+            createdAt: toIso(bid.createdAt),
             rider: {
               id: bid.rider.id,
               name: bid.rider.name || 'Unknown Rider',

@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       )
       return NextResponse.json(
         {
-          error: "Account is deactivated",
+          error: "Your account is deactivated. Please contact customer support to reactivate your account.",
           tempToken,
           redirectToVerification: true,
           user: {

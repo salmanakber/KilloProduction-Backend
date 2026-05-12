@@ -27,9 +27,39 @@ interface RecommendedMedicine {
   aiExplanation?: string;
 }
 
+function sanitizePrioritizedMedicine(med: any, fallback?: any, index: number = 0) {
+  const autofilledFields: string[] = [];
+  if (!med?.name && !fallback?.name) autofilledFields.push('name');
+  if (!med?.priority) autofilledFields.push('priority');
+  if (!med?.dosage && !fallback?.dosage) autofilledFields.push('dosage');
+  if (!med?.reason && !fallback?.matchReason) autofilledFields.push('reason');
+  if (!med?.urgency) autofilledFields.push('urgency');
+  if (!med?.instructions) autofilledFields.push('instructions');
+  if (!med?.quantity) autofilledFields.push('quantity');
+  if (!med?.totalQuantity && !med?.quantity) autofilledFields.push('totalQuantity');
+  if (!med?.quantityType) autofilledFields.push('quantityType');
+  if (!med?.durationDays) autofilledFields.push('durationDays');
+  const rawQuantity = Number(med?.totalQuantity ?? med?.quantity ?? fallback?.quantity ?? 0);
+  const quantitySafe = Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 1;
+  return {
+    name: String(med?.name || fallback?.name || `Medicine ${index + 1}`),
+    priority: String(med?.priority || (index === 0 ? 'HIGH' : index === 1 ? 'MEDIUM' : 'LOW')),
+    dosage: String(med?.dosage || fallback?.dosage || 'As directed'),
+    reason: String(med?.reason || fallback?.matchReason || 'Recommended based on symptom analysis'),
+    urgency: String(med?.urgency || (index === 0 ? 'HIGH' : 'MEDIUM')),
+    instructions: String(med?.instructions || 'Take only after pharmacist confirmation'),
+    quantity: String(med?.quantity || quantitySafe),
+    totalQuantity: quantitySafe,
+    quantityType: String(med?.quantityType || 'TAB'),
+    durationDays: Number(med?.durationDays || 1),
+    __autofilledFields: autofilledFields,
+  };
+}
+
 interface SuperPharmaShortlistRequest {
   medicines: RecommendedMedicine[];
   symptoms: string[];
+  consultationContext?: any;
   userLocation?: {
     latitude: number;
     longitude: number;
@@ -76,6 +106,7 @@ interface SuperPharmaShortlistResponse {
     }>;
   }>;
   match_plan?: any;
+  ai_autofill_report?: Array<{ medicine: string; autofilledFields: string[] }>;
 }
 
 // buildSimpleSchedule, escapePdfText, generatePrescriptionHTML,
@@ -104,7 +135,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: SuperPharmaShortlistRequest = await request.json();
-    const { medicines, symptoms, userLocation } = body;
+    const { medicines, symptoms, userLocation, consultationContext } = body;
 
     if (!medicines || medicines.length === 0) {
       return NextResponse.json({ error: 'No medicines provided' }, { status: 400 });
@@ -201,13 +232,27 @@ export async function POST(request: NextRequest) {
           priority: index === 0 ? 'HIGH' : index === 1 ? 'MEDIUM' : 'LOW',
           dosage: med.dosage,
           reason: med.matchReason,
-          urgency: index === 0 ? 'HIGH' : 'MEDIUM'
+          urgency: index === 0 ? 'HIGH' : 'MEDIUM',
+          instructions: 'Take only after pharmacist confirmation',
+          quantity: '1',
+          totalQuantity: 1,
+          quantityType: 'TAB',
+          durationDays: 1,
         })),
         usageNotes: 'Follow the prescribed dosages and consult a pharmacist if you have any questions.',
         contraindications: 'Please inform your pharmacist of any allergies or existing medical conditions.',
         followUp: 'Monitor your symptoms and seek medical attention if they worsen or persist.'
       };
     }
+
+    const normalizedPrioritizedMedicines = (prescriptionData.prioritizedMedicines || []).map((m: any, i: number) =>
+      sanitizePrioritizedMedicine(m, medicines?.[i], i)
+    );
+    const autofillReport = normalizedPrioritizedMedicines.map((m: any) => ({
+      medicine: String(m?.name || ''),
+      autofilledFields: Array.isArray(m?.__autofilledFields) ? m.__autofilledFields : [],
+    }));
+    prescriptionData.prioritizedMedicines = normalizedPrioritizedMedicines.map(({ __autofilledFields, ...rest }: any) => rest);
 
     // Step 2: Save prescription to database
     const prescription = await prisma.prescription.create({
@@ -226,7 +271,9 @@ export async function POST(request: NextRequest) {
           contraindications: prescriptionData.contraindications,
           followUp: prescriptionData.followUp,
           originalMedicines: medicines,
-          symptoms: symptoms
+          symptoms: symptoms,
+          consultationContext: consultationContext || null,
+          autofillReport,
         })
       }
     });
@@ -272,15 +319,15 @@ export async function POST(request: NextRequest) {
 
 
     
-    const medicinesForDoc = (prescriptionData.prioritizedMedicines || []).map((m: any) => {
+    const medicinesForDoc = prescriptionData.prioritizedMedicines.map((m: any) => {
       // Very simple parsing; keep as-is to avoid over-complication
       return {
         type: m.quantityType || 'TAB',
         name: m.name || '',
-        dosageTiming: m.dosage || '',
-        instructions: m.instructions || '',
-        durationDays: m.durationDays || 0,
-        totalQuantity: Number(m.totalQuantity) || 0,
+        dosageTiming: m.dosage || 'As directed',
+        instructions: m.instructions || 'Take only after pharmacist confirmation',
+        durationDays: m.durationDays || 1,
+        totalQuantity: Number(m.totalQuantity) || 1,
         quantityType: m.quantityType || 'TAB',
       } as AdvancedPrescriptionData['medicines'][number];
     });
@@ -303,7 +350,7 @@ export async function POST(request: NextRequest) {
         gender: genderCode,
         address: addressLine,
         phone: user?.phone ?? '',
-        age: ageLabel,
+        age: ageLabel || 'N/A',
         temp: profile?.bodyTemp || undefined,
         bp: profile?.bodyBp || undefined,
         adv: prescriptionData.title || (symptoms && symptoms.length ? symptoms.join(', ') : ''),
@@ -469,6 +516,7 @@ export async function POST(request: NextRequest) {
       },
       nearbyPharmacies,
       match_plan: matchPlan,
+      ai_autofill_report: autofillReport,
     };
 
     return NextResponse.json(response);

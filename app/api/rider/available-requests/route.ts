@@ -11,6 +11,41 @@ import {
 // Helper function to calculate distance between two points using Haversine formula
 import axios from "axios"
 
+const DEFAULT_BID_CAP_PERCENT = 20
+
+function getBidCapPercent(): number {
+  const raw = Number(process.env.RIDING_BID_CAP_PERCENT ?? DEFAULT_BID_CAP_PERCENT)
+  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_BID_CAP_PERCENT
+  return raw
+}
+
+function calculateMaxBidCapAmount(estimatedFare: number): number {
+  const capPercent = getBidCapPercent()
+  const capped = estimatedFare * (1 + capPercent / 100)
+  return Math.round(capped * 100) / 100
+}
+
+/** Listing stays visible until broadcast ends or the last still-active PENDING bid expires (whichever is later). */
+function computeRequestListingExpiresMs(params: {
+  broadcastEndMs: number
+  bids: Array<{ status?: string | null; expiresAt?: Date | string | null }>
+  nowTs: number
+}): number {
+  const pending = params.bids.filter(
+    (b) => String(b?.status ?? "PENDING").toUpperCase() === "PENDING"
+  )
+  const activePending = pending.filter((b) => {
+    if (!b?.expiresAt) return false
+    const t = new Date(b.expiresAt as Date).getTime()
+    return Number.isFinite(t) && t > params.nowTs
+  })
+  if (activePending.length === 0) return params.broadcastEndMs
+  const maxBidMs = Math.max(
+    ...activePending.map((b) => new Date(b.expiresAt as Date).getTime())
+  )
+  return Math.max(params.broadcastEndMs, maxBidMs)
+}
+
 async function calculateDistance(
   lat1: number,
   lng1: number,
@@ -256,7 +291,14 @@ export async function GET(request: NextRequest) {
     const processedCourierBookings = courierVisible.map((booking) => {
       const ttlMs = (booking.module || "RIDE") === "RIDE" ? rideMaxAgeMs : nonRideMaxAgeMs
       const baseTs = booking.scheduledAt ? new Date(booking.scheduledAt).getTime() : new Date(booking.createdAt).getTime()
-      const expiresAt = new Date(baseTs + ttlMs)
+      const broadcastEndMs = baseTs + ttlMs
+      const listingEndMs = computeRequestListingExpiresMs({
+        broadcastEndMs,
+        bids: booking.bids || [],
+        nowTs,
+      })
+      const expiresAt = new Date(listingEndMs)
+      const estimatedFare = booking.fare || 0
       return {
         id: booking.id,
         type: 'courier' as const,
@@ -273,8 +315,9 @@ export async function GET(request: NextRequest) {
         // Distance calculations will be handled by distanceService on the frontend
         distance: booking.distance || 0,
         estimatedTime: booking.estimatedTime,
-        estimatedFare: booking.fare || 0,
-        fare: booking.fare || 0,
+        estimatedFare,
+        fare: estimatedFare,
+        maxBidCapAmount: calculateMaxBidCapAmount(estimatedFare),
         paymentStatus: (booking as any).paymentStatus || 'PENDING',
         paymentMethod: (booking as any).paymentMethod || null,
         packageType: booking.packageType,
@@ -292,7 +335,7 @@ export async function GET(request: NextRequest) {
         orderId: (booking as any).orderId || null,
         module: booking.module ?? null,
         expiresAt: expiresAt.toISOString(),
-        isExpiredByTime: nowTs >= expiresAt.getTime(),
+        isExpiredByTime: nowTs >= listingEndMs,
         multiplePickups: booking.multiplePickups?.map((mp: any) => ({
           id: mp.id,
           sequence: mp.sequence,
@@ -314,7 +357,14 @@ export async function GET(request: NextRequest) {
       const baseTs = booking.scheduledAt
         ? new Date(booking.scheduledAt).getTime()
         : new Date((booking as any).requestedAt || booking.createdAt).getTime()
-      const expiresAt = new Date(baseTs + rideMaxAgeMs)
+      const broadcastEndMs = baseTs + rideMaxAgeMs
+      const listingEndMs = computeRequestListingExpiresMs({
+        broadcastEndMs,
+        bids: booking.rideBids || [],
+        nowTs,
+      })
+      const expiresAt = new Date(listingEndMs)
+      const estimatedFare = booking.estimatedFare || 0
       return {
         id: booking.id,
         type: 'ride' as const,
@@ -331,8 +381,9 @@ export async function GET(request: NextRequest) {
         // Distance calculations will be handled by distanceService on the frontend
         distance: booking.distance || 0, // Will be calculated by distanceService
         estimatedTime: booking.estimatedTime || 0, // Will be calculated by distanceService
-        estimatedFare: booking.estimatedFare || 0, // Will be calculated by distanceService
-        fare: booking.estimatedFare || 0,
+        estimatedFare, // Will be calculated by distanceService
+        fare: estimatedFare,
+        maxBidCapAmount: calculateMaxBidCapAmount(estimatedFare),
         paymentStatus: (booking as any).paymentStatus || 'PENDING',
         paymentMethod: (booking as any).paymentMethod || null,
         passengerCount: booking.passengerCount,
@@ -348,7 +399,7 @@ export async function GET(request: NextRequest) {
         testing: 'testing',
         module: "CUSTOMER",
         expiresAt: expiresAt.toISOString(),
-        isExpiredByTime: nowTs >= expiresAt.getTime(),
+        isExpiredByTime: nowTs >= listingEndMs,
       }
     })
 
@@ -378,7 +429,6 @@ const withDistances = await Promise.all(
   })
 )
 
-console.log("3232 withDistances", withDistances)
 // Now filter based on calculated flag
 const filteredRequests = withDistances.filter(req => req.isWithinRange && !req.isExpiredByTime)
 

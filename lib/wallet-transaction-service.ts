@@ -31,6 +31,21 @@ export async function createWalletTransaction(
 ): Promise<any> {
   const status = params.status || 'PENDING'
 
+  const meta = params.metadata as { transactionType?: string } | undefined
+  let clearsAtForRow: Date | null | undefined = params.clearsAt
+  if (
+    clearsAtForRow == null &&
+    status === 'PENDING' &&
+    (params.type === 'CREDIT' || params.type === 'BONUS') &&
+    meta?.transactionType === 'EARNING_PAYOUT'
+  ) {
+    const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
+      '@/lib/rider-wallet-clearance-settings'
+    )
+    const days = await getRiderWalletClearanceDays()
+    clearsAtForRow = computeWalletClearsAt(days)
+  }
+
   // Get or create wallet for user
   let wallet = await prisma.wallet.findUnique({
     where: { userId: params.userId },
@@ -68,7 +83,7 @@ export async function createWalletTransaction(
       reference: params.reference,
       orderId: params.orderId,
       status,
-      clearsAt: params.clearsAt ?? null,
+      clearsAt: clearsAtForRow ?? null,
       metadata: params.metadata,
     },
   })
@@ -195,9 +210,16 @@ export async function createOrderCompletionWalletTransactions(params: {
 }
 
 /**
- * Complete wallet transactions when trip is completed
+ * Complete wallet transactions when order completion runs.
+ * @param skipMetaTypes — e.g. `["DELIVERY_PAYMENT"]` to leave rider credits pending for clearance worker (ride-like courier).
  */
-export async function completeOrderWalletTransactions(orderId: string): Promise<void> {
+export async function completeOrderWalletTransactions(
+  orderId: string,
+  options?: { skipMetaTypes?: string[] }
+): Promise<void> {
+  const skip = new Set(
+    (options?.skipMetaTypes || []).map((t) => String(t).trim().toUpperCase()).filter(Boolean)
+  )
   const transactions = await prisma.walletTransaction.findMany({
     where: {
       orderId,
@@ -206,6 +228,8 @@ export async function completeOrderWalletTransactions(orderId: string): Promise<
   })
 
   for (const transaction of transactions) {
+    const typ = String(txMetaType(transaction.metadata) || "").toUpperCase()
+    if (typ && skip.has(typ)) continue
     await completeWalletTransaction(transaction.id)
   }
 }
@@ -231,6 +255,12 @@ export async function ensureOrderCompletionPendingWallets(params: {
   description?: string
   /** Merged into vendor ORDER_PAYMENT wallet row metadata (e.g. special-offer funding). */
   vendorMetadata?: Record<string, unknown>
+  /**
+   * When true, rider `DELIVERY_PAYMENT` CREDIT is created with `clearsAt` (rider wallet clearance).
+   * Caller should run `completeOrderWalletTransactions(orderId, { skipMetaTypes: ["DELIVERY_PAYMENT"] })`
+   * so the rider line stays PENDING until the worker completes it.
+   */
+  deferRiderCreditClearance?: boolean
 }): Promise<void> {
   const pending = await prisma.walletTransaction.findMany({
     where: { orderId: params.orderId, status: "PENDING" },
@@ -296,6 +326,14 @@ export async function ensureOrderCompletionPendingWallets(params: {
   }
 
   if (!hasRider && params.riderAmount > 0) {
+    let riderClearsAt: Date | null | undefined = undefined
+    if (params.deferRiderCreditClearance) {
+      const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
+        '@/lib/rider-wallet-clearance-settings'
+      )
+      const days = await getRiderWalletClearanceDays()
+      riderClearsAt = computeWalletClearsAt(days)
+    }
     await createWalletTransaction({
       userId: params.riderId,
       type: "CREDIT",
@@ -303,6 +341,7 @@ export async function ensureOrderCompletionPendingWallets(params: {
       description: params.description || `Delivery payment for order ${params.orderId}`,
       orderId: params.orderId,
       status: "PENDING",
+      clearsAt: riderClearsAt ?? null,
       metadata: {
         courierBookingId: params.courierBookingId,
         transactionType: "DELIVERY_PAYMENT",

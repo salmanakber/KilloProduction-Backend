@@ -176,6 +176,11 @@ const WALLET_CLEARANCE_MS = parseMs(process.env.RIDER_WALLET_CLEARANCE_TICK_MS, 
 const PILL_REMINDERS_MS = parseMs(process.env.PILL_REMINDERS_TICK_MS, 60 * 1000, 30 * 1000);
 const BOOKING_CLEANUP_MS = parseMs(process.env.BOOKING_CLEANUP_TICK_MS, 15 * 60 * 1000);
 const MONEY_TRANSFER_TICK_MS = parseMs(process.env.MONEY_TRANSFER_WORKER_MS, 60 * 1000, 10 * 1000);
+const ACCOUNT_DELETION_PURGE_MS = parseMs(
+  process.env.ACCOUNT_DELETION_PURGE_TICK_MS,
+  6 * 60 * 60 * 1000,
+  60 * 1000
+);
 /** Poll DB for admin /notifications notices with status SCHEDULED and scheduledAt &lt;= now. */
 const NOTIFICATION_BROADCAST_MS = parseMs(
   process.env.NOTIFICATION_BROADCAST_SCHEDULE_MS,
@@ -290,11 +295,77 @@ async function cleanupOldBookingRequests() {
   }
 }
 
+async function processScheduledAccountDeletionPurge() {
+  const retentionDays = Number(process.env.ACCOUNT_DELETION_RETENTION_DAYS || 30);
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const candidates = await prisma.user.findMany({
+    where: {
+      deletedAt: { lte: cutoff },
+      isActive: false,
+    },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+    },
+    take: 100,
+  });
+
+  let processed = 0;
+  for (const user of candidates) {
+    const tombstone = `deleted_${user.id}_${Date.now()}`;
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          name: "Deleted User",
+          avatar: null,
+          password: null,
+          email: user.email ? `${tombstone}@deleted.local` : null,
+          phone: user.phone ? `${tombstone}` : null,
+          resetToken: null,
+          resetTokenExpiry: null,
+          isVerified: false,
+          status: "INACTIVE",
+          isActive: false,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          performedBy: user.id,
+          action: "ACCOUNT_SECURITY_PURGED",
+          entityType: "User",
+          entityId: user.id,
+          details: {
+            purgedAt: new Date().toISOString(),
+            retentionDays,
+            source: "food-rider-dispatch-worker",
+          },
+        },
+      });
+    });
+    processed += 1;
+  }
+
+  if (processed > 0) {
+    console.log(`[account-deletion-purge] processed=${processed} retentionDays=${retentionDays}`);
+  }
+}
+
 setInterval(() => {
   cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup]", e));
 }, BOOKING_CLEANUP_MS);
 
 void cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup] boot", e));
+
+setInterval(() => {
+  processScheduledAccountDeletionPurge().catch((e) => console.error("[account-deletion-purge]", e));
+}, ACCOUNT_DELETION_PURGE_MS);
+
+void processScheduledAccountDeletionPurge().catch((e) =>
+  console.error("[account-deletion-purge] boot", e)
+);
 
 setInterval(() => {
   Promise.all([processMoneyScheduledDue(), processMoneyRateAlerts()])

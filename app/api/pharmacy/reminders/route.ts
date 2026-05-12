@@ -104,7 +104,10 @@ export async function POST(request: NextRequest) {
         }
       });
 
-    return NextResponse.json({ message: 'Reminder created successfully' });
+    return NextResponse.json({
+      message: 'Reminder created successfully',
+      reminder,
+    });
   } catch (error) {
     console.error('Error creating reminder:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

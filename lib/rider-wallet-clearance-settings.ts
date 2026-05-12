@@ -9,7 +9,11 @@ export async function getRiderWalletClearanceDays(): Promise<number> {
   return Math.min(14, Math.max(1, Math.floor(Number(raw)) || 4))
 }
 
-export function computeWalletClearsAt(days: number): Date {
-  const d = Math.min(14, Math.max(1, days))
-  return new Date(Date.now() + d * 24 * 60 * 60 * 1000)
+export function computeWalletClearsAt(days: number, fromDate: Date = new Date()): Date {
+  const d = Math.min(14, Math.max(1, Math.floor(Number(days)) || 1))
+  const base = fromDate.getTime()
+  if (!Number.isFinite(base)) {
+    return new Date(Date.now() + d * 24 * 60 * 60 * 1000)
+  }
+  return new Date(base + d * 24 * 60 * 60 * 1000)
 }

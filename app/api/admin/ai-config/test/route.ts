@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       testPrompt,
       category,
       imageUrl,
-      provider, // "auto" | "openrouter" | "huggingface" | "github"
+      provider, // "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google"
     } = body
 
     if (!useCase || !testPrompt) {
@@ -70,11 +70,11 @@ export async function POST(request: NextRequest) {
     const options: {
       category?: "TEXT_TO_TEXT" | "IMAGE_TO_TEXT"
       imageUrl?: string
-      providerPreference?: "auto" | "openrouter" | "huggingface" | "github"
+      providerPreference?: "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google"
     } = {
       category: category || "TEXT_TO_TEXT",
       imageUrl,
-      providerPreference: (provider as "auto" | "openrouter" | "huggingface" | "github") || "auto",
+      providerPreference: (provider as "auto" | "openrouter" | "huggingface" | "github" | "groq" | "google") || "auto",
     }
     const result = await analyzeWithAI(useCase, testData, options)
 

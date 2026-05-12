@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const user = await authenticateRequest()
+    const user = await authenticateRequest(request)
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     const row = await prisma.systemSettings.findFirst({ select: { compnyinfo: true } })
     const comp =

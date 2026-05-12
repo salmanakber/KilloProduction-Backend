@@ -317,6 +317,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: LayoutDashboard, feature: "dashboard.view" as AdminFeature },
     { name: "User Management", href: "/admin/users", icon: Users, feature: "users.manage" as AdminFeature },
+    { name: "Suppliers", href: "/admin/wholesalers", icon: BuildingStorefront, feature: "users.manage" as AdminFeature },
     { name: "KYC Management", href: "/admin/kyc", icon: ClipboardCheck, permission: "VENDOR_APPROVAL" },
     { name: "Orders", href: "/admin/orders", icon: ShoppingCart, feature: "orders.view" as AdminFeature },
 
@@ -474,6 +475,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
           { name: "General", href: "/admin/settings", icon: Settings },
           { name: "Security", href: "/admin/security", icon: Shield },
           { name: "Audit Logs", href: "/admin/auditlog", icon: FileText },
+          { name: "Account Deletion Logs", href: "/admin/account-deletion-logs", icon: FileText },
           { name: "Email Templates", href: "/admin/templates", icon: FileText },
           { name: "Ai configuration", href: "/admin/ai-config", icon: Key },
         ],

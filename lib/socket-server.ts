@@ -89,7 +89,6 @@ class SocketIOServer {
     this.io.on("connection", (socket: AuthenticatedSocket) => {
       this.totalConnections++;
       this.clients.set(socket.id, socket); 
-
       if (socket.data?.userId) {
         if (socket.data.role === "RIDER") {
           // Keep riders presence room, but do NOT auto-join dispatch room.
@@ -168,6 +167,7 @@ class SocketIOServer {
         ) {
           socket.join(`rider_dispatch:${socket.data.userId}`);
           socket.join("riders:online");
+          this.emitRiderStatusChange(riderUserId, true, socket);
         }
       });
 
@@ -175,7 +175,19 @@ class SocketIOServer {
         const riderUserId = payload?.riderUserId || socket.data?.userId;
         if (riderUserId && riderUserId === socket.data?.userId) {
           socket.leave(`rider_dispatch:${socket.data.userId}`);
+          this.emitRiderStatusChange(riderUserId, false, socket);
         }
+      });
+
+      socket.on("rider_status_change", (payload: { riderUserId?: string; riderId?: string; isOnline?: boolean; status?: string }) => {
+        if (socket.data?.role !== "RIDER" || !socket.data?.userId) return;
+        const riderUserId = payload?.riderUserId || payload?.riderId || socket.data.userId;
+        if (riderUserId !== socket.data.userId) return;
+        const isOnline =
+          typeof payload?.isOnline === "boolean"
+            ? payload.isOnline
+            : String(payload?.status || "").toLowerCase() === "online";
+        this.emitRiderStatusChange(riderUserId, isOnline, socket);
       });
 
       /**
@@ -1041,6 +1053,7 @@ class SocketIOServer {
       socket.on("ping", () => socket.emit("pong"));
       socket.on("disconnect", (reason) => {
         const userId = socket.data?.userId;
+        const role = socket.data?.role;
         this.clients.delete(socket.id);
         if (userId) {
           this.removeUserSocket(userId, socket);
@@ -1048,6 +1061,9 @@ class SocketIOServer {
           const remainingSockets = this.getUserSockets(userId);
           // If no more active sockets, user is offline
           if (remainingSockets.length === 0) {
+            if (role === "RIDER") {
+              this.emitRiderStatusChange(userId, false);
+            }
             this._notifyUserPresence(userId, false);
           }
         }
@@ -1302,6 +1318,21 @@ class SocketIOServer {
     if (!sockets) return;
     sockets.delete(socket);
     if (sockets.size === 0) this.userSockets.delete(userId);
+  }
+
+  private emitRiderStatusChange(riderUserId: string, isOnline: boolean, sourceSocket?: AuthenticatedSocket) {
+    const payload = {
+      riderId: riderUserId,
+      riderUserId,
+      userId: riderUserId,
+      isOnline,
+      status: isOnline ? "online" : "offline",
+      timestamp: new Date().toISOString(),
+    };
+    const customerSockets = Array.from(this.clients.values()).filter(
+      (s) => s.data?.role === "CUSTOMER" && s.connected && s.id !== sourceSocket?.id
+    );
+    customerSockets.forEach((s) => s.emit("rider_status_change", payload));
   }
 
   /** Notify chat partners about user presence change */
