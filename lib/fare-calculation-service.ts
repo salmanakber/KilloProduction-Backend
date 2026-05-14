@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { resolveCourierRideTypeForCheckout } from '@/lib/resolve-courier-ride-type'
 import {
   HAVERSINE_ONLY_MAX_KM,
   haversineKm,
@@ -111,6 +112,12 @@ export async function calculateFare(params: FareCalculationParams): Promise<Fare
         isActive: true
       }
     })
+    if (
+      !rideType &&
+      String(params.category || '').toUpperCase() === 'COURIER'
+    ) {
+      rideType = await resolveCourierRideTypeForCheckout()
+    }
   }
 
   if (!rideType) {

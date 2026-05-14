@@ -39,6 +39,8 @@ interface RideType {
   basePrice: number
   pricePerKm: number
   pricePerMinute: number
+  waitingGraceMinutes?: number
+  waitingPricePerMinute?: number
   pricePerKg?: number
   weightRanges?: WeightRange[]
   capacity: string
@@ -96,6 +98,8 @@ useEffect(() => {
     basePrice: 0,
     pricePerKm: 0,
     pricePerMinute: 0,
+    waitingGraceMinutes: 0,
+    waitingPricePerMinute: 0,
     pricePerKg: 0,
     weightRanges: [],
     capacity: "1-4 passengers",
@@ -145,6 +149,8 @@ useEffect(() => {
       basePrice: 0,
       pricePerKm: 0,
       pricePerMinute: 0,
+      waitingGraceMinutes: 0,
+      waitingPricePerMinute: 0,
       pricePerKg: 0,
       weightRanges: [],
       capacity: "1-4 passengers",
@@ -496,6 +502,50 @@ useEffect(() => {
                       </div>
                     </div>
                   </div>
+
+                  <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-4 space-y-3">
+                    <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Pickup waiting (customer)</p>
+                    <p className="text-xs text-amber-900/80 leading-relaxed">
+                      After the rider marks arrived at pickup, the customer has a free grace window. Beyond that, each started minute is billed at the waiting rate until pickup is confirmed.
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Grace (minutes)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={formData.waitingGraceMinutes ?? 0}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              waitingGraceMinutes: Math.max(0, Math.floor(parseFloat(e.target.value) || 0)),
+                            })
+                          }
+                          className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:border-[#2E8B57] focus:ring-2 focus:ring-green-500/10 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Waiting / min ({currency})</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-2.5 text-gray-400">{currency}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={formData.waitingPricePerMinute ?? 0}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                waitingPricePerMinute: Math.max(0, parseFloat(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full pl-8 pr-4 py-2.5 rounded-lg border border-gray-200 focus:border-[#2E8B57] focus:ring-2 focus:ring-green-500/10 outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   
                   {formData.category === 'COURIER' && (
                     <div className="pt-2 border-t border-gray-200 mt-2 animate-in fade-in">
@@ -744,6 +794,12 @@ useEffect(() => {
                   <p className="text-[10px] uppercase text-gray-400 font-bold tracking-wider mb-1">/ Min</p>
                   <p className="font-bold text-gray-900">{currency}{ride.pricePerMinute}</p>
                 </div>
+              </div>
+
+              <div className="px-6 py-2 bg-amber-50/30 border-b border-gray-100 text-center text-xs text-gray-600">
+                Pickup grace: <span className="font-semibold text-gray-900">{ride.waitingGraceMinutes ?? 0} min</span>
+                {" · "}
+                Waiting: <span className="font-semibold text-gray-900">{currency}{ride.waitingPricePerMinute ?? 0}/min</span>
               </div>
 
               {/* Specs & Features */}

@@ -2,11 +2,18 @@ import type { AIUseCase } from "@prisma/client"
 import { analyzeWithAI, getConfigurationForUseCase } from "@/lib/ai/queue"
 import { getAutomationAiSettings } from "./automation-ai-settings"
 
+function clampInt(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo
+  return Math.min(hi, Math.max(lo, Math.floor(n)))
+}
+
 export type BonusTuningInput = {
   peakScore: number
   openRequests: number
   activeRiders: number
   profitPerRide: number
+  minTargetRides?: number
+  maxTargetRides?: number
 }
 
 export type BonusTuningResult = {
@@ -50,7 +57,9 @@ Reply ONLY: {"tr":2-12,"cd":0-50} integers. tr=target rides, cd=commission disco
     const tr = Number(parsed.tr)
     const cd = Number(parsed.cd)
     if (!Number.isFinite(tr) || !Number.isFinite(cd)) return baseline
-    const targetRides = Math.min(12, Math.max(2, Math.round(tr)))
+    const minTr = clampInt(input.minTargetRides ?? 2, 1, 50)
+    const maxTr = clampInt(input.maxTargetRides ?? 12, minTr, 50)
+    const targetRides = Math.min(maxTr, Math.max(minTr, Math.round(tr)))
     const commissionDiscountPct = Math.min(50, Math.max(0, Math.round(cd)))
     return { targetRides, commissionDiscountPct }
   } catch {

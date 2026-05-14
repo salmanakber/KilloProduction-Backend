@@ -5,6 +5,12 @@ import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { runRideCompletionSideEffects } from "@/lib/ride-post-completion"
 import { verifyRideStartOtp } from "@/lib/ride-start-otp"
+import {
+  buildRideLifecycleTimestampPatch,
+  buildRidePickupWaitingPatchOnPickUp,
+  getPickupWaitingArrivalResetPatch,
+  roundMoney2,
+} from "@/lib/pickup-waiting"
 
 export async function PUT(
   request: NextRequest,
@@ -49,7 +55,48 @@ export async function PUT(
     if (status === "PICKED_UP" && rideBooking.status === "ARRIVED_AT_PICKUP") {
       const otp = String(rideStartOtp || "").trim()
           if (!otp || !(await verifyRideStartOtp(`RIDE_BOOKING:${rideBookingId}`, otp))) {
-        return NextResponse.json({ error: "Valid ride start OTP is required" }, { status: 400 })
+        return NextResponse.json(
+          { error: "That code doesn't match the customer's trip OTP. Ask them to read the 6-digit code from their trip screen." },
+          { status: 400 }
+        )
+      }
+    }
+
+    const now = new Date()
+    const lifecycle = buildRideLifecycleTimestampPatch({
+      nextStatus: status,
+      now,
+      existing: {
+        acceptedAt: rideBooking.acceptedAt,
+        arrivedAt: rideBooking.arrivedAt,
+        pickedUpAt: rideBooking.pickedUpAt,
+        completedAt: rideBooking.completedAt,
+        cancelledAt: rideBooking.cancelledAt,
+      },
+    })
+
+    let pickupWaitingData: {
+      pickupWaitingFee?: number | null
+      pickupWaitingMinutesBillable?: number | null
+      finalFare?: number
+    } = {}
+
+    if (status === "PICKED_UP" && rideBooking.pickupWaitingFee == null) {
+      const pickedUpAt = lifecycle.pickedUpAt ?? rideBooking.pickedUpAt ?? now
+      const arrivedEffective = rideBooking.arrivedAt ?? lifecycle.arrivedAt ?? null
+      const w = await buildRidePickupWaitingPatchOnPickUp({
+        rideBookingId,
+        pickedUpAt,
+        arrivedAt: arrivedEffective,
+        existingPickupWaitingFee: rideBooking.pickupWaitingFee ?? null,
+      })
+      if (w.pickupWaitingFee != null && w.pickupWaitingMinutesBillable != null) {
+        const baseFare = Number(rideBooking.finalFare ?? rideBooking.estimatedFare ?? 0)
+        pickupWaitingData = {
+          pickupWaitingFee: w.pickupWaitingFee,
+          pickupWaitingMinutesBillable: w.pickupWaitingMinutesBillable,
+          ...(w.finalFareDelta !== 0 ? { finalFare: roundMoney2(baseFare + w.finalFareDelta) } : {}),
+        }
       }
     }
 
@@ -58,7 +105,10 @@ export async function PUT(
       where: { id: rideBookingId },
       data: { 
         status,
-        updatedAt: new Date()
+        updatedAt: now,
+        ...lifecycle,
+        ...pickupWaitingData,
+        ...(status === "ARRIVED_AT_PICKUP" ? getPickupWaitingArrivalResetPatch() : {}),
       },
       include: {
         customer: {

@@ -107,6 +107,7 @@ export async function systemSettings() {
       timezone: process.env.TIMEZONE || 'Africa/Lagos',
       language: process.env.LANGUAGE || 'en-US',
       currency: defaultCurrency?.symbol || 'NGN',
+      currencyCode: defaultCurrency?.code || 'NGN',
       dateFormat: process.env.DATE_FORMAT || 'DD/MM/YYYY',
       maintenanceMode: process.env.MAINTENANCE_MODE || false,
       maintenanceMessage: process.env.MAINTENANCE_MESSAGE || 'System is under maintenance. Please try again later.',

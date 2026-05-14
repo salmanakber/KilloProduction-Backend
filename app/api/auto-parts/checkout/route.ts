@@ -22,6 +22,7 @@ import {
   settlementMerchandiseFromCartLines,
 } from "@/lib/pharmacy-vendor-settlement"
 import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
+import { resolveCourierRideTypeForCheckout } from "@/lib/resolve-courier-ride-type"
 
 function generateOrderNumber(): string {
   return `AP-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -449,10 +450,7 @@ export async function POST(request: NextRequest) {
       vendorCommissionSubtotalAuto,
     )
 
-    // Get ride type for COURIER with MOTORCYCLE
-    const rideType = await prisma.rideType.findFirst({
-      where: { category: "COURIER", vehicleType: "MOTORCYCLE", isActive: true },
-    })
+    const rideType = await resolveCourierRideTypeForCheckout()
     if (!rideType) return NextResponse.json({ error: "Courier service not available" }, { status: 503 })
 
     // Calculate route and delivery fee

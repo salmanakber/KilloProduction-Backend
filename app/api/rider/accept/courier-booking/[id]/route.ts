@@ -137,6 +137,7 @@ export async function PUT(
       data: {
         status: "RIDER_ASSIGNED",
         riderId: riderId,
+        acceptedAt: new Date(),
         updatedAt: new Date(),
       },
     })

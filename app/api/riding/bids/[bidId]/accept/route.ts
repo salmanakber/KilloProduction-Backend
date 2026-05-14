@@ -145,9 +145,10 @@ export async function POST(
           data: {
             status: 'ACCEPTED',
             riderId: bid.rider.id,
-            fare: bid.bidAmount // finalFare
-          }
-        });
+            fare: bid.bidAmount,
+            acceptedAt: new Date(),
+          },
+        })
 
         // Reject all other pending bids for this booking
         await tx.courierBid.updateMany({

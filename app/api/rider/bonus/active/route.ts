@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
             status: participation.status,
             ridesCompleted: participation.ridesCompleted,
             acceptedAt: participation.acceptedAt?.toISOString() ?? null,
+            bonusPaid: participation.bonusPaid,
           }
         : null,
     })

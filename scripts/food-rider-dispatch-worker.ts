@@ -21,6 +21,7 @@ import { processMoneyRateAlerts, processMoneyScheduledDue } from "@/lib/process-
 import { MONEY_FX_SNAPSHOT_QUEUE_NAME } from "@/lib/money-fx-snapshot-queue";
 import { runMoneyFxSnapshotTick } from "@/lib/process-money-fx-snapshot-job";
 import { processDueNotificationBroadcasts } from "@/lib/process-due-notification-broadcasts";
+import { runPickupWaitingJobs } from "@/lib/pickup-waiting";
 
 const url = process.env.REDIS_URL;
 
@@ -187,9 +188,15 @@ const NOTIFICATION_BROADCAST_MS = parseMs(
   60 * 1000,
   15 * 1000
 );
+/** Pickup waiting: grace warnings, per-minute accrual, charge-started push, realtime sockets (`runPickupWaitingJobs`). */
+const PICKUP_WAITING_NOTIFY_MS = parseMs(
+  process.env.PICKUP_WAITING_NOTIFY_TICK_MS,
+  15 * 1000,
+  10 * 1000
+);
 
 console.log(
-  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms`
+  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
 );
 
 setInterval(() => {
@@ -243,6 +250,27 @@ setInterval(() => {
 void processDueNotificationBroadcasts().catch((e) =>
   console.error("[admin-notification-schedule] boot", e)
 );
+
+setInterval(() => {
+  runPickupWaitingJobs()
+    .then(({ rideCandidates, courierCandidates, grace50, grace90, accruals, chargeStarts }) => {
+      if (
+        grace50 > 0 ||
+        grace90 > 0 ||
+        accruals > 0 ||
+        chargeStarts > 0 ||
+        rideCandidates > 0 ||
+        courierCandidates > 0
+      ) {
+        console.log(
+          `[pickup-waiting] rideQ=${rideCandidates} courierQ=${courierCandidates} grace50=${grace50} grace90=${grace90} accruals=${accruals} chargeStarts=${chargeStarts}`
+        );
+      }
+    })
+    .catch((e) => console.error("[pickup-waiting]", e));
+}, PICKUP_WAITING_NOTIFY_MS);
+
+void runPickupWaitingJobs().catch((e) => console.error("[pickup-waiting] boot", e));
 
 setInterval(() => {
   processRiderWalletClearance()

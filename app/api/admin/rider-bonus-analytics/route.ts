@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { RiderBonusChallengeStatus } from "@prisma/client"
 import { authenticateRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { systemSettings } from "@/lib/systemSettings"
 
 /**
  * Admin: peak bonus challenges, leaderboard, and response-time hints.
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     const challengeId = searchParams.get("challengeId")
 
     const now = new Date()
+    const system = await systemSettings()
 
     const activeChallenge = await prisma.riderPeakBonusChallenge.findFirst({
       where: {
@@ -243,6 +245,7 @@ export async function GET(request: NextRequest) {
       activeChallengeId: activeChallenge?.id ?? null,
       focus,
       recentChallenges: recentWithStats,
+      currency: system.currency,
     })
   } catch (e) {
     console.error("[admin/rider-bonus-analytics]", e)

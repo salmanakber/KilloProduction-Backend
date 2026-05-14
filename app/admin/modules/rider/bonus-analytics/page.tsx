@@ -78,6 +78,7 @@ type AnalyticsPayload = {
     ridesCompletedSum: number
     bonusPaidSum: number
   }>
+  currency: string
 }
 
 export default function RiderBonusAnalyticsPage() {
@@ -85,6 +86,7 @@ export default function RiderBonusAnalyticsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [challengeId, setChallengeId] = useState<string | "active">("active")
+  const [currency, setCurrency] = useState<string | null>(null)
 
   // Search & Pagination State
   const [searchTerm, setSearchTerm] = useState("")
@@ -105,6 +107,7 @@ export default function RiderBonusAnalyticsPage() {
       }
       const json = (await res.json()) as AnalyticsPayload
       setData(json)
+      setCurrency(json.currency)
       setCurrentPage(1) // Reset page on data load
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load")
@@ -223,7 +226,7 @@ export default function RiderBonusAnalyticsPage() {
                 <p className="text-2xl font-black text-slate-900 mt-1">
                   {data.focus.challenge.targetRides} Rides
                 </p>
-                <p className="text-xs font-medium text-emerald-600 mt-1">Cap: ₦{data.focus.challenge.bonusCapAmount.toLocaleString()}</p>
+                <p className="text-xs font-medium text-emerald-600 mt-1">Cap: {currency}{data.focus.challenge.bonusCapAmount.toLocaleString()}</p>
               </div>
               <div className="h-14 w-14 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-xl flex items-center justify-center shadow-inner">
                 <Target className="h-7 w-7 text-emerald-600" />
@@ -330,7 +333,7 @@ export default function RiderBonusAnalyticsPage() {
                           ) : "—"}
                         </td>
                         <td className="px-6 py-5 text-right font-black text-emerald-600">
-                          {row.bonusPaid > 0 ? `₦${row.bonusPaid.toLocaleString()}` : "—"}
+                          {row.bonusPaid > 0 ? `${currency}${row.bonusPaid.toLocaleString()}` : "—"}
                         </td>
                       </tr>
                     ))
@@ -408,7 +411,7 @@ export default function RiderBonusAnalyticsPage() {
                       {c.acceptedCount} <span className="text-slate-400 text-xs">/ {c.participationsTotal}</span>
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-slate-700">{c.ridesCompletedSum}</td>
-                    <td className="px-6 py-4 text-right text-sm font-black text-emerald-600">₦{c.bonusPaidSum.toLocaleString()}</td>
+                      <td className="px-6 py-4 text-right text-sm font-black text-emerald-600">{currency}{c.bonusPaidSum.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

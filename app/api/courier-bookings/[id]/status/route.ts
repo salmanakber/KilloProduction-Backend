@@ -7,6 +7,13 @@ import { sendEmailFromTemplate } from "@/lib/email"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
 import { notifyCourierDeliveryCompleted } from "@/lib/courier-delivery-completion-notifications"
 import { verifyRideStartOtp } from "@/lib/ride-start-otp"
+import {
+  buildCourierLifecycleTimestampPatch,
+  buildCourierPickupWaitingPatchOnPickUp,
+  courierModuleEligibleForPickupWaitingPolicy,
+  getPickupWaitingArrivalResetPatch,
+  roundMoney2,
+} from "@/lib/pickup-waiting"
 import Stripe from "stripe"
 
 function getRefundMeta(meta: any): Record<string, any> | null {
@@ -26,7 +33,8 @@ export async function PUT(
     }
 
     const { id: courierBookingId } = params
-    const { status, rideStartOtp } = await request.json()
+    const body = await request.json()
+    const { status, rideStartOtp, multiplePickupId } = body
 
     // Verify user has permission to update this booking
     // Only riders who have submitted bids should be able to update status to BIDDING
@@ -83,7 +91,50 @@ export async function PUT(
       const otp = String(rideStartOtp || "").trim()
       
       if (!otp || !(await verifyRideStartOtp(`COURIER_BOOKING:${courierBookingId}`, otp))) {
-        return NextResponse.json({ error: "Valid ride start OTP is required" }, { status: 400 })
+        return NextResponse.json(
+          { error: "That code doesn't match the customer's trip OTP. Ask them to read the 6-digit code from their trip screen." },
+          { status: 400 }
+        )
+      }
+    }
+
+    const now = new Date()
+    const lifecycle = buildCourierLifecycleTimestampPatch({
+      nextStatus: status,
+      now,
+      multiplePickupId: multiplePickupId ?? null,
+      module: courierBooking.module,
+      existing: {
+        acceptedAt: courierBooking.acceptedAt,
+        arrivedAt: courierBooking.arrivedAt,
+        pickedUpAt: courierBooking.pickedUpAt,
+        deliveredAt: courierBooking.deliveredAt,
+        cancelledAt: courierBooking.cancelledAt,
+      },
+    })
+
+    let pickupWaitingData: {
+      pickupWaitingFee?: number | null
+      pickupWaitingMinutesBillable?: number | null
+      fare?: number
+    } = {}
+
+    if (status === "PICKED_UP" && courierBooking.pickupWaitingFee == null) {
+      const pickedUpAt = lifecycle.pickedUpAt ?? courierBooking.pickedUpAt ?? now
+      const arrivedEffective = courierBooking.arrivedAt ?? lifecycle.arrivedAt ?? null
+      const w = await buildCourierPickupWaitingPatchOnPickUp({
+        courierBookingId,
+        pickedUpAt,
+        arrivedAt: arrivedEffective,
+        existingPickupWaitingFee: courierBooking.pickupWaitingFee ?? null,
+      })
+      if (w.pickupWaitingFee != null && w.pickupWaitingMinutesBillable != null) {
+        const baseFare = Number(courierBooking.fare ?? 0)
+        pickupWaitingData = {
+          pickupWaitingFee: w.pickupWaitingFee,
+          pickupWaitingMinutesBillable: w.pickupWaitingMinutesBillable,
+          ...(w.fareDelta !== 0 ? { fare: roundMoney2(baseFare + w.fareDelta) } : {}),
+        }
       }
     }
 
@@ -92,7 +143,12 @@ export async function PUT(
       where: { id: courierBookingId },
       data: { 
         status,
-        updatedAt: new Date(),
+        updatedAt: now,
+        ...lifecycle,
+        ...pickupWaitingData,
+        ...(status === "ARRIVED_AT_PICKUP" && courierModuleEligibleForPickupWaitingPolicy(courierBooking.module)
+          ? getPickupWaitingArrivalResetPatch()
+          : {}),
     
         supplierOrders: {
           updateMany: {

@@ -18,6 +18,7 @@ import { linkPharmacyCartPaymentToOrder } from "@/lib/link-pharmacy-cart-payment
 import { settlementMerchandiseFromCartLines } from "@/lib/pharmacy-vendor-settlement"
 import { buildOrderSpecialOffersMetadata } from "@/lib/order-special-offer-metadata"
 import { applyClientDeliveryChargeIfProvided } from "@/lib/checkout-client-amounts"
+import { resolveCourierRideTypeForCheckout } from "@/lib/resolve-courier-ride-type"
 
 // Generate 6-digit OTP
 function generateOrderNumber(): string {
@@ -316,16 +317,7 @@ export async function POST(request: NextRequest) {
     const isMultiPharmacy = pharmacyIds.length > 1
     const primaryPharmacy = pharmacies[0]
 
-    // Get ride type - filter by COURIER category
-    const rideType = await prisma.rideType.findFirst({
-      where: { 
-        category: "COURIER",
-        vehicleType: "MOTORCYCLE",
-        isActive: true
-      },
-      orderBy: { basePrice: 'asc' }
-    })
-
+    const rideType = await resolveCourierRideTypeForCheckout()
     if (!rideType) {
       return NextResponse.json({ error: "Courier service not available" }, { status: 503 })
     }

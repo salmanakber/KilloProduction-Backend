@@ -6,6 +6,15 @@ import { sendEmailFromTemplate } from "@/lib/email"
 import { socketIOServer } from "@/lib/socket-server"
 import { runCourierCompletionSideEffects } from "@/lib/courier-post-completion"
 import { sendWholesaleCourierTripCompletedReviewPrompts } from "@/lib/wholesale-courier-completion-notifications"
+import {
+  buildCourierLifecycleTimestampPatch,
+  buildCourierPickupWaitingPatchOnPickUp,
+  buildRideLifecycleTimestampPatch,
+  buildRidePickupWaitingPatchOnPickUp,
+  courierModuleEligibleForPickupWaitingPolicy,
+  getPickupWaitingArrivalResetPatch,
+  roundMoney2,
+} from "@/lib/pickup-waiting"
 
 export async function GET(
   request: NextRequest,
@@ -43,6 +52,8 @@ export async function GET(
               basePrice: true,
               pricePerKm: true,
               pricePerMinute: true,
+              waitingGraceMinutes: true,
+              waitingPricePerMinute: true,
               icon: true,
               description: true,
             },
@@ -95,6 +106,8 @@ export async function GET(
               basePrice: true,
               pricePerKm: true,
               pricePerMinute: true,
+              waitingGraceMinutes: true,
+              waitingPricePerMinute: true,
               icon: true,
               description: true,
             },
@@ -155,6 +168,10 @@ export async function GET(
       estimatedFare: rideBooking ? (booking as any).estimatedFare : (booking as any).fare,
       finalFare: rideBooking ? (booking as any).finalFare : (booking as any).fare,
       fare: rideBooking ? (booking as any).fare : (booking as any).fare,
+      pickupWaitingAccruedFee: (booking as any).pickupWaitingAccruedFee ?? 0,
+      pickupWaitingBillableMinutesCharged: (booking as any).pickupWaitingBillableMinutesCharged ?? 0,
+      pickupWaitingFee: (booking as any).pickupWaitingFee ?? null,
+      pickupWaitingMinutesBillable: (booking as any).pickupWaitingMinutesBillable ?? null,
       paymentStatus: (booking as any).paymentStatus || 'PENDING',
       paymentMethod: (booking as any).paymentMethod || null,
       customer: booking.customer,
@@ -194,6 +211,8 @@ export async function GET(
         pickedUpAt: (booking as any).pickedUpAt,
         deliveredAt: (booking as any).deliveredAt,
         cancelledAt: (booking as any).cancelledAt,
+        acceptedAt: (booking as any).acceptedAt,
+        arrivedAt: (booking as any).arrivedAt,
         supplierOrders: (booking as any).supplierOrders,
         orderId: (booking as any).orderId,
         multiplePickups: (booking as any).multiplePickups?.map((mp: any) => ({
@@ -238,7 +257,7 @@ export async function PUT(
 
     const bookingId = params.id
     const body = await request.json()
-    const { status, latitude, longitude, notes } = body
+    const { status, latitude, longitude, notes, multiplePickupId } = body
 
     // Try to find the booking in both ride_bookings and courier_bookings
     const [rideBooking, courierBooking] = await Promise.all([
@@ -266,15 +285,44 @@ export async function PUT(
     let updatedBooking
     
     if (rideBooking) {
-      
+      const now = new Date()
+      const lc = buildRideLifecycleTimestampPatch({
+        nextStatus: status,
+        now,
+        existing: {
+          acceptedAt: rideBooking.acceptedAt,
+          arrivedAt: rideBooking.arrivedAt,
+          pickedUpAt: rideBooking.pickedUpAt,
+          completedAt: rideBooking.completedAt,
+          cancelledAt: rideBooking.cancelledAt,
+        },
+      })
+      let pickupPatch: Record<string, unknown> = {}
+      if (status === "PICKED_UP" && rideBooking.pickupWaitingFee == null) {
+        const pickedUpAt = lc.pickedUpAt ?? rideBooking.pickedUpAt ?? now
+        const arrivedEffective = rideBooking.arrivedAt ?? lc.arrivedAt ?? null
+        const w = await buildRidePickupWaitingPatchOnPickUp({
+          rideBookingId: bookingId,
+          pickedUpAt,
+          arrivedAt: arrivedEffective,
+          existingPickupWaitingFee: rideBooking.pickupWaitingFee ?? null,
+        })
+        if (w.pickupWaitingFee != null && w.pickupWaitingMinutesBillable != null) {
+          const baseFare = Number(rideBooking.finalFare ?? rideBooking.estimatedFare ?? 0)
+          pickupPatch = {
+            pickupWaitingFee: w.pickupWaitingFee,
+            pickupWaitingMinutesBillable: w.pickupWaitingMinutesBillable,
+            ...(w.finalFareDelta !== 0 ? { finalFare: roundMoney2(baseFare + w.finalFareDelta) } : {}),
+          }
+        }
+      }
       updatedBooking = await prisma.rideBooking.update({
         where: { id: bookingId },
         data: {
           status: status,
-          ...(status === 'ARRIVED' && { arrivedAt: new Date() }),
-          ...(status === 'PICKED_UP' && { pickedUpAt: new Date() }),
-          ...(status === 'COMPLETED' && { completedAt: new Date() }),
-          ...(status === 'CANCELLED' && { cancelledAt: new Date() }),
+          ...lc,
+          ...pickupPatch,
+          ...(status === "ARRIVED_AT_PICKUP" ? getPickupWaitingArrivalResetPatch() : {}),
         },
         include: {
           customer: {
@@ -288,15 +336,49 @@ export async function PUT(
           },
         },
       })
-    }else {
+    } else {
+      const now = new Date()
+      const lc = buildCourierLifecycleTimestampPatch({
+        nextStatus: status,
+        now,
+        multiplePickupId: multiplePickupId ?? null,
+        module: courierBooking.module,
+        existing: {
+          acceptedAt: courierBooking.acceptedAt,
+          arrivedAt: courierBooking.arrivedAt,
+          pickedUpAt: courierBooking.pickedUpAt,
+          deliveredAt: courierBooking.deliveredAt,
+          cancelledAt: courierBooking.cancelledAt,
+        },
+      })
+      let pickupPatch: Record<string, unknown> = {}
+      if (status === "PICKED_UP" && courierBooking.pickupWaitingFee == null) {
+        const pickedUpAt = lc.pickedUpAt ?? courierBooking.pickedUpAt ?? now
+        const arrivedEffective = courierBooking.arrivedAt ?? lc.arrivedAt ?? null
+        const w = await buildCourierPickupWaitingPatchOnPickUp({
+          courierBookingId: bookingId,
+          pickedUpAt,
+          arrivedAt: arrivedEffective,
+          existingPickupWaitingFee: courierBooking.pickupWaitingFee ?? null,
+        })
+        if (w.pickupWaitingFee != null && w.pickupWaitingMinutesBillable != null) {
+          const baseFare = Number(courierBooking.fare ?? 0)
+          pickupPatch = {
+            pickupWaitingFee: w.pickupWaitingFee,
+            pickupWaitingMinutesBillable: w.pickupWaitingMinutesBillable,
+            ...(w.fareDelta !== 0 ? { fare: roundMoney2(baseFare + w.fareDelta) } : {}),
+          }
+        }
+      }
       updatedBooking = await prisma.courierBooking.update({
         where: { id: bookingId },
         data: {
           status: status,
-          ...(status === 'PICKED_UP' && { pickedUpAt: new Date() }),
-          ...(status === 'DELIVERED' && { deliveredAt: new Date() }),
-          ...(status === 'CANCELLED' && { cancelledAt: new Date() }),
-          ...(status === 'COMPLETED' && { deliveredAt: new Date() }),
+          ...lc,
+          ...pickupPatch,
+          ...(status === "ARRIVED_AT_PICKUP" && courierModuleEligibleForPickupWaitingPolicy(courierBooking.module)
+            ? getPickupWaitingArrivalResetPatch()
+            : {}),
         },
         include: {
           supplierOrders: true,

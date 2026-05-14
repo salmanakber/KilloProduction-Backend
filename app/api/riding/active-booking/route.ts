@@ -59,6 +59,8 @@ export async function GET(request: NextRequest) {
             vehicleType: true,
             category: true,
             icon: true,
+            waitingGraceMinutes: true,
+            waitingPricePerMinute: true,
           }
         },
         rideBids: {
@@ -100,7 +102,8 @@ export async function GET(request: NextRequest) {
         status: { in: activeStatuses as CourierStatus[] },
         OR: [
           { module: "RIDE" },
-          { module: null } // Include legacy bookings without module field
+          { module: null },
+          { module: "" },
         ]
       },
       include: {
@@ -131,6 +134,8 @@ export async function GET(request: NextRequest) {
             vehicleType: true,
             category: true,
             icon: true,
+            waitingGraceMinutes: true,
+            waitingPricePerMinute: true,
           }
         },
         bids: {
@@ -329,6 +334,15 @@ export async function GET(request: NextRequest) {
       broadcastExpiresAt: new Date(
         effectiveRequestedAtMs + broadcastWindowSeconds * 1000
       ).toISOString(),
+      arrivedAt: toIso((activeBooking as any).arrivedAt),
+      pickedUpAt: toIso((activeBooking as any).pickedUpAt),
+      pickupWaitingAccruedFee: Number((activeBooking as any).pickupWaitingAccruedFee ?? 0),
+      pickupWaitingBillableMinutesCharged: Number((activeBooking as any).pickupWaitingBillableMinutesCharged ?? 0),
+      specialRequests:
+        bookingType === "RIDE" ? ((activeBooking as any).specialRequests as string | null) ?? null : null,
+      notes: bookingType === "COURIER" ? ((activeBooking as any).notes as string | null) ?? null : null,
+      packageType: bookingType === "COURIER" ? ((activeBooking as any).packageType as string | null) ?? null : null,
+      packageWeight: bookingType === "COURIER" ? (activeBooking as any).packageWeight ?? null : null,
       rider: activeBooking.rider ? {
         id: activeBooking.rider.id,
         name: activeBooking.rider.name || 'Unknown Rider',
@@ -348,6 +362,8 @@ export async function GET(request: NextRequest) {
         vehicleType: activeBooking.rideType.vehicleType,
         category: activeBooking.rideType.category,
         icon: activeBooking.rideType?.icon,
+        waitingGraceMinutes: (activeBooking.rideType as any).waitingGraceMinutes ?? null,
+        waitingPricePerMinute: (activeBooking.rideType as any).waitingPricePerMinute ?? null,
       } : null,
       
       

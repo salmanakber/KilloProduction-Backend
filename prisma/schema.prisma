@@ -2536,9 +2536,23 @@ model CourierBooking {
   packageWeight      Float?
   isFragile          Boolean           @default(false)
   scheduledAt        DateTime?
+  acceptedAt         DateTime?
+  /// Rider arrived at the billable pickup wait location (customer handoff / single pickup), not vendor legs when `multiplePickupId` is used.
+  arrivedAt          DateTime?
   pickedUpAt         DateTime?
   deliveredAt        DateTime?
   cancelledAt        DateTime?
+  pickupWaitingFee                 Float?
+  pickupWaitingMinutesBillable     Int?
+  pickupWaitingChargeNotifiedAt    DateTime?
+  /// Running pickup-waiting charge while status is ARRIVED_AT_PICKUP (added to fare in near real time).
+  pickupWaitingAccruedFee          Float   @default(0)
+  /// Whole billable minutes already rolled into fare + accrued (incremental accrual guard).
+  pickupWaitingBillableMinutesCharged Int   @default(0)
+  pickupWaitingGraceNotified50At   DateTime?
+  pickupWaitingGraceNotified90At   DateTime?
+  /// Append-only style events for analytics (grace warnings, accrual bumps).
+  pickupWaitingBreakdown           Json?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   customerRating     Int?
@@ -2655,6 +2669,10 @@ model RideType {
   pricePerKm      Float
   pricePerKg      Float            @default(0)
   pricePerMinute  Float            @default(0)
+  /// Free pickup-wait minutes after `arrivedAt` before per-minute waiting charges accrue.
+  waitingGraceMinutes    Int     @default(0)
+  /// Per-minute price for pickup waiting beyond `waitingGraceMinutes` (distinct from trip `pricePerMinute`).
+  waitingPricePerMinute  Float   @default(0)
   capacity        String
   features        Json?
   weightRanges    Json?
@@ -2705,6 +2723,14 @@ model RideBooking {
   pickedUpAt        DateTime?
   completedAt       DateTime?
   cancelledAt       DateTime?
+  pickupWaitingFee                 Float?
+  pickupWaitingMinutesBillable     Int?
+  pickupWaitingChargeNotifiedAt    DateTime?
+  pickupWaitingAccruedFee          Float   @default(0)
+  pickupWaitingBillableMinutesCharged Int   @default(0)
+  pickupWaitingGraceNotified50At  DateTime?
+  pickupWaitingGraceNotified90At  DateTime?
+  pickupWaitingBreakdown           Json?
   customerRating    Int?
   riderRating       Int?
   customerReview    String?
@@ -3471,6 +3497,25 @@ model SystemSettings {
   marketingAutomationAiMaxCandidates Int     @default(12)
   /// Optional AI tuning for peak rider bonus parameters (tiny prompt; needs GENERAL_ANALYSIS).
   riderBonusAiEnabled                Boolean @default(false)
+  /// Peak bonus: open jobs / online riders must exceed this ratio to open a window (default 1.2).
+  riderPeakBonusDemandThreshold      Float   @default(1.2)
+  /// Peak bonus challenge window length in minutes (default 90).
+  riderPeakBonusWindowMinutes        Int     @default(90)
+  /// Target rides lower clamp (default 2).
+  riderPeakBonusMinTargetRides       Int     @default(2)
+  /// Target rides upper clamp (default 12).
+  riderPeakBonusMaxTargetRides       Int     @default(12)
+  /// Target rides formula: round(base + peakScore × scale), then clamped (defaults 2 + peak×2).
+  riderPeakBonusTargetBase           Float   @default(2)
+  riderPeakBonusTargetPeakScale      Float   @default(2)
+  /// Share of (incremental rides × avg commission profit) used as bonus cap, 0–1 (default 0.7).
+  riderPeakBonusBonusProfitShare     Float   @default(0.7)
+  /// Commission discount: min(50, round((peakScore − 1) × factor)) (default factor 25).
+  riderPeakBonusCommissionPeakFactor Float   @default(25)
+  /// Model: baseline completions per online rider per hour (default 0.35).
+  riderPeakBonusBaselineUtilPerHour  Float   @default(0.35)
+  /// Model: expected completions per online rider per hour under bonus (default 0.9).
+  riderPeakBonusExpectedUtilPerHour  Float   @default(0.9)
   /// Customer app OAuth (Google / Facebook). Shape: { google?: { webClientId, iosClientId, androidClientId }, facebook?: { appId, appSecret } }
   customerOAuth                      Json?
 
@@ -4272,6 +4317,7 @@ enum NotificationType {
   REVIEW_RECEIVED
   refund_requested
   refund_processed
+  RIDE_ACCEPTED
 }
 
 enum TicketPriority {

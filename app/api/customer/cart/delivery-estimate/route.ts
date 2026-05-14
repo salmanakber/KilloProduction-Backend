@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { authenticateRequest } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { resolveCourierRideTypeForCheckout } from "@/lib/resolve-courier-ride-type"
 
 export async function POST(request: NextRequest) {
   try {
@@ -79,12 +80,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Pickup coordinates are required" }, { status: 400 })
     }
 
-    // Get COURIER ride types with vehicle types: SCOOTER, MOTORCYCLE, BICYCLE
-    const eligibleRideTypes = await prisma.rideType.findMany({
+    let eligibleRideTypes = await prisma.rideType.findMany({
       where: {
         category: "COURIER",
         vehicleType: {
-          in: ["SCOOTER", "MOTORCYCLE", "BICYCLE"]
+          in: ["SCOOTER", "MOTORCYCLE", "BICYCLE", "CAR", "VAN", "TRUCK"]
         },
         isActive: true
       },
@@ -99,9 +99,22 @@ export async function POST(request: NextRequest) {
     })
 
     if (eligibleRideTypes.length === 0) {
-      return NextResponse.json({ 
-        error: "No courier ride types available for medicine delivery" 
-      }, { status: 404 })
+      const fallback = await resolveCourierRideTypeForCheckout()
+      if (!fallback) {
+        return NextResponse.json({
+          error: "No courier ride types available for medicine delivery",
+        }, { status: 404 })
+      }
+      eligibleRideTypes = [
+        {
+          id: fallback.id,
+          name: fallback.name,
+          basePrice: fallback.basePrice,
+          pricePerKm: fallback.pricePerKm,
+          pricePerMinute: fallback.pricePerMinute ?? 0,
+          vehicleType: fallback.vehicleType,
+        },
+      ]
     }
 
     // Calculate average pricing from all eligible ride types

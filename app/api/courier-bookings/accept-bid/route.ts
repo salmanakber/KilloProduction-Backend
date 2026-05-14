@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
         riderId: bid.riderId,
         fare: bid.bidAmount,
         status: "ACCEPTED",
+        acceptedAt: new Date(),
       },
       include: {
         rider: {

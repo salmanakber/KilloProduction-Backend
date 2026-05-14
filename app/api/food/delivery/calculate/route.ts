@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateRequest } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
+import { resolveCourierRideTypeForCheckout } from "@/lib/resolve-courier-ride-type"
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,15 +21,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get ride type for COURIER category with MOTORCYCLE vehicle type
-    const rideType = await prisma.rideType.findFirst({
-      where: {
-        category: "COURIER",
-        vehicleType: "MOTORCYCLE",
-        isActive: true,
-      },
-    })
-
+    const rideType = await resolveCourierRideTypeForCheckout()
     if (!rideType) {
       console.log("Courier ride type not configured")
       return NextResponse.json(
