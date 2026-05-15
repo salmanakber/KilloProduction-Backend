@@ -1,16 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
+import { jwtVerify } from "jose"
 import { sendOTP, generateOTP } from "@/lib/twilio"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { EMAIL_TEMPLATE_KEYS } from "@/lib/template-keys"
+
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
+const getSecretKey = () => new TextEncoder().encode(JWT_SECRET)
 
 const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES || 10)
 const MIN_PASSWORD_LENGTH = 6
 
 export async function POST(request: NextRequest) {
   try {
-    const { token, userId, otp, password } = await request.json()
+    const { token, userId, otp, password, verificationToken } = await request.json()
 
     if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
       return NextResponse.json(
@@ -60,7 +64,72 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Password reset successful" })
     }
 
-    // Mobile OTP flow
+    // Mobile two-step flow: verificationToken from POST /auth/verify-reset-otp
+    if (verificationToken) {
+      let payload: { purpose?: string; userId?: string; otpId?: string }
+      try {
+        const { payload: verified } = await jwtVerify(verificationToken, getSecretKey())
+        payload = verified as { purpose?: string; userId?: string; otpId?: string }
+      } catch {
+        return NextResponse.json(
+          { message: "Verification expired. Please verify your code again." },
+          { status: 401 }
+        )
+      }
+
+      if (payload.purpose !== "password_reset" || !payload.userId || !payload.otpId) {
+        return NextResponse.json({ message: "Invalid verification session" }, { status: 401 })
+      }
+
+      const storedOtp = await prisma.otp.findFirst({
+        where: {
+          id: payload.otpId,
+          userId: payload.userId,
+          expiresAt: { gt: new Date() },
+          verified: false,
+        },
+      })
+
+      if (!storedOtp) {
+        return NextResponse.json(
+          { message: "Verification expired. Please request a new code." },
+          { status: 400 }
+        )
+      }
+
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: payload.userId },
+          data: {
+            password: hashedPassword,
+            resetToken: null,
+            resetTokenExpiry: null,
+            loginFailedAttempts: 0,
+            lockedUntil: null,
+          },
+        }),
+        prisma.otp.update({
+          where: { id: storedOtp.id },
+          data: { verified: true },
+        }),
+      ])
+
+      await prisma.auditLog
+        .create({
+          data: {
+            performedBy: payload.userId,
+            action: "PASSWORD_RESET_COMPLETED",
+            entityType: "AUTH",
+            entityId: payload.userId,
+            details: { via: "OTP_VERIFICATION_TOKEN" },
+          },
+        })
+        .catch(() => {})
+
+      return NextResponse.json({ message: "Password reset successful" })
+    }
+
+    // Mobile single-step fallback: userId + otp together
     if (!userId || !otp) {
       return NextResponse.json(
         { message: "Verification code and user id are required" },
