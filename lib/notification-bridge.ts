@@ -202,12 +202,32 @@ export class NotificationBridge {
    */
   private static async sendExpoNotification(token: string, payload: any) {
     try {
-      const message = {
+      const data: Record<string, unknown> = {
+        ...(typeof payload.data === "object" && payload.data !== null ? payload.data : {}),
+      }
+      if (payload.actionUrl && typeof payload.actionUrl === "string") {
+        data.actionUrl = payload.actionUrl
+      }
+      if (payload.imageUrl && typeof payload.imageUrl === "string") {
+        data.imageUrl = payload.imageUrl
+      }
+
+      const message: Record<string, unknown> = {
         to: token,
-        sound: 'default',
+        sound: "default",
         title: payload.title,
         body: payload.body,
-        data: payload.data || {},
+        data,
+        priority: "high",
+      }
+
+      const imageUrl =
+        typeof payload.imageUrl === "string" && /^https?:\/\//i.test(payload.imageUrl.trim())
+          ? payload.imageUrl.trim()
+          : undefined
+      if (imageUrl) {
+        message.mutableContent = true
+        message.richContent = { image: imageUrl }
       }
 
       const response = await fetch('https://exp.host/--/api/v2/push/send', {
