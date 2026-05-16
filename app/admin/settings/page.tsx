@@ -231,11 +231,24 @@ export default function SystemSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       })
-      if (response.ok) setHasChanges(false)
-        
+      if (response.ok) {
+        setHasChanges(false)
         toast({ title: "Success", description: "Settings saved successfully" })
+      } else {
+        const body = await response.json().catch(() => ({}))
+        toast({
+          title: "Save failed",
+          description: (body as { error?: string })?.error || `Server returned ${response.status}`,
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       console.error("Failed to save settings:", error)
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Could not save settings",
+        variant: "destructive",
+      })
     } finally {
       setSaving(false)
     }

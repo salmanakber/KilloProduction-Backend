@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const defaultCurrencyCode = defaultCurrency?.symbol || "₦"
 
     // Get system settings from database or return defaults
-    const systemSettings = await prisma.systemSettings.findFirst()
+    const systemSettings = await prisma.systemSettings.findUnique({ where: { id: 1 } })
     
     // Get loyalty point settings
     const loyaltyPointSettings = await prisma.loyaltyPointSettings.findMany()

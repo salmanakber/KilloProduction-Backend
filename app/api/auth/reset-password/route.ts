@@ -5,20 +5,30 @@ import { jwtVerify } from "jose"
 import { sendOTP, generateOTP } from "@/lib/twilio"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { EMAIL_TEMPLATE_KEYS } from "@/lib/template-keys"
+import {
+  getPasswordPolicyFromSettings,
+  validatePasswordAgainstPolicy,
+} from "@/lib/password-policy"
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
 const getSecretKey = () => new TextEncoder().encode(JWT_SECRET)
 
 const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES || 10)
-const MIN_PASSWORD_LENGTH = 6
 
 export async function POST(request: NextRequest) {
   try {
     const { token, userId, otp, password, verificationToken } = await request.json()
 
-    if (!password || String(password).length < MIN_PASSWORD_LENGTH) {
+    if (!password || typeof password !== "string") {
+      return NextResponse.json({ message: "Password is required" }, { status: 400 })
+    }
+
+    const sys = await prisma.systemSettings.findFirst()
+    const rules = getPasswordPolicyFromSettings(sys)
+    const policyCheck = validatePasswordAgainstPolicy(password, rules)
+    if (!policyCheck.ok) {
       return NextResponse.json(
-        { message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` },
+        { message: policyCheck.message, error: policyCheck.message },
         { status: 400 }
       )
     }
