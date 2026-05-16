@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getPublicLocationConfig } from "@/lib/google-maps"
 import { prisma } from "@/lib/prisma"
 
 /** Coerce DB / JSON values to a strict boolean for maintenance flag. */
@@ -26,8 +27,10 @@ export async function GET(request: NextRequest) {
     const googleOn = g.enabled !== false
     const facebookOn = f.enabled !== false
     const maintenanceEnabled = readMaintenanceEnabled(row?.maintenanceMode)
+    const location = await getPublicLocationConfig()
 
     const payload = {
+      location,
       maintenance: {
         enabled: maintenanceEnabled,
         message:

@@ -1,123 +1,84 @@
 import { type NextRequest, NextResponse } from "next/server"
+import {
+  applyGoogleMapsCountryParams,
+  getGoogleMapsRuntimeConfig,
+} from "@/lib/google-maps"
 
 export async function POST(request: NextRequest) {
   try {
     const { latitude, longitude } = await request.json()
 
-    if (!latitude || !longitude) {
+    if (latitude == null || longitude == null) {
       return NextResponse.json(
-        { error: 'Latitude and longitude are required' },
+        { error: "Latitude and longitude are required" },
         { status: 400 }
       )
     }
 
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY
-    if (!apiKey) {
+    const mapsConfig = await getGoogleMapsRuntimeConfig()
+    if (!mapsConfig.apiKey) {
       return NextResponse.json(
-        { error: 'Google Maps API key not configured' },
+        { error: "Google Maps API key not configured" },
         { status: 500 }
       )
     }
 
-    // Use Google Reverse Geocoding API to convert coordinates to detailed address
     const params = new URLSearchParams({
       latlng: `${latitude},${longitude}`,
-      key: apiKey,
+      key: mapsConfig.apiKey,
     })
+    applyGoogleMapsCountryParams(params, mapsConfig)
 
     const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`
-    console.log('🗺️ Reverse geocoding coordinates:', { latitude, longitude })
-    
     const res = await fetch(url)
     if (!res.ok) {
       return NextResponse.json(
-        { error: 'Reverse geocoding service unavailable' },
+        { error: "Reverse geocoding service unavailable" },
         { status: 503 }
       )
     }
 
     const data = await res.json()
-    
-    if (data.status !== 'OK' || !data.results || data.results.length === 0) {
-      return NextResponse.json(
-        { error: 'Location not found' },
-        { status: 404 }
-      )
+
+    if (data.status !== "OK" || !data.results?.length) {
+      return NextResponse.json({ error: "Location not found" }, { status: 404 })
     }
 
-    // Prefer the most specific result for precise address details.
     const topResult = data.results[0]
     const components = topResult.address_components || []
 
-    // Extract city, state, and country from results
-    let city = ''
-    let state = ''
-    let country = ''
-    let formattedAddress = topResult.formatted_address || ''
-    let streetNumber = ''
-    let route = ''
-    let neighborhood = ''
-    let premise = ''
-    let subpremise = ''
+    let city = ""
+    let state = ""
+    let country = ""
+    let postalCode = ""
+    let streetNumber = ""
+    let route = ""
 
-    for (const component of components) {
-      if (component.types.includes('street_number')) {
-        streetNumber = component.long_name
-      } else if (component.types.includes('route')) {
-        route = component.long_name
-      } else if (component.types.includes('premise')) {
-        premise = component.long_name
-      } else if (component.types.includes('subpremise')) {
-        subpremise = component.long_name
-      } else if (
-        component.types.includes('sublocality') ||
-        component.types.includes('sublocality_level_1') ||
-        component.types.includes('neighborhood')
-      ) {
-        neighborhood = component.long_name
-      }
-
-      if (component.types.includes('locality')) {
-        city = component.long_name
-      } else if (component.types.includes('administrative_area_level_2') && !city) {
-        city = component.long_name
-      } else if (component.types.includes('administrative_area_level_1')) {
-        state = component.long_name
-      } else if (component.types.includes('country')) {
-        country = component.long_name
-      }
+    for (const comp of components) {
+      const types: string[] = comp.types || []
+      if (types.includes("street_number")) streetNumber = comp.long_name
+      if (types.includes("route")) route = comp.long_name
+      if (types.includes("locality")) city = comp.long_name
+      if (types.includes("administrative_area_level_1")) state = comp.long_name
+      if (types.includes("country")) country = comp.long_name
+      if (types.includes("postal_code")) postalCode = comp.long_name
     }
 
-    // Fallbacks for missing city
-    if (!city && formattedAddress) {
-      const parts = formattedAddress.split(',')
-      if (parts.length > 0) {
-        city = parts[1]?.trim() || parts[0].trim()
-      }
-    }
-
-    const streetPart = [streetNumber, route].filter(Boolean).join(' ').trim()
-    const blockOrBuilding = [premise, subpremise].filter(Boolean).join(' ').trim()
-    const exactAddress = [blockOrBuilding, streetPart, neighborhood].filter(Boolean).join(', ')
-    const addressLine = exactAddress || (formattedAddress.split(',')[0] || '').trim()
-
-    console.log('✅ Reverse geocoded successfully:', { city, state, country, addressLine, formattedAddress })
+    const addressLine = [streetNumber, route].filter(Boolean).join(" ").trim()
+    const formattedAddress = topResult.formatted_address
 
     return NextResponse.json({
+      formattedAddress,
+      addressLine: addressLine || formattedAddress,
       city,
       state,
       country,
-      addressLine,
-      formattedAddress,
-      placeId: topResult.place_id
+      postalCode,
+      latitude,
+      longitude,
     })
-
   } catch (error) {
-    console.error('Reverse geocoding error:', error)
-    return NextResponse.json(
-      { error: 'Failed to reverse geocode location' },
-      { status: 500 }
-    )
+    console.error("Reverse geocoding error:", error)
+    return NextResponse.json({ error: "Failed to reverse geocode location" }, { status: 500 })
   }
 }
-

@@ -106,6 +106,14 @@ export async function GET(request: NextRequest) {
           whatsapp: (systemSettings?.compnyinfo as any)?.supportCenter?.whatsapp || "",
           workingHours: (systemSettings?.compnyinfo as any)?.supportCenter?.workingHours || [],
         },
+        location: {
+          countryCode:
+            (systemSettings?.compnyinfo as any)?.location?.countryCode ||
+            process.env.LOCATION_COUNTRY_CODE ||
+            "ng",
+          restrictAutocomplete:
+            (systemSettings?.compnyinfo as any)?.location?.restrictAutocomplete ?? true,
+        },
       },
       security: {
         passwordPolicy: {
@@ -273,6 +281,14 @@ export async function PUT(request: NextRequest) {
             baseUrl: settings.tts?.baseUrl || process.env.TTS_BASE_URL || "http://209.97.132.83:8080",
             voice: settings.tts?.voice || process.env.TTS_VOICE || "en-GB-RyanNeural",
           },
+          location: {
+            countryCode: (settings.compnyinfo?.location?.countryCode || "ng")
+              .toString()
+              .trim()
+              .toLowerCase()
+              .slice(0, 2),
+            restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
+          },
         },
 
         // Security settings
@@ -388,6 +404,14 @@ export async function PUT(request: NextRequest) {
           tts: {
             baseUrl: settings.tts?.baseUrl || process.env.TTS_BASE_URL || "http://209.97.132.83:8080",
             voice: settings.tts?.voice || process.env.TTS_VOICE || "en-GB-RyanNeural",
+          },
+          location: {
+            countryCode: (settings.compnyinfo?.location?.countryCode || "ng")
+              .toString()
+              .trim()
+              .toLowerCase()
+              .slice(0, 2),
+            restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
           },
         },
         customerOAuth: settings.customerOAuth ?? undefined,

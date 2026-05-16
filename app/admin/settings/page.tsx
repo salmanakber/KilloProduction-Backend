@@ -147,6 +147,10 @@ interface SystemSettings {
       whatsapp: string
       workingHours: string | object
     }
+    location?: {
+      countryCode: string
+      restrictAutocomplete: boolean
+    }
   }
   customerOAuth?: {
     google?: { enabled?: boolean; webClientId?: string; iosClientId?: string; androidClientId?: string }
@@ -584,6 +588,46 @@ export default function SystemSettings() {
 
                     <div className="border-t border-gray-100 pt-4">
                       <ToggleSwitch label="Live Chat Enabled" description="Enable live chat widget for customers" checked={settings.compnyinfo?.supportCenter?.liveChat || false} onChange={(c) => updateNestedSettings("compnyinfo", "supportCenter", "liveChat", c)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Maps & location picking */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="p-6 md:p-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2.5 bg-blue-50 rounded-lg border border-blue-100"><Globe className="h-5 w-5 text-blue-600" /></div>
+                      <h3 className="text-xl font-bold text-gray-900">Maps &amp; address search</h3>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-6">
+                      Restricts Google Places autocomplete and geocoding to one country. API key: server GOOGLE_MAPS_API_KEY.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <InputGroup label="Default country (ISO code)" subtext="Two letters, e.g. ng, pk, us, gb">
+                        <TextInput
+                          value={settings.compnyinfo?.location?.countryCode || "ng"}
+                          onChange={(e) =>
+                            updateNestedSettings(
+                              "compnyinfo",
+                              "location",
+                              "countryCode",
+                              e.target.value.toLowerCase().replace(/[^a-z]/g, "").slice(0, 2)
+                            )
+                          }
+                          placeholder="ng"
+                          maxLength={2}
+                        />
+                      </InputGroup>
+                      <div className="flex items-end pb-1">
+                        <ToggleSwitch
+                          label="Restrict search to this country"
+                          description="When off, address search is worldwide"
+                          checked={settings.compnyinfo?.location?.restrictAutocomplete ?? true}
+                          onChange={(c) =>
+                            updateNestedSettings("compnyinfo", "location", "restrictAutocomplete", c)
+                          }
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
