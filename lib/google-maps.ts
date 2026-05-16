@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 
 export type GoogleMapsRuntimeConfig = {
   apiKey: string
+  apiKeySource: "database" | "env" | "none"
   /** ISO 3166-1 alpha-2, lowercase */
   countryCode: string
   restrictToCountry: boolean
@@ -15,6 +16,7 @@ const DEFAULT_COUNTRY =
 function readLocationFromCompnyinfo(compnyinfo: unknown): {
   countryCode?: string
   restrictAutocomplete?: boolean
+  googleMapsApiKey?: string
 } {
   if (!compnyinfo || typeof compnyinfo !== "object") return {}
   const location = (compnyinfo as Record<string, unknown>).location
@@ -22,23 +24,46 @@ function readLocationFromCompnyinfo(compnyinfo: unknown): {
   const loc = location as Record<string, unknown>
   return {
     countryCode:
-      typeof loc.countryCode === "string" ? loc.countryCode.trim().toLowerCase().slice(0, 2) : undefined,
+      typeof loc.countryCode === "string"
+        ? loc.countryCode.trim().toLowerCase().slice(0, 2)
+        : undefined,
     restrictAutocomplete:
       typeof loc.restrictAutocomplete === "boolean" ? loc.restrictAutocomplete : undefined,
+    googleMapsApiKey:
+      typeof loc.googleMapsApiKey === "string" ? loc.googleMapsApiKey.trim() : undefined,
   }
 }
 
-/** Server-side Google Maps key + country restriction from env + SystemSettings.compnyinfo.location */
+/**
+ * Database setting first, then GOOGLE_MAPS_API_KEY env fallback.
+ */
+export function resolveGoogleMapsApiKey(storedInDb?: string | null): {
+  apiKey: string
+  source: GoogleMapsRuntimeConfig["apiKeySource"]
+} {
+  const fromDb = storedInDb?.trim()
+  if (fromDb) {
+    return { apiKey: fromDb, source: "database" }
+  }
+  const fromEnv = process.env.GOOGLE_MAPS_API_KEY?.trim()
+  if (fromEnv) {
+    return { apiKey: fromEnv, source: "env" }
+  }
+  return { apiKey: "", source: "none" }
+}
+
+/** Server-side Google Maps key + country restriction from SystemSettings + env fallback */
 export async function getGoogleMapsRuntimeConfig(): Promise<GoogleMapsRuntimeConfig> {
   const row = await prisma.systemSettings.findUnique({ where: { id: 1 } })
   const fromDb = readLocationFromCompnyinfo(row?.compnyinfo)
 
+  const { apiKey, source } = resolveGoogleMapsApiKey(fromDb.googleMapsApiKey)
   const countryCode = fromDb.countryCode || DEFAULT_COUNTRY
   const restrictToCountry = fromDb.restrictAutocomplete !== false
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim() || ""
 
   return {
     apiKey,
+    apiKeySource: source,
     countryCode,
     restrictToCountry,
     componentsParam:
@@ -98,5 +123,6 @@ export async function getPublicLocationConfig() {
     countryCode: config.countryCode,
     restrictAutocomplete: config.restrictToCountry,
     mapsConfigured: Boolean(config.apiKey),
+    mapsApiKeySource: config.apiKeySource,
   }
 }

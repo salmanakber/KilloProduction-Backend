@@ -150,6 +150,8 @@ interface SystemSettings {
     location?: {
       countryCode: string
       restrictAutocomplete: boolean
+      googleMapsApiKey?: string
+      mapsApiKeySource?: "database" | "env" | "none"
     }
   }
   customerOAuth?: {
@@ -600,8 +602,36 @@ export default function SystemSettings() {
                       <h3 className="text-xl font-bold text-gray-900">Maps &amp; address search</h3>
                     </div>
                     <p className="text-sm text-gray-500 mb-6">
-                      Restricts Google Places autocomplete and geocoding to one country. API key: server GOOGLE_MAPS_API_KEY.
+                      Google Maps API key is stored here for geocoding and address search. If left empty, the server uses{" "}
+                      <code className="text-xs bg-gray-100 px-1 rounded">GOOGLE_MAPS_API_KEY</code> from environment.
                     </p>
+                    <div className="mb-6">
+                      <InputGroup
+                        label="Google Maps API key"
+                        subtext={
+                          settings.compnyinfo?.location?.mapsApiKeySource === "env"
+                            ? "No key saved in settings — currently using GOOGLE_MAPS_API_KEY from .env"
+                            : settings.compnyinfo?.location?.mapsApiKeySource === "database"
+                              ? "Using the key saved below"
+                              : "No API key configured — add one here or in .env"
+                        }
+                      >
+                        <TextInput
+                          type="password"
+                          value={settings.compnyinfo?.location?.googleMapsApiKey || ""}
+                          onChange={(e) =>
+                            updateNestedSettings(
+                              "compnyinfo",
+                              "location",
+                              "googleMapsApiKey",
+                              e.target.value.trim()
+                            )
+                          }
+                          placeholder="AIza..."
+                          autoComplete="off"
+                        />
+                      </InputGroup>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <InputGroup label="Default country (ISO code)" subtext="Two letters, e.g. ng, pk, us, gb">
                         <TextInput

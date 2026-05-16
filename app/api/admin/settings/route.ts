@@ -113,6 +113,14 @@ export async function GET(request: NextRequest) {
             "ng",
           restrictAutocomplete:
             (systemSettings?.compnyinfo as any)?.location?.restrictAutocomplete ?? true,
+          googleMapsApiKey:
+            (systemSettings?.compnyinfo as any)?.location?.googleMapsApiKey || "",
+          mapsApiKeySource: (() => {
+            const stored = (systemSettings?.compnyinfo as any)?.location?.googleMapsApiKey?.trim()
+            if (stored) return "database"
+            if (process.env.GOOGLE_MAPS_API_KEY?.trim()) return "env"
+            return "none"
+          })(),
         },
       },
       security: {
@@ -288,6 +296,7 @@ export async function PUT(request: NextRequest) {
               .toLowerCase()
               .slice(0, 2),
             restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
+            googleMapsApiKey: (settings.compnyinfo?.location?.googleMapsApiKey || "").trim(),
           },
         },
 
@@ -412,6 +421,7 @@ export async function PUT(request: NextRequest) {
               .toLowerCase()
               .slice(0, 2),
             restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
+            googleMapsApiKey: (settings.compnyinfo?.location?.googleMapsApiKey || "").trim(),
           },
         },
         customerOAuth: settings.customerOAuth ?? undefined,
