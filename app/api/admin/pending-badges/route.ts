@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
       wholesalerKyc,
       ordersPending,
       withdrawalsPending,
+      moneyWalletWithdrawalsPending,
+      moneyTransferPayoutsPending,
       ticketsOpen,
       specialOfferPending,
       usersPending,
@@ -48,6 +50,12 @@ export async function GET(request: NextRequest) {
       prisma.wholesaler.count({ where: { isVerified: false } }),
       prisma.order.count({ where: { status: "PENDING" } }),
       prisma.vendorWithdrawal.count({ where: { status: "PENDING" } }),
+      prisma.moneyWalletWithdrawal.count({
+        where: { status: { in: ["PENDING", "SCHEDULED"] } },
+      }),
+      prisma.moneyTransferPayout.count({
+        where: { status: { in: ["PENDING", "FAILED"] } },
+      }),
       prisma.supportTicket.count({ where: { status: "OPEN" } }),
       prisma.specialOfferSubmission.count({ where: { status: "PENDING" } }),
       prisma.user.count({
@@ -91,8 +99,10 @@ export async function GET(request: NextRequest) {
       "/admin/special-offers": specialOfferPending,
       "/admin/special-offers/pending": specialOfferPending,
       "/admin/vendor-offers": vendorOfferPendingFood + vendorOfferPendingGrocery,
-      "/admin/money-app-admin/payouts": withdrawalsPending,
-      "/admin/money-app-admin": withdrawalsPending,
+      "/admin/money-app-admin/payouts":
+        moneyWalletWithdrawalsPending + moneyTransferPayoutsPending,
+      "/admin/money-app-admin":
+        moneyWalletWithdrawalsPending + moneyTransferPayoutsPending,
       "/admin/medicines/wholesaler-suggestions": medicineSuggestionsPending,
     }
 

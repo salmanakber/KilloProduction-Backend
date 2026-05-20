@@ -1,6 +1,41 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { getSystemDefaultCurrency } from "@/lib/money-transfer-wallet"
+
+function normalizeBankCurrency(raw: unknown, fallback: string): string {
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim().toUpperCase().slice(0, 3)
+  }
+  return fallback
+}
+
+function mapBankAccount(acc: {
+  id: string
+  accountHolderName: string
+  accountNumber: string
+  bankName: string
+  routingNumber: string | null
+  swiftCode: string | null
+  currency: string
+  isDefault: boolean
+  isVerified: boolean
+  createdAt: Date
+}) {
+  return {
+    id: acc.id,
+    accountName: acc.accountHolderName,
+    accountNumber: acc.accountNumber,
+    bankName: acc.bankName,
+    bankCode: acc.routingNumber || acc.swiftCode || "",
+    swiftCode: acc.swiftCode,
+    routingNumber: acc.routingNumber,
+    currency: acc.currency,
+    isDefault: acc.isDefault,
+    isVerified: acc.isVerified,
+    createdAt: acc.createdAt.toISOString(),
+  }
+}
 
 /**
  * Bank accounts for customers (used for money transfer)
@@ -18,19 +53,7 @@ export async function GET(request: NextRequest) {
       orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
     })
 
-    // Transform to match GlobalBankScreen interface
-    const transformed = bankAccounts.map((acc) => ({
-      id: acc.id,
-      accountName: acc.accountHolderName,
-      accountNumber: acc.accountNumber,
-      bankName: acc.bankName,
-      bankCode: acc.routingNumber || acc.swiftCode || "",
-      swiftCode: acc.swiftCode,
-      routingNumber: acc.routingNumber,
-      isDefault: acc.isDefault,
-      isVerified: acc.isVerified, // Must be verified by admin for money transfer
-      createdAt: acc.createdAt.toISOString(),
-    }))
+    const transformed = bankAccounts.map(mapBankAccount)
 
     return NextResponse.json(transformed)
   } catch (error) {
@@ -55,7 +78,11 @@ export async function POST(request: NextRequest) {
       swiftCode,
       routingNumber,
       isDefault,
+      currency: bodyCurrency,
     } = body
+
+    const defaultCurrency = await getSystemDefaultCurrency()
+    const currency = normalizeBankCurrency(bodyCurrency, defaultCurrency)
 
     // Validate required fields
     if (!accountName || !accountNumber || !bankName) {
@@ -82,28 +109,13 @@ export async function POST(request: NextRequest) {
         routingNumber: routingNumber || bankCode || null,
         swiftCode: swiftCode || null,
         accountType: "checking",
+        currency,
         isDefault: isDefault || false,
-        // Account name is provider-verified in `resolve-account` before submit.
         isVerified: true,
       },
     })
 
-    // Transform response
-    return NextResponse.json(
-      {
-        id: bankAccount.id,
-        accountName: bankAccount.accountHolderName,
-        accountNumber: bankAccount.accountNumber,
-        bankName: bankAccount.bankName,
-        bankCode: bankAccount.routingNumber || bankAccount.swiftCode || "",
-        swiftCode: bankAccount.swiftCode,
-        routingNumber: bankAccount.routingNumber,
-        isDefault: bankAccount.isDefault,
-        isVerified: bankAccount.isVerified,
-        createdAt: bankAccount.createdAt.toISOString(),
-      },
-      { status: 201 }
-    )
+    return NextResponse.json(mapBankAccount(bankAccount), { status: 201 })
   } catch (error: any) {
     console.error("Error creating bank account:", error)
     return NextResponse.json(

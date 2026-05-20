@@ -50,6 +50,9 @@ export async function PUT(
     if (body.routingNumber) updateData.routingNumber = body.routingNumber
     if (body.swiftCode) updateData.swiftCode = body.swiftCode
     if (body.isDefault !== undefined) updateData.isDefault = body.isDefault
+    if (body.currency != null && String(body.currency).trim()) {
+      updateData.currency = String(body.currency).trim().toUpperCase().slice(0, 3)
+    }
 
     const updatedAccount = await prisma.bankAccount.update({
       where: { id: bankAccountId },
@@ -65,6 +68,7 @@ export async function PUT(
       bankCode: updatedAccount.routingNumber || updatedAccount.swiftCode || "",
       swiftCode: updatedAccount.swiftCode,
       routingNumber: updatedAccount.routingNumber,
+      currency: updatedAccount.currency,
       isDefault: updatedAccount.isDefault,
       isVerified: updatedAccount.isVerified,
       createdAt: updatedAccount.createdAt.toISOString(),

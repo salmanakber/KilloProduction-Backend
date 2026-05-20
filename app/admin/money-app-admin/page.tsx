@@ -12,7 +12,11 @@ import {
   Activity,
   Loader2,
   Settings,
-  List
+  List,
+  Wallet,
+  Shield,
+  ClipboardList,
+  BarChart3,
 } from "lucide-react"
 
 interface MoneyTransferStats {
@@ -30,10 +34,19 @@ interface MoneyTransferStats {
   todayTransfers: number
   todayVolumeBase: number
   todayPlatformRevenueBase: number
+  openCases?: number
+  openRefundCases?: number
+}
+
+interface TreasuryPreview {
+  paystack?: { balances: Array<{ currency: string; balanceMajor: number }> } | null
+  paystackError?: string | null
+  liquidity?: { openRefundCases: number; refundCoverageOk: boolean | null; ngnPaystackAvailable: number | null }
 }
 
 export default function MoneyTransferDashboard() {
   const [stats, setStats] = useState<MoneyTransferStats | null>(null)
+  const [treasury, setTreasury] = useState<TreasuryPreview | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -42,11 +55,16 @@ export default function MoneyTransferDashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("/api/admin/money-app-admin/stats")
-      const data = await res.json()
-      if (!res.ok || !data.success) {
+      const [statsRes, treasuryRes] = await Promise.all([
+        fetch("/api/admin/money-app-admin/stats"),
+        fetch("/api/admin/money-app-admin/paystack-balance"),
+      ])
+      const data = await statsRes.json()
+      const treasuryData = await treasuryRes.json()
+      if (!statsRes.ok || !data.success) {
         throw new Error(data.error || "Failed to load stats")
       }
+      if (treasuryData.success) setTreasury(treasuryData)
       setStats({
         reportingCurrency: data.reportingCurrency,
         totalTransfers: data.totalTransfers,
@@ -62,6 +80,8 @@ export default function MoneyTransferDashboard() {
         todayTransfers: data.todayTransfers,
         todayVolumeBase: data.todayVolumeBase,
         todayPlatformRevenueBase: data.todayPlatformRevenueBase,
+        openCases: data.openCases,
+        openRefundCases: data.openRefundCases,
       })
     } catch (error) {
       console.error("Failed to fetch stats:", error)
@@ -91,6 +111,38 @@ export default function MoneyTransferDashboard() {
         <div className="flex items-center space-x-2 bg-teal-50 px-4 py-2 rounded-xl border border-teal-100">
           <Activity className="h-4 w-4 text-teal-600" />
           <span className="text-sm font-bold text-teal-700">Live Status</span>
+        </div>
+      </div>
+
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-gradient-to-br from-[#0f766e] to-[#1A2433] p-6 rounded-2xl text-white shadow-md">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-teal-300" />
+              <h2 className="font-bold">Paystack interconnect balance</h2>
+            </div>
+            <a href="/admin/money-app-admin/treasury" className="text-xs text-teal-200 underline">Details</a>
+          </div>
+          {treasury?.paystackError ? (
+            <p className="text-amber-200 text-sm">{treasury.paystackError}</p>
+          ) : (
+            <div className="flex flex-wrap gap-8">
+              {(treasury?.paystack?.balances ?? []).map((b) => (
+                <div key={b.currency}>
+                  <p className="text-teal-100/80 text-xs uppercase">{b.currency}</p>
+                  <p className="text-3xl font-black">{b.balanceMajor.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-2">
+          <p className="font-bold flex items-center gap-2"><Shield className="h-5 w-5 text-teal-600" /> Security</p>
+          <p className="text-sm">Open cases: <strong>{stats?.openCases ?? 0}</strong></p>
+          <a href="/admin/money-app-admin/cases" className="text-sm text-teal-700 block">Cases</a>
+          <a href="/admin/money-app-admin/reports" className="text-sm text-teal-700 block">Reports</a>
+          <a href="/admin/money-app-admin/audit" className="text-sm text-teal-700 block">Audit</a>
         </div>
       </div>
 

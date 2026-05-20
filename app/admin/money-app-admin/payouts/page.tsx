@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Table,
   TableBody,
@@ -20,17 +22,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, RefreshCw, Loader2, AlertCircle, Filter, ChevronLeft, ChevronRight, Activity } from "lucide-react"
+import { 
+  Search, 
+  RefreshCw, 
+  Loader2, 
+  AlertCircle, 
+  Filter, 
+  ChevronLeft, 
+  ChevronRight, 
+  Activity, 
+  Landmark, 
+  Wallet,
+  ArrowUpRight,
+  ShieldCheck,
+  Building2,
+  Copy
+} from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface Payout {
   id: string
+  kind: "TRANSFER_PAYOUT" | "WALLET_WITHDRAWAL"
   transfer: {
     id: string
     reference: string
     sender: { id: string; name: string }
     receiver: { id: string; name: string }
-  }
+  } | null
+  user?: { id: string; name: string } | null
+  rawStatus?: string
   amount: number
   currency: string
   status: string
@@ -47,6 +67,27 @@ interface Payout {
   failedAt: string | null
 }
 
+type TreasurySnapshot = {
+  paystack?: { balances: Array<{ currency: string; balanceMajor: number }> } | null
+  paystackError?: string | null
+  stripe?: {
+    configured: boolean
+    balances: Array<{ currency: string; available: number; pending: number }>
+    error?: string
+  } | null
+  liquidity?: {
+    pendingWalletWithdrawalsAmount: number
+    pendingWalletWithdrawalsCount: number
+    pendingPayoutsAmount: number
+    ngnPaystackAvailable: number | null
+  }
+  withdrawalSmart?: {
+    autoApproveEnabled: boolean
+    paystackLiquidityUnknown: boolean
+    showWarning: boolean
+  }
+}
+
 export default function MoneyTransferPayouts() {
   const [payouts, setPayouts] = useState<Payout[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,17 +95,38 @@ export default function MoneyTransferPayouts() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [retrying, setRetrying] = useState<string | null>(null)
   
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const limit = 10 
 
   const { toast } = useToast()
+  const [treasury, setTreasury] = useState<TreasurySnapshot | null>(null)
+  const [treasuryLoading, setTreasuryLoading] = useState(true)
 
-  useEffect(() => {
-    fetchPayouts()
-  }, [statusFilter, currentPage])
+  const fetchTreasury = async () => {
+    try {
+      setTreasuryLoading(true)
+      const res = await fetch("/api/admin/money-app-admin/paystack-balance")
+      const data = await res.json()
+      if (data.success) {
+        setTreasury({
+          paystack: data.paystack,
+          paystackError: data.paystackError,
+          stripe: data.stripe,
+          liquidity: data.liquidity,
+          withdrawalSmart: data.withdrawalSmart,
+        })
+      }
+    } catch (e) {
+      console.error("treasury fetch", e)
+    } finally {
+      setTreasuryLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchTreasury() }, [])
+  useEffect(() => { fetchPayouts() }, [statusFilter, currentPage])
 
   const fetchPayouts = async () => {
     try {
@@ -72,7 +134,6 @@ export default function MoneyTransferPayouts() {
       const params = new URLSearchParams()
       if (statusFilter !== "all") params.append("status", statusFilter)
       if (search) params.append("search", search)
-      
       params.append("page", currentPage.toString())
       params.append("limit", limit.toString())
 
@@ -84,58 +145,69 @@ export default function MoneyTransferPayouts() {
         setTotalPages(data.pagination?.totalPages || data.totalPages || 1)
         setTotalItems(data.pagination?.total || data.total || data.payouts?.length || 0)
       }
-    } catch (error) {
-      console.error("Failed to fetch payouts:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load payouts",
-        variant: "destructive",
-      })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleRetryPayout = async (payoutId: string) => {
+  const handleApproveWallet = async (id: string) => {
+    const reason = window.prompt("Reason for approving withdrawal (required):")
+    if (!reason?.trim()) return
+    const confirmToken = window.prompt(`Type exactly:\nCONFIRM:WD-${id.slice(0, 8)}`)
+    if (confirmToken !== `CONFIRM:WD-${id.slice(0, 8)}`) {
+      toast({ title: "Confirmation failed", variant: "destructive" })
+      return
+    }
     try {
-      setRetrying(payoutId)
-      const response = await fetch("/api/admin/money-app-admin/retry-payout", {
+      setRetrying(id)
+      const res = await fetch(`/api/admin/money-app-admin/wallet-withdrawals/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payoutId }),
+        body: JSON.stringify({ action: "approve", reason, confirmToken }),
       })
-
-      const data = await response.json()
-      
+      const data = await res.json()
       if (data.success) {
-        toast({
-          title: "Success",
-          description: "Payout retry initiated",
-        })
+        toast({ title: "Withdrawal sent to bank" })
         fetchPayouts()
-      } else {
-        toast({
-          title: "Error",
-          description: data.error || "Failed to retry payout",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to retry payout",
-        variant: "destructive",
-      })
+      } else throw new Error(data.error)
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" })
     } finally {
       setRetrying(null)
     }
   }
 
-  // Keeping logical status colors for badges only
+  const handleRetryPayout = async (payoutId: string, transferReference: string) => {
+    const reason = window.prompt("Reason for payout retry (required):")
+    if (!reason?.trim()) return
+    const confirmToken = window.prompt(`Type exactly to confirm:\nCONFIRM:${transferReference}`)
+    if (confirmToken !== `CONFIRM:${transferReference}`) {
+      toast({ title: "Confirmation failed", variant: "destructive" })
+      return
+    }
+    try {
+      setRetrying(payoutId)
+      const response = await fetch("/api/admin/money-app-admin/retry-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payoutId, reason: reason.trim(), confirmToken }),
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast({ title: "Success", description: "Payout retry initiated" })
+        fetchPayouts()
+      } else throw new Error(data.error)
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" })
+    } finally {
+      setRetrying(null)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     const variants: Record<string, string> = {
       PENDING: "bg-amber-50 text-amber-700 border-amber-200",
-      PROCESSING: "bg-teal-50 text-teal-700 border-teal-200", 
+      PROCESSING: "bg-blue-50 text-blue-700 border-blue-200", 
       SUCCESS: "bg-emerald-50 text-emerald-700 border-emerald-200",
       FAILED: "bg-rose-50 text-rose-700 border-rose-200",
       REVERSED: "bg-slate-100 text-slate-700 border-slate-200",
@@ -143,235 +215,271 @@ export default function MoneyTransferPayouts() {
     return variants[status] || "bg-slate-100 text-slate-700 border-slate-200"
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
-
-  const handleSearch = () => {
-    setCurrentPage(1)
-    fetchPayouts()
-  }
-
-  const handleReset = () => {
-    setSearch("")
-    setStatusFilter("all")
-    setCurrentPage(1)
-    fetchPayouts()
-  }
+  const handleSearch = () => { setCurrentPage(1); fetchPayouts(); }
+  const handleReset = () => { setSearch(""); setStatusFilter("all"); setCurrentPage(1); fetchPayouts(); }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-12">
+    <div className="max-w-[1600px] mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
       
-      {/* HEADER */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Money Transfer Payouts</h1>
-          <p className="text-sm text-slate-500 mt-1">Monitor and manage Paystack payouts across the network.</p>
-        </div>
-        <div className="flex items-center space-x-2 bg-teal-50 px-4 py-2 rounded-xl border border-teal-100">
-          <Activity className="h-4 w-4 text-teal-600" />
-          <span className="text-sm font-bold text-teal-700">Payout Network</span>
+      {/* HEADER SECTION */}
+      <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Payout & Withdrawal Hub</h1>
+            <p className="text-slate-500 font-medium max-w-2xl">
+              Unified ledger for multi-currency payouts. NGN bank rails managed via Paystack with automated liquidity checks.
+            </p>
+            <div className="flex gap-4 pt-3">
+              <Link href="/admin/money-app-admin/config" className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1">
+                <Landmark className="h-3.5 w-3.5" /> Network Config
+              </Link>
+              <Link href="/admin/settings?tab=notifications&moneyReceipts=1" className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1">
+                <ShieldCheck className="h-3.5 w-3.5" /> Receipt Logic
+              </Link>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={() => fetchTreasury()} disabled={treasuryLoading} className="bg-white shadow-sm h-11 px-5 border-slate-200">
+              {treasuryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              <span className="ml-2 font-bold">Treasury Sync</span>
+            </Button>
+            <div className="flex items-center space-x-3 bg-slate-900 text-white px-5 py-2.5 rounded-2xl shadow-lg">
+              <div className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500"></span>
+              </div>
+              <span className="text-xs font-bold tracking-tight">Payouts</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* FILTERS CARD */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-2 mb-6">
-          <Filter className="h-5 w-5 text-teal-600" />
-          <h3 className="text-lg font-bold text-slate-900">Filters</h3>
-        </div>
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <Input
-              placeholder="Search by reference, account number..."
+      {/* SMART ALERT */}
+      {treasury?.withdrawalSmart?.showWarning && (
+        <Alert className="border-amber-200 bg-amber-50 rounded-2xl shadow-sm border-l-4 border-l-amber-500">
+          <AlertCircle className="h-5 w-5 text-amber-600" />
+          <div className="ml-2">
+            <AlertTitle className="text-amber-900 font-black uppercase text-xs tracking-wider">Auto-Approve Disabled</AlertTitle>
+            <AlertDescription className="text-amber-800 text-sm mt-1 font-medium">
+              {treasury.paystackError ? `Paystack: ${treasury.paystackError}` : "System cannot determine NGN balance for automatic approval."}
+            </AlertDescription>
+          </div>
+        </Alert>
+      )}
+
+      {/* TREASURY SNAPSHOT GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-none shadow-sm bg-white overflow-hidden group">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-3 bg-teal-50 rounded-xl group-hover:bg-teal-600 group-hover:text-white transition-all">
+                <Landmark className="h-6 w-6" />
+              </div>
+              <Badge variant="secondary" className="bg-teal-50 text-teal-700 font-bold border-none">PAYSTACK</Badge>
+            </div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">NGN Balance</p>
+            <h3 className="text-2xl font-black text-slate-900 mt-1">
+              ₦{(treasury?.paystack?.balances?.find(b => b.currency === "NGN")?.balanceMajor ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </h3>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-white overflow-hidden group">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-3 bg-indigo-50 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                <ArrowUpRight className="h-6 w-6" />
+              </div>
+              <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 font-bold border-none">STRIPE</Badge>
+            </div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Available Funds</p>
+            <div className="mt-2 space-y-1">
+              {treasury?.stripe?.balances?.slice(0, 2).map(b => (
+                <div key={b.currency} className="flex justify-between text-xs font-bold">
+                  <span className="text-slate-500">{b.currency}</span>
+                  <span className="text-slate-900">{b.available.toFixed(2)}</span>
+                </div>
+              ))}
+              {(!treasury?.stripe?.balances || treasury.stripe.balances.length === 0) && <p className="text-xs text-slate-400 italic">No available rows</p>}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-white overflow-hidden group">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-3 bg-amber-50 rounded-xl group-hover:bg-amber-600 group-hover:text-white transition-all">
+                <Wallet className="h-6 w-6" />
+              </div>
+              <Badge variant="secondary" className="bg-amber-50 text-amber-700 font-bold border-none">PENDING WD</Badge>
+            </div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Outstanding Claims</p>
+            <h3 className="text-2xl font-black text-slate-900 mt-1">
+              ₦{(treasury?.liquidity?.pendingWalletWithdrawalsAmount ?? 0).toLocaleString()}
+            </h3>
+            <p className="text-[10px] font-bold text-slate-400 mt-1">Across {treasury?.liquidity?.pendingWalletWithdrawalsCount ?? 0} Requests</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-teal-900 text-white overflow-hidden">
+          <CardContent className="p-6 relative">
+            <AlertCircle className="absolute -right-4 -bottom-4 h-24 w-24 text-white/5" />
+            <div className="flex items-center gap-2 mb-4">
+              <Activity className="h-4 w-4 text-teal-400" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-teal-400">Liquidity Hint</span>
+            </div>
+            <p className="text-[10px] font-bold text-teal-100/60 uppercase tracking-widest">Safe Payout Cap</p>
+            <h3 className="text-2xl font-black mt-1">
+              ₦{(treasury?.liquidity?.ngnPaystackAvailable ?? 0).toLocaleString()}
+            </h3>
+            <p className="text-[10px] text-teal-100/50 mt-1 font-medium leading-tight">After deducting buffer vs. NGN queue</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* FILTER & TABLE SECTION */}
+      <Card className="border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-6 bg-slate-50/50 border-b border-slate-200 flex flex-col md:flex-row gap-4 items-center">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input 
+              placeholder="Reference, account, or name..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="max-w-md border-slate-200 focus-visible:ring-teal-500"
+              className="pl-10 bg-white border-slate-200 focus-visible:ring-teal-600 h-11"
             />
           </div>
-          <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val); setCurrentPage(1); }}>
-            <SelectTrigger className="w-full md:w-[200px] border-slate-200 focus:ring-teal-500">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="PENDING">Pending</SelectItem>
-              <SelectItem value="PROCESSING">Processing</SelectItem>
-              <SelectItem value="SUCCESS">Success</SelectItem>
-              <SelectItem value="FAILED">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex gap-2">
-            <Button 
-              onClick={handleSearch}
-              className="bg-teal-500 hover:bg-teal-600 text-white transition-colors"
-            >
-              <Search className="h-4 w-4 mr-2" />
-              Search
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleReset}
-              className="border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            >
-              Reset
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* PAYOUTS TABLE */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">Payout Ledger</h3>
-            <p className="text-xs text-slate-500 mt-1 font-medium">
-              {totalItems} payout{totalItems !== 1 ? "s" : ""} found
-            </p>
+          <div className="flex w-full md:w-auto gap-2">
+            <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val); setCurrentPage(1); }}>
+              <SelectTrigger className="w-full md:w-[180px] h-11 bg-white">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="PROCESSING">Processing</SelectItem>
+                <SelectItem value="SUCCESS">Success</SelectItem>
+                <SelectItem value="FAILED">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={handleSearch} className="h-11 bg-teal-600 hover:bg-teal-700 px-6 font-bold shadow-sm">Search</Button>
+            <Button variant="ghost" onClick={handleReset} className="h-11 text-slate-500 hover:text-slate-900 font-bold">Reset</Button>
           </div>
         </div>
 
-        <div className="p-0">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-64 bg-white animate-pulse">
-              <Loader2 className="h-8 w-8 animate-spin text-teal-500 mb-4" />
-              <p className="text-sm font-medium text-slate-500">Syncing payout data...</p>
-            </div>
-          ) : payouts.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="h-12 w-12 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-100 mx-auto mb-4">
-                <Search className="h-6 w-6 text-slate-400" />
-              </div>
-              <p className="text-base font-semibold text-slate-900">No payouts found</p>
-              <p className="text-sm text-slate-500 mt-1">Try adjusting your filters or search query.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-slate-50 border-b border-slate-200">
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Transfer Ref</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Receiver</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Amount</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Bank Details</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Status</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Paystack Ref</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Retries</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4">Date</TableHead>
-                    <TableHead className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {payouts.map((payout) => (
-                    <TableRow key={payout.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                      <TableCell className="font-mono text-xs font-medium text-slate-600">
-                        {payout.transfer.reference}
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-bold text-slate-900 text-sm">{payout.transfer.receiver.name}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-bold text-slate-900">
-                          ₦{(payout.amount / 100).toFixed(2)}
-                        </div>
-                        <div className="text-xs text-slate-500 font-medium">{payout.currency}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          <div className="font-bold text-slate-900">{payout.bankName}</div>
-                          <div className="text-xs text-slate-500 mt-0.5 font-medium">
-                            {payout.accountNumber} - {payout.accountName}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={`font-bold border ${getStatusBadge(payout.status)}`}>
-                          {payout.status}
-                        </Badge>
-                        {payout.failureReason && (
-                          <div className="text-xs text-rose-600 mt-2 flex items-start gap-1 font-medium max-w-[150px] leading-tight">
-                            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                            <span>{payout.failureReason}</span>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-slate-500">
-                        {payout.paystackReference || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-md text-xs">
-                          {payout.retryCount}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader className="bg-slate-50">
+              <TableRow className="border-b border-slate-200">
+                <TableHead className="w-[180px] text-[10px] font-bold uppercase tracking-wider pl-6 py-4">Transaction / Type</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase tracking-wider py-4">Recipient</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase tracking-wider py-4">Financials</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase tracking-wider py-4">Bank Destination</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase tracking-wider py-4">Status & Logic</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase tracking-wider py-4 text-right pr-6">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={6} className="h-64 text-center"><Loader2 className="h-8 w-8 animate-spin text-teal-600 mx-auto" /></TableCell></TableRow>
+              ) : payouts.map((payout) => (
+                <TableRow key={payout.id} className="group hover:bg-slate-50/50 transition-colors border-b border-slate-100 last:border-0">
+                  <TableCell className="pl-6">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                         {payout.kind === "WALLET_WITHDRAWAL" ? (
+                           <div className="p-1.5 bg-amber-50 rounded-lg"><Wallet className="h-3 w-3 text-amber-600" /></div>
+                         ) : (
+                           <div className="p-1.5 bg-teal-50 rounded-lg"><ArrowUpRight className="h-3 w-3 text-teal-600" /></div>
+                         )}
+                         <span className="font-mono text-[11px] font-black text-slate-900 tracking-tighter">
+                           {payout.kind === "WALLET_WITHDRAWAL" ? `WD-${payout.id.slice(0, 8)}` : payout.transfer?.reference}
+                         </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase pl-7">{payout.kind.replace("_", " ")}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <p className="font-bold text-slate-900 text-sm truncate max-w-[150px]">
+                      {payout.kind === "WALLET_WITHDRAWAL" ? payout.user?.name : payout.transfer?.receiver?.name}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-tighter">{new Date(payout.createdAt).toLocaleDateString()} &bull; {new Date(payout.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-sm font-black text-slate-900">
+                          {payout.currency === "NGN" ? "₦" : payout.currency} {payout.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
-                      </TableCell>
-                      <TableCell className="text-sm font-medium text-slate-600">
-                        {formatDate(payout.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {payout.status === "FAILED" && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-slate-200 text-slate-600 hover:text-teal-700 hover:bg-teal-50 hover:border-teal-200 transition-colors"
-                            onClick={() => handleRetryPayout(payout.id)}
-                            disabled={retrying === payout.id}
-                          >
-                            {retrying === payout.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
-                            ) : (
-                              <>
-                                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                                Retry
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase">Retries: {payout.retryCount}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="h-3 w-3 text-slate-400" />
+                        <span className="text-xs font-bold text-slate-900">{payout.bankName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-mono font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{payout.accountNumber}</span>
+                        <span className="text-[10px] font-bold text-slate-400 truncate max-w-[100px]">{payout.accountName}</span>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-2">
+                      <Badge variant="outline" className={`font-bold border text-[10px] px-2 py-0 h-5 ${getStatusBadge(payout.status)}`}>
+                        {payout.status}
+                      </Badge>
+                      {payout.failureReason && (
+                        <div className="bg-rose-50 border border-rose-100 p-2 rounded-lg max-w-[180px]">
+                           <p className="text-[10px] font-bold text-rose-700 leading-tight italic">"{payout.failureReason}"</p>
+                        </div>
+                      )}
+                      {payout.paystackReference && (
+                        <div className="flex items-center gap-1 text-[9px] text-slate-400 font-mono">
+                          <Copy className="h-2.5 w-2.5" /> {payout.paystackReference}
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right pr-6">
+                    {payout.kind === "WALLET_WITHDRAWAL" && (payout.rawStatus === "PENDING" || payout.rawStatus === "FAILED") && (
+                      <Button size="sm" onClick={() => handleApproveWallet(payout.id)} disabled={retrying === payout.id} className="bg-teal-600 hover:bg-teal-700 font-bold h-8 rounded-lg shadow-sm">
+                        {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve WD"}
+                      </Button>
+                    )}
+                    {payout.kind === "TRANSFER_PAYOUT" && payout.status === "FAILED" && payout.transfer && (
+                      <Button variant="outline" size="sm" onClick={() => handleRetryPayout(payout.id, payout.transfer!.reference)} disabled={retrying === payout.id} className="border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 font-bold h-8 rounded-lg shadow-sm">
+                        {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><RefreshCw className="h-3 w-3 mr-1.5" /> Retry</>}
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
 
-        {/* PAGINATION CONTROLS */}
+        {/* PAGINATION */}
         {!loading && payouts.length > 0 && (
-          <div className="p-4 border-t border-slate-100 bg-white flex items-center justify-between">
-            <p className="text-sm text-slate-500 font-medium">
-              Showing page <span className="font-bold text-slate-900">{currentPage}</span> of <span className="font-bold text-slate-900">{totalPages}</span>
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              Page <span className="text-slate-900">{currentPage}</span> of <span className="text-slate-900">{totalPages}</span>
             </p>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
+              <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 bg-white border-slate-200">
+                <ChevronLeft className="h-4 w-4 mr-1" /> Prev
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200"
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
+              <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 bg-white border-slate-200">
+                Next <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   )
 }

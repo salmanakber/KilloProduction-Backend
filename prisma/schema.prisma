@@ -143,9 +143,20 @@ model User {
   userKycRejections       KycRejection[]            @relation("UserKycRejections")
   sentMoneyTransfers            MoneyTransfer[]            @relation("MoneyTransferSender")
   receivedMoneyTransfers        MoneyTransfer[]            @relation("MoneyTransferReceiver")
+  moneyTransferWallets            MoneyTransferWallet[]
+  moneyTransferWalletTransactions MoneyTransferWalletTransaction[] @relation("MoneyTransferWalletTxUser")
   moneyScheduledTransfersOwner  MoneyScheduledTransfer[]   @relation("MoneyScheduledOwner")
   moneyScheduledAsRecipient     MoneyScheduledTransfer[]   @relation("MoneyScheduledReceiver")
   moneyRateAlerts               MoneyRateAlert[]           @relation("MoneyRateAlerts")
+  moneyTransferCasesOpened      MoneyTransferCase[]        @relation("MoneyCaseOpenedBy")
+  moneyTransferCasesAssigned    MoneyTransferCase[]        @relation("MoneyCaseAssignedTo")
+  moneyTransferCasesAsRequester MoneyTransferCase[]        @relation("MoneyCaseRequester")
+  moneyTransferCaseNotes        MoneyTransferCaseNote[]    @relation("MoneyCaseNoteAuthor")
+  moneyWalletWithdrawals        MoneyWalletWithdrawal[]
+  moneyTransferTrustedDevices   MoneyTransferTrustedDevice[]
+  moneyTransferRiskLogs         MoneyTransferRiskLog[]
+  moneyTransferStepUps          MoneyTransferStepUp[]
+  vtpassTransactions            VtpassTransaction[]
   userActivities          UserActivity[]            @relation("UserActivities")
   specialOfferVendors     SpecialOfferVendor[]
   specialOfferSubmissions SpecialOfferSubmission[]
@@ -3311,12 +3322,15 @@ model BankAccount {
   routingNumber     String?
   swiftCode         String?
   accountType       String
+  /// Payout currency for this account (must match money wallet currency on withdraw).
+  currency          String   @default("NGN")
   isDefault         Boolean  @default(false)
   isVerified        Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   user              User     @relation("UserBankAccounts", fields: [userId], references: [id])
 
+  @@index([userId, currency])
   @@map("bank_accounts")
 }
 
@@ -3518,6 +3532,9 @@ model SystemSettings {
   riderPeakBonusExpectedUtilPerHour  Float   @default(0.9)
   /// Customer app OAuth (Google / Facebook). Shape: { google?: { webClientId, iosClientId, androidClientId }, facebook?: { appId, appSecret } }
   customerOAuth                      Json?
+
+  /// Money transfer PDF receipts: Meta Cloud API + optional Twilio WhatsApp / SMS fallback.
+  moneyReceiptWhatsapp Json?
 
   @@map("system_settings")
 }
@@ -4681,25 +4698,92 @@ enum MoneyScheduleStatus {
   COMPLETED
 }
 
+enum MoneyScheduleKind {
+  P2P_TRANSFER
+  VTPASS_AIRTIME
+  VTPASS_DATA
+  VTPASS_ELECTRICITY
+  VTPASS_CABLE
+}
+
 model MoneyScheduledTransfer {
-  id          String                @id @default(cuid())
-  userId      String
-  receiverId  String
-  amount      Float
-  currency    String                @default("USD")
-  frequency   MoneyScheduleFrequency
-  nextRunAt   DateTime
-  lastRunAt   DateTime?
-  status      MoneyScheduleStatus     @default(ACTIVE)
-  description String?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-  owner       User                  @relation("MoneyScheduledOwner", fields: [userId], references: [id], onDelete: Cascade)
-  receiver    User                  @relation("MoneyScheduledReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  id             String                 @id @default(cuid())
+  userId         String
+  receiverId     String?
+  scheduleKind   MoneyScheduleKind      @default(P2P_TRANSFER)
+  amount         Float
+  currency       String                 @default("NGN")
+  frequency      MoneyScheduleFrequency
+  nextRunAt      DateTime
+  lastRunAt      DateTime?
+  status         MoneyScheduleStatus    @default(ACTIVE)
+  description    String?
+  servicePayload Json?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  owner          User                   @relation("MoneyScheduledOwner", fields: [userId], references: [id], onDelete: Cascade)
+  receiver       User?                  @relation("MoneyScheduledReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  vtpassRuns     VtpassTransaction[]    @relation("VtpassSchedule")
 
   @@index([nextRunAt, status])
   @@index([userId])
+  @@index([scheduleKind])
   @@map("money_scheduled_transfers")
+}
+
+enum VtpassTransactionStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+  REVERSED
+}
+
+model VtpassConfig {
+  id                     String   @id @default("default")
+  apiKey                 String?
+  secretKey              String?
+  sandbox                Boolean  @default(true)
+  isEnabled              Boolean  @default(false)
+  airtimeCommissionPct   Float    @default(2.0)
+  dataCommissionPct      Float    @default(2.0)
+  billsCommissionPct     Float    @default(3.0)
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@map("vtpass_config")
+}
+
+model VtpassTransaction {
+  id                String                  @id @default(cuid())
+  userId            String
+  scheduleId        String?
+  serviceType       String
+  serviceId         String
+  variationCode     String?
+  billersCode       String
+  phone             String?
+  amount            Float
+  commission        Float                   @default(0)
+  customerPaid      Float
+  currency          String                  @default("NGN")
+  requestId         String                  @unique
+  vtpassReference   String?
+  status            VtpassTransactionStatus @default(PENDING)
+  response          Json?
+  failureReason     String?
+  walletTxId        String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  user     User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schedule MoneyScheduledTransfer? @relation("VtpassSchedule", fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([serviceType])
+  @@map("vtpass_transactions")
 }
 
 model MoneyRateAlert {
@@ -4726,6 +4810,16 @@ enum MoneyTransferStatus {
   COMPLETED // Paystack payout completed
   FAILED // Payment or payout failed
   CANCELLED // Transfer cancelled by sender or system
+  REFUNDED // Admin or gateway refund completed
+}
+
+enum MoneyTransferCaseType {
+  REFUND_REQUEST
+  DISPUTE
+  PAYOUT_ISSUE
+  FRAUD_REVIEW
+  MANUAL_REVIEW
+  OTHER
 }
 
 enum MoneyTransferPayoutStatus {
@@ -4734,6 +4828,29 @@ enum MoneyTransferPayoutStatus {
   SUCCESS // Payout completed successfully
   FAILED // Payout failed
   REVERSED // Payout was reversed
+}
+
+/// How inbound transfers settle after sender payment succeeds.
+enum MoneyTransferSettlementMode {
+  WALLET // Credit receiver's money-transfer wallet (withdraw to bank separately)
+  DIRECT_BANK // Legacy: auto Paystack payout to receiver bank on payment success
+}
+
+enum MoneyTransferWalletTxType {
+  CREDIT
+  DEBIT
+  WITHDRAWAL
+  ADJUSTMENT
+}
+
+enum MoneyWalletWithdrawalStatus {
+  PENDING
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REJECTED
 }
 
 model MoneyTransfer {
@@ -4790,10 +4907,15 @@ model MoneyTransfer {
   completedAt DateTime?
   failedAt    DateTime?
 
+  /// Sender choice: credit receiver wallet or pay out to bank immediately.
+  settlementMode MoneyTransferSettlementMode @default(WALLET)
+
   // Relations
   sender   User                 @relation("MoneyTransferSender", fields: [senderId], references: [id])
   receiver User                 @relation("MoneyTransferReceiver", fields: [receiverId], references: [id])
   payout   MoneyTransferPayout?
+  walletTransactions MoneyTransferWalletTransaction[]
+  supportCases       MoneyTransferCase[]
 
   @@index([senderId])
   @@index([receiverId])
@@ -4876,6 +4998,21 @@ model MoneyTransferConfig {
   transferFeePercentage Float @default(0.0)
   transferFeeFixed      Float @default(0.0)
 
+  /// WALLET = credit receiver wallet; DIRECT_BANK = immediate Paystack payout (legacy).
+  settlementMode MoneyTransferSettlementMode @default(WALLET)
+
+  /// When true, wallet withdrawal requests auto-send to bank after delay (see autoPayoutDelayMinutes).
+  autoPayoutEnabled      Boolean @default(false)
+  autoPayoutDelayMinutes Int     @default(12)
+
+  /// After this many minutes in PENDING, worker may auto-run Paystack payout (NGN only) if liquidity allows.
+  withdrawalSmartAutoApprove           Boolean @default(false)
+  withdrawalSmartApproveDelayMinutes    Int     @default(15)
+  /// Minimum Paystack NGN balance to keep before smart auto-approvals run (major units).
+  withdrawalPaystackBufferNgn          Float   @default(50000)
+  /// NGN payouts at or below this amount use a 1-minute delay when autoPayoutEnabled (optional instant-ish path).
+  withdrawalInstantMaxNgn               Float?
+
   // Metadata
   metadata Json?
 
@@ -4884,6 +5021,192 @@ model MoneyTransferConfig {
   updatedAt DateTime @updatedAt
 
   @@map("money_transfer_config")
+}
+
+/// Separate from marketplace `Wallet` — used only for Kilo money transfers (one row per currency).
+model MoneyTransferWallet {
+  id        String   @id @default(cuid())
+  userId    String
+  currency  String   @default("NGN")
+  balance   Float    @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions MoneyTransferWalletTransaction[]
+
+  @@unique([userId, currency])
+  @@index([userId])
+  @@map("money_transfer_wallets")
+}
+
+model MoneyTransferWalletTransaction {
+  id           String                      @id @default(cuid())
+  walletId     String
+  userId       String
+  type         MoneyTransferWalletTxType
+  amount       Float
+  balanceAfter Float
+  currency     String                      @default("NGN")
+  description  String
+  reference    String?                     @unique
+  transferId   String?
+  payoutId     String?
+  metadata     Json?
+  createdAt    DateTime                    @default(now())
+
+  wallet   MoneyTransferWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user     User                @relation("MoneyTransferWalletTxUser", fields: [userId], references: [id], onDelete: Cascade)
+  transfer MoneyTransfer?      @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  withdrawal MoneyWalletWithdrawal?
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([transferId])
+  @@map("money_transfer_wallet_transactions")
+}
+
+/// Customer wallet → bank withdrawal queue (manual or auto after delay).
+model MoneyWalletWithdrawal {
+  id                  String                      @id @default(cuid())
+  userId              String
+  walletTransactionId String                      @unique
+  bankAccountId       String
+  amount              Float
+  currency            String                      @default("NGN")
+  status              MoneyWalletWithdrawalStatus @default(PENDING)
+  bankName            String
+  accountNumber       String
+  accountName         String
+  bankCode            String
+  paystackReference   String?
+  paystackTransferCode String?
+  failureReason       String?
+  scheduledProcessAt  DateTime?
+  processedAt         DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  rejectedAt          DateTime?
+  metadata            Json?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  user              User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletTransaction MoneyTransferWalletTransaction @relation(fields: [walletTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledProcessAt])
+  @@map("money_wallet_withdrawals")
+}
+
+/// Admin support / refund cases for money transfers (separate from marketplace SupportTicket).
+model MoneyTransferCase {
+  id           String                 @id @default(cuid())
+  ticketNumber String                 @unique
+  transferId   String?
+  type         MoneyTransferCaseType  @default(OTHER)
+  status       TicketStatus           @default(OPEN)
+  priority     TicketPriority         @default(MEDIUM)
+  subject      String
+  description  String
+  resolution   String?
+  assignedToId String?
+  openedById   String
+  requesterId  String?
+  metadata     Json?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  resolvedAt   DateTime?
+
+  transfer   MoneyTransfer?          @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  openedBy   User                    @relation("MoneyCaseOpenedBy", fields: [openedById], references: [id])
+  assignedTo User?                   @relation("MoneyCaseAssignedTo", fields: [assignedToId], references: [id])
+  requester  User?                   @relation("MoneyCaseRequester", fields: [requesterId], references: [id])
+  notes      MoneyTransferCaseNote[]
+
+  @@index([transferId])
+  @@index([status])
+  @@index([type])
+  @@map("money_transfer_cases")
+}
+
+model MoneyTransferCaseNote {
+  id         String   @id @default(cuid())
+  caseId     String
+  authorId   String
+  message    String
+  isInternal Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  case   MoneyTransferCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author User              @relation("MoneyCaseNoteAuthor", fields: [authorId], references: [id])
+
+  @@index([caseId])
+  @@map("money_transfer_case_notes")
+}
+
+/// Known devices for money-app step-up (new device → OTP).
+model MoneyTransferTrustedDevice {
+  id                String   @id @default(cuid())
+  userId            String
+  deviceFingerprint String
+  deviceLabel       String?
+  platform          String?
+  lastIp            String?
+  lastCountryCode   String?
+  lastSeenAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceFingerprint])
+  @@index([userId])
+  @@map("money_transfer_trusted_devices")
+}
+
+/// Short-lived OTP challenge after risk assessment.
+model MoneyTransferStepUp {
+  id                String    @id @default(cuid())
+  userId            String
+  action            String
+  code              String
+  deviceFingerprint String?
+  signals           Json?
+  riskScore         Int       @default(0)
+  verifiedAt        DateTime?
+  expiresAt         DateTime
+  trustDevice       Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("money_transfer_step_ups")
+}
+
+/// Risk signal audit trail for fraud review.
+model MoneyTransferRiskLog {
+  id              String   @id @default(cuid())
+  userId          String
+  action          String
+  riskScore       Int
+  signals         Json
+  blocked         Boolean  @default(false)
+  stepUpRequired  Boolean  @default(false)
+  ipAddress       String?
+  countryCode     String?
+  deviceFingerprint String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("money_transfer_risk_logs")
 }
 
 // AI Configuration Models

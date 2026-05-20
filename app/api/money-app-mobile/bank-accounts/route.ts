@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
         isVerified: true,
         routingNumber: true,
         swiftCode: true,
+        currency: true,
         createdAt: true,
       },
     })

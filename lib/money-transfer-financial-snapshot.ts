@@ -1,23 +1,10 @@
 import { prisma } from "@/lib/prisma"
-import { applyFxMargin, normalizeMarginPercent } from "@/lib/money-fx-rate"
-
-async function fetchMidMarketRate(fromCurrency: string, toCurrency: string): Promise<number | null> {
-  const config = await prisma.moneyTransferConfig.findFirst()
-  const apiKey = config?.exchangeRateApiKey || process.env.EXCHANGE_RATE_API_KEY
-  const from = fromCurrency.trim().toUpperCase()
-  const to = toCurrency.trim().toUpperCase()
-
-  if (!apiKey) {
-    const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`)
-    const data = await response.json()
-    return data.rates?.[to] ?? null
-  }
-
-  const response = await fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/latest/${from}`)
-  const data = await response.json()
-  if (data.result !== "success") return null
-  return data.conversion_rates?.[to] ?? null
-}
+import {
+  applyFxMargin,
+  assertPlausibleConversion,
+  getMoneyTransferMidMarketRate,
+  normalizeMarginPercent,
+} from "@/lib/money-fx-rate"
 
 /**
  * Locked financial snapshot at transfer creation time — use for admin reporting only from stored columns.
@@ -55,8 +42,32 @@ export async function computeMoneyTransferFinancials(args: {
   const baseCurrency = (settings?.currency || "USD").trim().toUpperCase()
   const marginRaw = mtConfig?.exchangeRateMargin ?? 0.02
   const markupPercentage = normalizeMarginPercent(marginRaw)
+  const hasApiKey = Boolean(mtConfig?.exchangeRateApiKey || process.env.EXCHANGE_RATE_API_KEY)
+  const rateSource = hasApiKey ? "exchangerate-api-v6" : "exchangerate-api-free"
 
-  const midSendToSettlement = await fetchMidMarketRate(send, settlement)
+  if (send === settlement) {
+    const midSendToBase = await getMoneyTransferMidMarketRate(send, baseCurrency)
+    const baseAmount =
+      midSendToBase != null ? Number((sendAmount * midSendToBase).toFixed(6)) : null
+    const feeBase =
+      midSendToBase != null ? Number((fee * midSendToBase).toFixed(6)) : null
+    return {
+      receiveCurrency: settlement,
+      receiveAmount: Number(sendAmount.toFixed(2)),
+      baseCurrency,
+      baseAmount,
+      midMarketRate: 1,
+      customerRate: 1,
+      markupPercentage,
+      rateSource,
+      fee,
+      feeBase,
+      fxMarginSettlement: 0,
+      fxMarginBase: 0,
+    }
+  }
+
+  const midSendToSettlement = await getMoneyTransferMidMarketRate(send, settlement)
   const customerRate =
     midSendToSettlement != null
       ? applyFxMargin(midSendToSettlement, markupPercentage)
@@ -64,6 +75,10 @@ export async function computeMoneyTransferFinancials(args: {
 
   const receiveAmount =
     customerRate != null ? Number((sendAmount * customerRate).toFixed(2)) : null
+
+  if (receiveAmount != null) {
+    assertPlausibleConversion(sendAmount, send, receiveAmount, settlement)
+  }
 
   let fxMarginSettlement: number | null = null
   if (
@@ -76,7 +91,7 @@ export async function computeMoneyTransferFinancials(args: {
     fxMarginSettlement = Number(Math.max(0, atMid - atCust).toFixed(2))
   }
 
-  const midSendToBase = await fetchMidMarketRate(send, baseCurrency)
+  const midSendToBase = await getMoneyTransferMidMarketRate(send, baseCurrency)
   const baseAmount =
     midSendToBase != null ? Number((sendAmount * midSendToBase).toFixed(6)) : null
   const feeBase =
@@ -84,14 +99,11 @@ export async function computeMoneyTransferFinancials(args: {
 
   let fxMarginBase: number | null = null
   if (fxMarginSettlement != null && fxMarginSettlement > 0) {
-    const midSettleToBase = await fetchMidMarketRate(settlement, baseCurrency)
+    const midSettleToBase = await getMoneyTransferMidMarketRate(settlement, baseCurrency)
     if (midSettleToBase != null) {
       fxMarginBase = Number((fxMarginSettlement * midSettleToBase).toFixed(6))
     }
   }
-
-  const hasApiKey = Boolean(mtConfig?.exchangeRateApiKey || process.env.EXCHANGE_RATE_API_KEY)
-  const rateSource = hasApiKey ? "exchangerate-api-v6" : "exchangerate-api-free"
 
   return {
     receiveCurrency: settlement,

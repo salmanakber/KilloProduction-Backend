@@ -28,6 +28,7 @@ import { prisma } from "@/lib/prisma"
 import Stripe from "stripe"
 import { NotificationBridge } from "@/lib/notification-bridge" //@TODO: Use NotificationService instead
 import { getMoneyTransferFxRate } from "@/lib/money-fx-rate"
+import { settleMoneyTransferAfterPayment } from "@/lib/money-transfer-settlement"
 
 // Get Money Transfer Stripe config (separate from marketplace)
 async function getMoneyTransferStripeConfig(): Promise<{ stripe: Stripe; webhookSecret: string }> {
@@ -180,25 +181,6 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       return
     }
 
-    // Receiver MUST have verified bank account (checked at send time, but double-check)
-    if (!transfer.receiver.bankAccounts || transfer.receiver.bankAccounts.length === 0) {
-      console.error(`Receiver ${transfer.receiverId} does not have verified bank account`)
-      // Update transfer to failed
-      await prisma.moneyTransfer.update({
-        where: { id: transfer.id },
-        data: {
-          status: "FAILED",
-          failedAt: new Date(),
-          metadata: {
-            failureReason: "Receiver bank account not verified",
-          },
-        },
-      })
-      return
-    }
-
-    const bankAccount = transfer.receiver.bankAccounts[0]
-
     let exchangeRate: number
     let ngnAmount: number
 
@@ -277,22 +259,18 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       },
     })
 
-    // Automatically initiate Paystack payout (REQUIRED - no manual withdrawal)
-    let paystackReference: string | null = null
     try {
-      paystackReference = await initiatePaystackPayout(transfer, bankAccount, ngnAmount, paymentIntent.id)
-      
-      // Update Stripe payment intent metadata with Paystack reference
-      await stripe.paymentIntents.update(paymentIntent.id, {
-        metadata: {
-          ...paymentIntent.metadata,
-          paystackReference: paystackReference,
-          paystackTransferCode: paystackReference,
-        },
-      })
+      const settlement = await settleMoneyTransferAfterPayment(transfer.id, paymentIntent.id)
+      if (settlement.paystackInitiated) {
+        await stripe.paymentIntents.update(paymentIntent.id, {
+          metadata: {
+            ...paymentIntent.metadata,
+            settlementMode: settlement.mode,
+          },
+        })
+      }
     } catch (error: any) {
-      console.error("Paystack payout failed:", error)
-      // Update transfer to failed
+      console.error("Transfer settlement failed:", error)
       await prisma.moneyTransfer.update({
         where: { id: transfer.id },
         data: {
@@ -300,57 +278,25 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
           failedAt: new Date(),
           metadata: {
             ...(transfer.metadata as any || {}),
-            payoutFailureReason: error.message || "Paystack payout failed",
+            settlementFailureReason: error.message || "Settlement failed",
           },
         },
       })
-      
-      // Notify sender of failure
       await NotificationBridge.sendNotification({
         userId: transfer.senderId,
         title: "Transfer Failed",
-        message: `Money transfer to ${transfer.receiver.name || transfer.receiver.email || transfer.receiver.phone} failed. Funds will be refunded.`,
+        message: `Money transfer to ${transfer.receiver.name || transfer.receiver.email || transfer.receiver.phone} could not be completed.`,
         type: "SYSTEM",
         module: "MONEY_TRANSFER",
-        data: { 
-            actionType: "navigate",
-            screen: "TransactionStatus",
-            params: [
-                { name: "transactionId", value: transfer.id },
-            ],
+        data: {
+          actionType: "navigate",
+          screen: "TransactionStatus",
+          params: [{ name: "transactionId", value: transfer.id }],
         },
         actionUrl: `/money-app/transactions/${transfer.id}`,
       })
       return
     }
-
-    // Create notification for receiver (money is being sent automatically - no withdrawal needed)
-    await NotificationBridge.sendNotification({
-      userId: transfer.receiverId,
-        title: "Money Received",
-        message: `You received ${transfer.currency} ${transfer.amount} (₦${ngnAmount.toFixed(2)}) from ${transfer.sender.name || transfer.sender.email || transfer.sender.phone}. The money is being automatically sent to your bank account (${bankAccount.accountNumber.slice(-4)}).`,
-        type: "SYSTEM",
-        module: "MONEY_TRANSFER",
-        data: { 
-            actionType: "navigate",
-            screen: "TransactionStatus",
-            params: [
-                { name: "transactionId", value: transfer.id },
-            ],
-        },
-        actionUrl: `/money-app/transactions/${transfer.id}`,
-    })
-
-    // Create notification for sender
-    await prisma.notification.create({
-      data: {
-        userId: transfer.senderId,
-        title: "Money Sent",
-        message: `Your transfer of ${transfer.currency} ${transfer.amount} to ${transfer.receiver.name || transfer.receiver.email || transfer.receiver.phone} is being processed.`,
-        type: "MONEY_TRANSFER",
-        data: { transferId: transfer.id },
-      },
-    })
 
     console.log(`Payment succeeded for transfer ${transferId}`)
   } catch (error) {

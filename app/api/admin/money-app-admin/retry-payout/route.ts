@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import {
+  assertAdminConfirmation,
+  logMoneyTransferAdminAction,
+  MONEY_TRANSFER_PAYOUT_ENTITY,
+  MoneyAdminAuthError,
+  requireMoneyTransferAdmin,
+} from "@/lib/money-transfer-admin"
 
 // Get Money Transfer Paystack config (separate from marketplace)
 async function getMoneyTransferPaystackConfig() {
@@ -20,12 +26,8 @@ async function getMoneyTransferPaystackConfig() {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await authenticateRequest(request)
-    if (!user || user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { payoutId } = await request.json()
+    const { user, meta } = await requireMoneyTransferAdmin(request)
+    const { payoutId, confirmToken, reason } = await request.json()
 
     if (!payoutId) {
       return NextResponse.json(
@@ -47,6 +49,11 @@ export async function POST(request: NextRequest) {
         { error: "Payout not found" },
         { status: 404 }
       )
+    }
+
+    assertAdminConfirmation(confirmToken, payout.transfer.reference)
+    if (!reason?.trim()) {
+      return NextResponse.json({ error: "reason is required" }, { status: 400 })
     }
 
     // Only retry failed payouts
@@ -157,6 +164,20 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    await logMoneyTransferAdminAction({
+      performedBy: user.id,
+      action: "MONEY_TRANSFER_PAYOUT_RETRY",
+      entityType: MONEY_TRANSFER_PAYOUT_ENTITY,
+      entityId: payout.id,
+      details: {
+        transferReference: payout.transfer.reference,
+        reason,
+        paystackReference: transferData.data.reference,
+      },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    })
+
     return NextResponse.json({
       success: true,
       payout: {
@@ -166,11 +187,12 @@ export async function POST(request: NextRequest) {
         retryCount: payout.retryCount + 1,
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof MoneyAdminAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error("Error retrying payout:", error)
-    return NextResponse.json(
-      { error: error.message || "Failed to retry payout" },
-      { status: 500 }
-    )
+    const message = error instanceof Error ? error.message : "Failed to retry payout"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

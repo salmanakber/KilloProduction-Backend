@@ -20,7 +20,8 @@ import {
   Clock,
   Server,
   Key,
-  Smartphone
+  Smartphone,
+  ExternalLink,
 } from "lucide-react"
 
 import { toast } from "@/hooks/use-toast"
@@ -158,6 +159,17 @@ interface SystemSettings {
     google?: { enabled?: boolean; webClientId?: string; iosClientId?: string; androidClientId?: string }
     facebook?: { enabled?: boolean; appId?: string; appSecret?: string }
   }
+  moneyReceiptWhatsapp: {
+    enabled: boolean
+    phoneNumberId: string
+    apiVersion: string
+    wabaId: string
+    messageTemplate: string
+    templateName: string
+    templateLanguage: string
+    hasAccessToken: boolean
+    accessToken: string
+  }
 }
 
 type ModuleSettings = SystemSettings["modules"]
@@ -211,16 +223,38 @@ export default function SystemSettings() {
   const [currency, setCurrency] = useState('₦')
 
   useEffect(() => {
-    fetchSettings()
+    if (typeof window === "undefined") return
+    const p = new URLSearchParams(window.location.search)
+    if (p.get("tab") === "notifications" || p.get("moneyReceipts") === "1") {
+      setActiveTab("notifications")
+    }
   }, [])
 
-  
+  useEffect(() => {
+    fetchSettings()
+  }, [])
 
   const fetchSettings = async () => {
     try {
       const response = await fetch("/api/admin/settings")
       const data = await response.json()
-      setSettings(data.settings)
+      const s = data.settings
+      const defaultWa = {
+        enabled: false,
+        phoneNumberId: "",
+        apiVersion: "v21.0",
+        wabaId: "",
+        messageTemplate:
+          "Your SuperKillo money transfer receipt for {{reference}}. Amount: {{amount}} {{currency}}.",
+        templateName: "",
+        templateLanguage: "en",
+        hasAccessToken: false,
+        accessToken: "",
+      }
+      setSettings({
+        ...s,
+        moneyReceiptWhatsapp: { ...defaultWa, ...(s.moneyReceiptWhatsapp || {}) },
+      })
       setCurrency(data.defaultCurrencyCode)
     } catch (error) {
       console.error("Failed to fetch settings:", error)
@@ -284,6 +318,17 @@ export default function SystemSettings() {
       const subsectionData = sectionData?.[subsection] || {}
       const subsubsectionData = subsectionData[subsubsection] || {}
       return { ...prev, [section]: { ...(sectionData || {}), [subsection]: { ...subsectionData, [subsubsection]: { ...subsubsectionData, [field]: value } } } }
+    })
+    setHasChanges(true)
+  }
+
+  const patchMoneyReceiptWhatsapp = (field: string, value: unknown) => {
+    setSettings((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        moneyReceiptWhatsapp: { ...prev.moneyReceiptWhatsapp, [field]: value },
+      }
     })
     setHasChanges(true)
   }
@@ -962,6 +1007,100 @@ export default function SystemSettings() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="p-6 md:p-8">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2.5 bg-green-50 rounded-lg border border-green-100">
+                        <Smartphone className="h-5 w-5 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">Money transfer receipts</h3>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          PDF receipts: Meta WhatsApp Cloud first; if that fails or is not set up, Twilio tries WhatsApp (same sender number), then SMS with a link when Twilio is your SMS provider.
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-6">
+                      <a
+                        className="text-green-700 hover:underline inline-flex items-center gap-1"
+                        href="https://developers.facebook.com/documentation/business-messaging/whatsapp/get-started"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Meta WhatsApp docs <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </p>
+                    <div className="space-y-5 max-w-3xl">
+                      <ToggleSwitch
+                        label="Enable receipt delivery"
+                        description="Customers can send receipts to their profile phone from the money app."
+                        checked={settings.moneyReceiptWhatsapp.enabled}
+                        onChange={(c) => patchMoneyReceiptWhatsapp("enabled", c)}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <InputGroup label="Phone Number ID (Meta)">
+                          <TextInput
+                            value={settings.moneyReceiptWhatsapp.phoneNumberId}
+                            onChange={(e) => patchMoneyReceiptWhatsapp("phoneNumberId", e.target.value)}
+                            placeholder="From Meta → WhatsApp → API Setup"
+                          />
+                        </InputGroup>
+                        <InputGroup label="Graph API version">
+                          <TextInput
+                            value={settings.moneyReceiptWhatsapp.apiVersion}
+                            onChange={(e) => patchMoneyReceiptWhatsapp("apiVersion", e.target.value)}
+                            placeholder="v21.0"
+                          />
+                        </InputGroup>
+                        <InputGroup label="WABA ID (optional)">
+                          <TextInput
+                            value={settings.moneyReceiptWhatsapp.wabaId}
+                            onChange={(e) => patchMoneyReceiptWhatsapp("wabaId", e.target.value)}
+                          />
+                        </InputGroup>
+                        <InputGroup
+                          label="Permanent access token"
+                          subtext={
+                            settings.moneyReceiptWhatsapp.hasAccessToken
+                              ? "Token is stored. Paste a new value only to replace it."
+                              : "Required for Meta unless WHATSAPP_CLOUD_ACCESS_TOKEN is set in env."
+                          }
+                        >
+                          <TextInput
+                            type="password"
+                            value={settings.moneyReceiptWhatsapp.accessToken}
+                            onChange={(e) => patchMoneyReceiptWhatsapp("accessToken", e.target.value)}
+                            placeholder="EAAG..."
+                          />
+                        </InputGroup>
+                      </div>
+                      <InputGroup
+                        label="Utility template name (recommended)"
+                        subtext="Required for outbound receipts outside the 24h customer window."
+                      >
+                        <TextInput
+                          value={settings.moneyReceiptWhatsapp.templateName}
+                          onChange={(e) => patchMoneyReceiptWhatsapp("templateName", e.target.value)}
+                        />
+                      </InputGroup>
+                      <InputGroup label="Template language code">
+                        <TextInput
+                          value={settings.moneyReceiptWhatsapp.templateLanguage}
+                          onChange={(e) => patchMoneyReceiptWhatsapp("templateLanguage", e.target.value)}
+                          placeholder="en"
+                        />
+                      </InputGroup>
+                      <InputGroup label="Caption / session message template" subtext="Variables: {{reference}}, {{amount}}, {{currency}}, {{name}}">
+                        <textarea
+                          className="w-full min-h-[100px] px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl text-sm"
+                          value={settings.moneyReceiptWhatsapp.messageTemplate}
+                          onChange={(e) => patchMoneyReceiptWhatsapp("messageTemplate", e.target.value)}
+                        />
+                      </InputGroup>
                     </div>
                   </div>
                 </div>

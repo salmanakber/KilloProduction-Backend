@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { settleMoneyTransferAfterPayment } from "@/lib/money-transfer-settlement"
 
 async function verifyPaystack(secretKey: string, reference: string) {
   const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
@@ -49,25 +50,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unsupported gateway." }, { status: 400 })
     }
 
+    if (!paid) {
+      await prisma.moneyTransfer.update({
+        where: { id: transfer.id },
+        data: { status: "FAILED", failedAt: new Date() },
+      })
+      return NextResponse.json({ success: true, paid: false, transferId: transfer.id })
+    }
+
     await prisma.moneyTransfer.update({
       where: { id: transfer.id },
-      data: paid
-        ? {
-            status: "SENT",
-            sentAt: new Date(),
-            metadata: {
-              ...(transfer.metadata as object),
-              paymentGateway: gatewayName,
-              paymentReference: reference || paymentIntentId || transfer.reference,
-            },
-          }
-        : {
-            status: "FAILED",
-            failedAt: new Date(),
-          },
+      data: {
+        metadata: {
+          ...(transfer.metadata as object),
+          paymentGateway: gatewayName,
+          paymentReference: reference || paymentIntentId || transfer.reference,
+        },
+      },
     })
 
-    return NextResponse.json({ success: true, paid, transferId: transfer.id })
+    try {
+      await settleMoneyTransferAfterPayment(
+        transfer.id,
+        gatewayName === "STRIPE" ? paymentIntentId || transfer.stripePaymentIntentId || undefined : undefined,
+      )
+    } catch (e: any) {
+      console.error("Paystack confirm settlement error:", e)
+      return NextResponse.json(
+        { success: false, paid: true, transferId: transfer.id, error: e?.message || "Settlement failed" },
+        { status: 500 },
+      )
+    }
+
+    return NextResponse.json({ success: true, paid: true, transferId: transfer.id })
   } catch (error: any) {
     console.error("Error confirming money transfer payment:", error)
     return NextResponse.json({ error: error.message || "Failed to confirm transfer payment" }, { status: 500 })

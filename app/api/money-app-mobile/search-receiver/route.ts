@@ -9,9 +9,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { query } = await request.json()
-
-    console.log("query", query)
+    const body = await request.json()
+    const { query, purpose } = body as { query?: string; purpose?: string }
 
     if (!query || query.trim().length < 2) {
       return NextResponse.json(
@@ -20,29 +19,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const searchTerm = query.trim().toLowerCase()
+    const raw = query.trim()
+    const searchTerm = raw.toLowerCase()
+    const forRequest = purpose === "request"
 
-    // Search by email, phone, or name - ONLY users with verified bank accounts
+    /** QR / deep links pass user id; match exactly (not substring on email/name). */
+    const looksLikeUserId =
+      raw.length >= 20 &&
+      !raw.includes("@") &&
+      !raw.includes(" ") &&
+      /^[a-z0-9_-]+$/i.test(raw)
+
     const receivers = await prisma.user.findMany({
       where: {
         AND: [
-          { id: { not: user.id } }, // Exclude sender
+          { id: { not: user.id } },
           { isActive: true },
           {
             OR: [
+              ...(looksLikeUserId ? [{ id: raw }] : []),
               { email: { contains: searchTerm, mode: "insensitive" } },
               { phone: { contains: searchTerm, mode: "insensitive" } },
               { name: { contains: searchTerm, mode: "insensitive" } },
             ],
           },
-          // Only users with at least one verified bank account
-          {
-            bankAccounts: {
-              some: {
-                isVerified: true,
-              },
-            },
-          },
+          ...(forRequest
+            ? []
+            : [
+                {
+                  bankAccounts: {
+                    some: { isVerified: true },
+                  },
+                },
+              ]),
         ],
       },
       select: {

@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { MoneyAdminAuthError, requireMoneyTransferAdmin } from "@/lib/money-transfer-admin"
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await authenticateRequest()
-    if (!user || user.role !== "ADMIN" && user.role !== "SUPER_ADMIN") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    await requireMoneyTransferAdmin(request)
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get("status")
     const limit = parseInt(searchParams.get("limit") || "50")
-    const offset = parseInt(searchParams.get("offset") || "0")
+    const page = parseInt(searchParams.get("page") || "1")
+    const offsetParam = searchParams.get("offset")
+    const offset = offsetParam != null ? parseInt(offsetParam) : (page - 1) * limit
     const search = searchParams.get("search")
 
     const where: any = {}
@@ -114,10 +113,15 @@ export async function GET(request: NextRequest) {
         total,
         limit,
         offset,
+        page: Math.floor(offset / limit) + 1,
+        totalPages: Math.ceil(total / limit) || 1,
         hasMore: offset + limit < total,
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof MoneyAdminAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error("Error fetching transactions:", error)
     return NextResponse.json(
       { error: error.message || "Failed to fetch transactions" },

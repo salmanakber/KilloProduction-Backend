@@ -25,6 +25,12 @@ export async function GET(request: NextRequest) {
           transferFeePercentage: 0.0,
           transferFeeFixed: 0.0,
           exchangeRateMargin: 0.02,
+          autoPayoutEnabled: false,
+          autoPayoutDelayMinutes: 12,
+          withdrawalSmartAutoApprove: false,
+          withdrawalSmartApproveDelayMinutes: 15,
+          withdrawalPaystackBufferNgn: 50_000,
+          withdrawalInstantMaxNgn: null,
         },
       })
     }
@@ -49,6 +55,13 @@ export async function GET(request: NextRequest) {
         hasExchangeRateApiKey: !!config.exchangeRateApiKey,
         hasStripeConfig: !!config.stripeSecretKey,
         hasPaystackConfig: !!config.paystackSecretKey,
+        settlementMode: config.settlementMode,
+        autoPayoutEnabled: config.autoPayoutEnabled ?? false,
+        autoPayoutDelayMinutes: config.autoPayoutDelayMinutes ?? 12,
+        withdrawalSmartAutoApprove: config.withdrawalSmartAutoApprove ?? false,
+        withdrawalSmartApproveDelayMinutes: config.withdrawalSmartApproveDelayMinutes ?? 15,
+        withdrawalPaystackBufferNgn: config.withdrawalPaystackBufferNgn ?? 50_000,
+        withdrawalInstantMaxNgn: config.withdrawalInstantMaxNgn ?? null,
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       },
@@ -87,6 +100,13 @@ export async function POST(request: NextRequest) {
       exchangeRateMargin,
       transferFeePercentage,
       transferFeeFixed,
+      settlementMode,
+      autoPayoutEnabled,
+      autoPayoutDelayMinutes,
+      withdrawalSmartAutoApprove,
+      withdrawalSmartApproveDelayMinutes,
+      withdrawalPaystackBufferNgn,
+      withdrawalInstantMaxNgn,
     } = body
 
     // Get or create config
@@ -102,6 +122,38 @@ export async function POST(request: NextRequest) {
       exchangeRateMargin: exchangeRateMargin ?? config?.exchangeRateMargin ?? 0.02,
       transferFeePercentage: transferFeePercentage ?? config?.transferFeePercentage ?? 0.0,
       transferFeeFixed: transferFeeFixed ?? config?.transferFeeFixed ?? 0.0,
+      settlementMode:
+        settlementMode === "DIRECT_BANK" || settlementMode === "WALLET"
+          ? settlementMode
+          : config?.settlementMode ?? "WALLET",
+      autoPayoutEnabled:
+        autoPayoutEnabled !== undefined
+          ? Boolean(autoPayoutEnabled)
+          : config?.autoPayoutEnabled ?? false,
+      autoPayoutDelayMinutes:
+        autoPayoutDelayMinutes != null
+          ? Math.min(60, Math.max(10, Number(autoPayoutDelayMinutes) || 12))
+          : config?.autoPayoutDelayMinutes ?? 12,
+      withdrawalSmartAutoApprove:
+        withdrawalSmartAutoApprove !== undefined
+          ? Boolean(withdrawalSmartAutoApprove)
+          : config?.withdrawalSmartAutoApprove ?? false,
+      withdrawalSmartApproveDelayMinutes:
+        withdrawalSmartApproveDelayMinutes != null
+          ? Math.min(120, Math.max(1, Number(withdrawalSmartApproveDelayMinutes) || 15))
+          : config?.withdrawalSmartApproveDelayMinutes ?? 15,
+      withdrawalPaystackBufferNgn:
+        withdrawalPaystackBufferNgn != null
+          ? Math.max(0, Number(withdrawalPaystackBufferNgn) || 0)
+          : config?.withdrawalPaystackBufferNgn ?? 50_000,
+      withdrawalInstantMaxNgn:
+        withdrawalInstantMaxNgn !== undefined
+          ? withdrawalInstantMaxNgn === "" || withdrawalInstantMaxNgn === null
+            ? null
+            : Number.isFinite(Number(withdrawalInstantMaxNgn))
+              ? Math.max(0, Number(withdrawalInstantMaxNgn))
+              : config?.withdrawalInstantMaxNgn ?? null
+          : config?.withdrawalInstantMaxNgn ?? null,
     }
 
     // Only update keys if provided
@@ -142,6 +194,13 @@ export async function POST(request: NextRequest) {
         hasExchangeRateApiKey: !!config.exchangeRateApiKey,
         hasStripeConfig: !!config.stripeSecretKey,
         hasPaystackConfig: !!config.paystackSecretKey,
+        settlementMode: config.settlementMode,
+        autoPayoutEnabled: config.autoPayoutEnabled,
+        autoPayoutDelayMinutes: config.autoPayoutDelayMinutes,
+        withdrawalSmartAutoApprove: config.withdrawalSmartAutoApprove,
+        withdrawalSmartApproveDelayMinutes: config.withdrawalSmartApproveDelayMinutes,
+        withdrawalPaystackBufferNgn: config.withdrawalPaystackBufferNgn,
+        withdrawalInstantMaxNgn: config.withdrawalInstantMaxNgn,
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       },

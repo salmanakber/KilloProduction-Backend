@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { MoneyAdminAuthError, requireMoneyTransferAdmin } from "@/lib/money-transfer-admin"
 import { authenticateRequest } from "@/lib/auth"
 
 /** Transfers that have cleared payment and count toward volume / earnings (excludes unpaid / failed). */
@@ -26,6 +27,8 @@ export async function GET() {
       todayCount,
       todaySums,
       totalCount,
+      openCases,
+      openRefundCases,
     ] = await Promise.all([
       prisma.moneyTransfer.aggregate({
         where: volumeWhere,
@@ -51,6 +54,15 @@ export async function GET() {
         },
       }),
       prisma.moneyTransfer.count(),
+      prisma.moneyTransferCase.count({
+        where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
+      }),
+      prisma.moneyTransferCase.count({
+        where: {
+          type: "REFUND_REQUEST",
+          status: { in: ["OPEN", "IN_PROGRESS"] },
+        },
+      }),
     ])
 
     const totalVolumeBase = sums._sum.baseAmount ?? 0
@@ -87,12 +99,15 @@ export async function GET() {
       todayTransfers: todayCount,
       todayVolumeBase,
       todayPlatformRevenueBase,
+      openCases,
+      openRefundCases,
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof MoneyAdminAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
     console.error("money-app-admin stats:", error)
-    return NextResponse.json(
-      { error: error.message || "Failed to load stats" },
-      { status: 500 }
-    )
+    const message = error instanceof Error ? error.message : "Failed to load stats"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

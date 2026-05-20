@@ -30,11 +30,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { subject, description, category, priority } = body
+    const { subject, description, category, priority, transactionReference, transferReference, module } = body
 
     // Validate required fields
     if (!subject || !description || !category) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const txRef = String(transactionReference || transferReference || '').trim()
+    const isMoney = category === 'money_transfer' || module === 'MONEY_TRANSFER'
+    if (isMoney && !txRef) {
+      return NextResponse.json(
+        { error: 'Transaction reference or payment ID is required for money transfer disputes' },
+        { status: 400 },
+      )
+    }
+
+    let fullDescription = String(description).trim()
+    if (txRef) {
+      fullDescription = `[Transaction ref: ${txRef}]\n\n${fullDescription}`
     }
 
     // Generate ticket number
@@ -45,10 +59,13 @@ export async function POST(request: NextRequest) {
         userId: session.id,
         ticketNumber,
         subject,
-        description,
-        category,
+        description: fullDescription,
+        category: isMoney ? 'money_transfer' : category,
         priority: priority || 'MEDIUM',
-        status: 'OPEN'
+        status: 'OPEN',
+        attachments: txRef
+          ? ({ transactionReference: txRef, module: module || 'MONEY_TRANSFER' } as object)
+          : undefined,
       }
     })
 

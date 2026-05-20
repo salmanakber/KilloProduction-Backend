@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { buildMoneyTransferDisplayRow } from "@/lib/money-transfer-display"
 
 export async function GET(
   request: NextRequest,
@@ -67,6 +68,7 @@ export async function GET(
 
     const isSender = transfer.senderId === user.id
     const otherUser = isSender ? transfer.receiver : transfer.sender
+    const display = buildMoneyTransferDisplayRow(transfer, isSender)
 
     return NextResponse.json({
       success: true,
@@ -74,9 +76,17 @@ export async function GET(
         id: transfer.id,
         reference: transfer.reference,
         type: isSender ? "sent" : "received",
-        amount: transfer.amount,
-        currency: transfer.currency,
-        ngnAmount: transfer.ngnAmount,
+        amount: display.displayAmount,
+        currency: display.displayCurrency,
+        sendAmount: display.sendAmount,
+        sendCurrency: display.sendCurrency,
+        receiveAmount: display.receiveAmount,
+        receiveCurrency: display.receiveCurrency,
+        displayAmount: display.displayAmount,
+        displayCurrency: display.displayCurrency,
+        counterAmount: display.counterAmount,
+        counterCurrency: display.counterCurrency,
+        showCounter: display.showCounter,
         status: transfer.status,
         description: transfer.description,
         otherUser: {

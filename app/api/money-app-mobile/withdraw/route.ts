@@ -57,7 +57,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check transfer status
+    if (transfer.status === "COMPLETED") {
+      return NextResponse.json(
+        {
+          error: "Funds are in your Kilo wallet",
+          message:
+            "This transfer was credited to your money wallet. Use Withdraw from Wallet on the Money home screen.",
+          useWalletWithdraw: true,
+        },
+        { status: 400 },
+      )
+    }
+
     if (transfer.status !== "SENT" && transfer.status !== "PROCESSING") {
       return NextResponse.json(
         { error: `Transfer is ${transfer.status.toLowerCase()}. Cannot withdraw.` },

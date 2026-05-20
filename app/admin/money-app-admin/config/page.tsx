@@ -29,6 +29,12 @@ interface Config {
   hasExchangeRateApiKey?: boolean
   hasStripeConfig: boolean
   hasPaystackConfig: boolean
+  autoPayoutEnabled?: boolean
+  autoPayoutDelayMinutes?: number
+  withdrawalSmartAutoApprove?: boolean
+  withdrawalSmartApproveDelayMinutes?: number
+  withdrawalPaystackBufferNgn?: number
+  withdrawalInstantMaxNgn?: number | null
 }
 
 export default function MoneyTransferConfig() {
@@ -56,6 +62,12 @@ export default function MoneyTransferConfig() {
     exchangeRateMargin: 0.02,
     transferFeePercentage: 0.0,
     transferFeeFixed: 0.0,
+    autoPayoutEnabled: false,
+    autoPayoutDelayMinutes: 12,
+    withdrawalSmartAutoApprove: false,
+    withdrawalSmartApproveDelayMinutes: 15,
+    withdrawalPaystackBufferNgn: 50_000,
+    withdrawalInstantMaxNgn: "",
   })
 
   useEffect(() => {
@@ -100,6 +112,15 @@ export default function MoneyTransferConfig() {
         transferFeeFixed: num(c.transferFeeFixed, 0),
         stripePublishableKey: c.stripePublishableKey ?? "",
         paystackPublicKey: c.paystackPublicKey ?? "",
+        autoPayoutEnabled: Boolean(c.autoPayoutEnabled),
+        autoPayoutDelayMinutes: num(c.autoPayoutDelayMinutes, 12),
+        withdrawalSmartAutoApprove: Boolean(c.withdrawalSmartAutoApprove),
+        withdrawalSmartApproveDelayMinutes: num(c.withdrawalSmartApproveDelayMinutes, 15),
+        withdrawalPaystackBufferNgn: num(c.withdrawalPaystackBufferNgn, 50_000),
+        withdrawalInstantMaxNgn:
+          c.withdrawalInstantMaxNgn != null && Number.isFinite(Number(c.withdrawalInstantMaxNgn))
+            ? Number(c.withdrawalInstantMaxNgn)
+            : "",
       }))
     } catch (error) {
       console.error("Failed to fetch config:", error)
@@ -313,6 +334,143 @@ export default function MoneyTransferConfig() {
                     }
                     className="h-12 rounded-xl border-slate-200 focus-visible:ring-teal-500 bg-slate-50/50"
                   />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-8 space-y-6">
+                <div>
+                  <h4 className="text-lg font-bold text-slate-900">Wallet bank payouts</h4>
+                  <p className="text-sm text-slate-500 mt-1">
+                    When enabled, verified withdrawals are queued and sent automatically after a
+                    short delay (worker). When disabled, admins approve each payout manually.
+                  </p>
+                </div>
+                <div className="flex items-center justify-between p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="space-y-0.5">
+                    <Label
+                      htmlFor="autoPayout"
+                      className="text-base font-bold text-slate-900 cursor-pointer"
+                    >
+                      Automatic bank payout
+                    </Label>
+                    <p className="text-sm text-slate-500">
+                      Security checks and daily limits still apply before queueing.
+                    </p>
+                  </div>
+                  <Switch
+                    id="autoPayout"
+                    checked={formData.autoPayoutEnabled}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, autoPayoutEnabled: checked })
+                    }
+                    className="data-[state=checked]:bg-teal-500"
+                  />
+                </div>
+                <div className="space-y-2 max-w-xs">
+                  <Label htmlFor="autoPayoutDelay" className="text-sm font-bold text-slate-700">
+                    Delay before payout (minutes, 10–60)
+                  </Label>
+                  <Input
+                    id="autoPayoutDelay"
+                    type="number"
+                    min={10}
+                    max={60}
+                    value={formData.autoPayoutDelayMinutes}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        autoPayoutDelayMinutes: Math.min(
+                          60,
+                          Math.max(10, parseInt(e.target.value, 10) || 12),
+                        ),
+                      })
+                    }
+                    disabled={!formData.autoPayoutEnabled}
+                    className="h-12 rounded-xl border-slate-200 focus-visible:ring-teal-500 bg-slate-50/50"
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-5 space-y-4">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Smart auto-approval (worker)</h4>
+                    <p className="text-sm text-slate-600 mt-1">
+                      For <strong>PENDING</strong> NGN withdrawals only: after the delay below, the worker runs
+                      Paystack payout if balance minus buffer covers the amount. Non-NGN still needs a manual /
+                      Stripe rail. Works alongside automatic bank payout above.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <Label htmlFor="smartAuto" className="text-sm font-bold text-slate-800">
+                      Enable smart auto-approve
+                    </Label>
+                    <Switch
+                      id="smartAuto"
+                      checked={formData.withdrawalSmartAutoApprove}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, withdrawalSmartAutoApprove: checked })
+                      }
+                      className="data-[state=checked]:bg-teal-500"
+                    />
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-slate-700">Smart delay (minutes, 1–120)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={120}
+                        value={formData.withdrawalSmartApproveDelayMinutes}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            withdrawalSmartApproveDelayMinutes: Math.min(
+                              120,
+                              Math.max(1, parseInt(e.target.value, 10) || 15),
+                            ),
+                          })
+                        }
+                        disabled={!formData.withdrawalSmartAutoApprove}
+                        className="h-11 rounded-xl border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-slate-700">Paystack NGN buffer (₦)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={formData.withdrawalPaystackBufferNgn}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            withdrawalPaystackBufferNgn: Math.max(
+                              0,
+                              parseFloat(e.target.value) || 0,
+                            ),
+                          })
+                        }
+                        disabled={!formData.withdrawalSmartAutoApprove}
+                        className="h-11 rounded-xl border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-slate-700">
+                        Instant-ish max (₦, optional)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        placeholder="e.g. 50000 — uses 1 min delay when auto payout on"
+                        value={formData.withdrawalInstantMaxNgn === "" ? "" : formData.withdrawalInstantMaxNgn}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            withdrawalInstantMaxNgn: e.target.value === "" ? "" : parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="h-11 rounded-xl border-slate-200"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

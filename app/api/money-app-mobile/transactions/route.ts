@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import { buildMoneyTransferDisplayRow } from "@/lib/money-transfer-display"
 
 export async function GET(request: NextRequest) {
   try {
@@ -67,14 +68,25 @@ export async function GET(request: NextRequest) {
     const formattedTransfers = transfers.map((transfer) => {
       const isSender = transfer.senderId === user.id
       const otherUser = isSender ? transfer.receiver : transfer.sender
+      const display = buildMoneyTransferDisplayRow(transfer, isSender)
 
       return {
         id: transfer.id,
         reference: transfer.reference,
         type: isSender ? "sent" : "received",
-        amount: transfer.amount,
-        currency: transfer.currency,
-        ngnAmount: transfer.ngnAmount ?? undefined,
+        /** @deprecated use displayAmount + displayCurrency */
+        amount: display.displayAmount,
+        /** @deprecated use displayCurrency */
+        currency: display.displayCurrency,
+        sendAmount: display.sendAmount,
+        sendCurrency: display.sendCurrency,
+        receiveAmount: display.receiveAmount,
+        receiveCurrency: display.receiveCurrency,
+        displayAmount: display.displayAmount,
+        displayCurrency: display.displayCurrency,
+        counterAmount: display.counterAmount,
+        counterCurrency: display.counterCurrency,
+        showCounter: display.showCounter,
         status: transfer.status,
         otherUser: {
           id: otherUser.id,

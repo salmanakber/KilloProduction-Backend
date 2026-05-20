@@ -228,6 +228,57 @@ export async function sendSMSFromTemplate(
  * Send a plain transactional SMS using the configured provider (Twilio, Nexmo, or Africa's Talking).
  * Used for admin system notices and one-off messages without DB-backed SMS templates.
  */
+function toTwilioWhatsappAddress(raw: string): string {
+  const t = raw.trim()
+  if (t.toLowerCase().startsWith("whatsapp:")) return t
+  return `whatsapp:${t}`
+}
+
+/**
+ * Send a WhatsApp message with media (e.g. PDF receipt) via Twilio when the sender number is WhatsApp-enabled.
+ * Falls back to SMS callers when this returns ok: false.
+ */
+export async function sendViaTwilioWhatsappMedia(args: {
+  phone: string
+  body: string
+  mediaUrl: string
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const systemSettings = (await prisma.systemSettings.findFirst()) as any
+    const accountSid = systemSettings?.twilioAccountSid || process.env.TWILIO_ACCOUNT_SID
+    const authToken = systemSettings?.twilioAuthToken || process.env.TWILIO_AUTH_TOKEN
+    const fromNumber = systemSettings?.twilioPhoneNumber || process.env.TWILIO_PHONE_NUMBER
+    const DEFAULT_COUNTRY = process.env.DEFAULT_COUNTRY || "PK"
+
+    if (!accountSid || !authToken || !fromNumber) {
+      return { ok: false, error: "Twilio credentials not found" }
+    }
+
+    if (process.env.SENDING_SMS === "false") {
+      console.log("SMS/WhatsApp sending disabled. Would send WA:", { phone: args.phone })
+      return { ok: true }
+    }
+
+    const client = twilio(accountSid, authToken)
+    const formattedPhone = formatPhoneForTwilio(args.phone, DEFAULT_COUNTRY)
+    const to = toTwilioWhatsappAddress(formattedPhone)
+    const from = toTwilioWhatsappAddress(fromNumber)
+
+    await client.messages.create({
+      body: args.body.length > 1600 ? `${args.body.slice(0, 1597)}...` : args.body,
+      from,
+      to,
+      mediaUrl: [args.mediaUrl],
+    })
+
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error("Twilio WhatsApp sending failed:", error)
+    return { ok: false, error: message }
+  }
+}
+
 export async function sendTransactionalSms(phone: string, message: string): Promise<boolean> {
   const trimmed = message.trim()
   if (!trimmed) return false

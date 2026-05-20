@@ -4,6 +4,19 @@ import { authenticateRequest } from "@/lib/auth"
 import Stripe from "stripe"
 import { NotificationBridge } from "@/lib/notification-bridge" //@TODO: Use NotificationService instead
 import { computeMoneyTransferFinancials } from "@/lib/money-transfer-financial-snapshot"
+import { parseTransferSettlementMode } from "@/lib/money-transfer-wallet"
+import { assertPlausibleConversion } from "@/lib/money-fx-rate"
+import {
+  enforceMoneyTransferSecurity,
+  MoneyRiskBlocked,
+  MoneyRiskStepUpRequired,
+} from "@/lib/money-transfer-risk"
+import { completeMoneyTransferFromWallet } from "@/lib/money-transfer-send-wallet"
+import {
+  chargeMoneyTransferWithSavedCard,
+  getOrCreateMoneyStripeCustomer,
+} from "@/lib/money-transfer-stripe-cards"
+import { settleMoneyTransferAfterPayment } from "@/lib/money-transfer-settlement"
 
 async function initializePaystackPayment(args: {
   secretKey: string
@@ -90,7 +103,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json( { success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const { receiverId, amount, currency = "USD", description } = await request.json()
+    const body = await request.json()
+    const {
+      receiverId,
+      amount,
+      currency = "USD",
+      receiveCurrency: receiveCurrencyBody,
+      settlementMode: settlementModeBody,
+      expectedReceiveAmount,
+      description,
+      paymentSource = "CARD",
+      savedPaymentMethodId,
+    } = body
+
+    try {
+      await enforceMoneyTransferSecurity({
+        userId: user.id,
+        action: "SEND_MONEY",
+        request,
+        body,
+        amount,
+        currency,
+        receiverId,
+      })
+    } catch (riskErr) {
+      if (riskErr instanceof MoneyRiskBlocked) {
+        return NextResponse.json(
+          { success: false, error: riskErr.message, blocked: true, code: riskErr.code },
+          { status: 403 },
+        )
+      }
+      if (riskErr instanceof MoneyRiskStepUpRequired) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: riskErr.message,
+            requiresStepUp: true,
+            code: riskErr.code,
+          },
+          { status: 403 },
+        )
+      }
+      throw riskErr
+    }
    
     // Validation
     if (!receiverId || !amount || amount <= 0) {
@@ -126,44 +181,60 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if receiver has a verified bank account (REQUIRED for automatic payout)
-    if (!receiver.bankAccounts || receiver.bankAccounts.length === 0) {
-      return NextResponse.json( 
-        { 
-          error: "Receiver bank account required",
-          message: "The receiver must have a verified bank account to receive money. Please ask them to add and verify their bank account first.",
-          requiresReceiverBankAccount: true,
-        },
-        { status: 400 }
-      )
-    }
-
-    // Check if sender has a verified bank account (required for money transfer)
-    const senderBankAccount = await prisma.bankAccount.findFirst({
-      where: {
-        userId: user.id,
-        isVerified: true,
-      },
-    })
-
-    if (!senderBankAccount) {
-      return NextResponse.json( 
-        { 
-          error: "Bank account verification required",
-          message: "Please add and verify your bank account before sending money. This is required for security and compliance.",
-          requiresBankAccount: true,
-        },
-        { status: 400 }
-      )
-    }
-
-    // Check module configuration
     const config = await prisma.moneyTransferConfig.findFirst()
     if (!config || !config.isEnabled) {
       return NextResponse.json( 
         { success: false, error: "Money transfer module is currently disabled" },
         { status: 503 }
       )
+    }
+
+    const defaultSettlementMode = config.settlementMode ?? "WALLET"
+    const transferSettlementMode = parseTransferSettlementMode(
+      settlementModeBody,
+      defaultSettlementMode,
+    )
+    const receiveCurrency = String(receiveCurrencyBody || currency)
+      .trim()
+      .toUpperCase()
+      .slice(0, 3)
+
+    if (
+      transferSettlementMode === "DIRECT_BANK" &&
+      (!receiver.bankAccounts || receiver.bankAccounts.length === 0)
+    ) {
+      return NextResponse.json(
+        {
+          error: "Receiver bank account required",
+          message:
+            "The receiver must have a verified bank account to receive money directly to their bank. Ask them to add one, or send to their Kilo wallet instead.",
+          requiresReceiverBankAccount: true,
+        },
+        { status: 400 },
+      )
+    }
+
+    const paySource = String(paymentSource || "CARD").toUpperCase()
+
+    if (paySource !== "WALLET") {
+      const senderBankAccount = await prisma.bankAccount.findFirst({
+        where: {
+          userId: user.id,
+          isVerified: true,
+        },
+      })
+
+      if (!senderBankAccount) {
+        return NextResponse.json(
+          {
+            error: "Bank account verification required",
+            message:
+              "Please add and verify your bank account before paying by card. You can pay from your Kilo wallet without a linked bank account.",
+            requiresBankAccount: true,
+          },
+          { status: 400 },
+        )
+      }
     }
 
     // Validate amount limits
@@ -191,8 +262,39 @@ export async function POST(request: NextRequest) {
       sendAmount: amount,
       sendCurrency: currency,
       feeInSendCurrency: totalFee,
-      settlementCurrency: "NGN",
+      settlementCurrency: receiveCurrency,
     })
+
+    if (fin.receiveAmount == null || fin.receiveAmount <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Exchange rate unavailable",
+          message: `Cannot convert ${currency} to ${receiveCurrency} right now. Try again later.`,
+        },
+        { status: 400 },
+      )
+    }
+
+    assertPlausibleConversion(amount, currency, fin.receiveAmount, receiveCurrency)
+
+    if (expectedReceiveAmount != null && Number(expectedReceiveAmount) > 0) {
+      const expected = Number(expectedReceiveAmount)
+      const tolerance = Math.max(0.5, fin.receiveAmount * 0.02)
+      if (Math.abs(fin.receiveAmount - expected) > tolerance) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Rate changed",
+            message:
+              "The exchange rate changed before we could lock your transfer. Please review the amount and try again.",
+            serverReceiveAmount: fin.receiveAmount,
+            clientReceiveAmount: expected,
+          },
+          { status: 409 },
+        )
+      }
+    }
 
     // Create money transfer record (financial snapshot locked at creation — never recomputed)
     const transfer = await prisma.moneyTransfer.create({
@@ -204,10 +306,14 @@ export async function POST(request: NextRequest) {
         description: description || `Money transfer to ${receiver.name || receiver.email || receiver.phone}`,
         status: "PENDING",
         reference: `MT_${Date.now()}_${user.id.substring(0, 8)}`,
-        ngnAmount: fin.receiveAmount ?? undefined,
+        ngnAmount:
+          receiveCurrency === "NGN"
+            ? (fin.receiveAmount ?? (currency.toUpperCase() === "NGN" ? amount : undefined))
+            : undefined,
         exchangeRate: fin.customerRate ?? undefined,
-        receiveAmount: fin.receiveAmount ?? undefined,
-        receiveCurrency: fin.receiveCurrency,
+        receiveAmount: fin.receiveAmount,
+        receiveCurrency: fin.receiveCurrency ?? receiveCurrency,
+        settlementMode: transferSettlementMode,
         baseCurrency: fin.baseCurrency,
         baseAmount: fin.baseAmount ?? undefined,
         midMarketRate: fin.midMarketRate ?? undefined,
@@ -227,11 +333,54 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    if (paySource === "WALLET") {
+      const completed = await completeMoneyTransferFromWallet(transfer.id)
+      return NextResponse.json({
+        success: true,
+        transfer: {
+          id: transfer.id,
+          reference: transfer.reference,
+          amount,
+          currency,
+          fee: totalFee,
+          totalAmount,
+          status: completed?.status ?? "COMPLETED",
+        },
+        payment: { gateway: "WALLET", paid: true },
+      })
+    }
+
     const settings = await prisma.systemSettings.findFirst({ select: { paymentMethods: true } })
     const paymentMethods = (settings?.paymentMethods || {}) as any
     const primaryGateway = String(paymentMethods?.primaryGateway || paymentMethods?.primary || "STRIPE").toUpperCase()
     const shouldUsePaystack = primaryGateway === "PAYSTACK" && Boolean(config?.paystackSecretKey)
     let payment: Record<string, unknown>
+
+    if (savedPaymentMethodId && !shouldUsePaystack) {
+      const customerId = await getOrCreateMoneyStripeCustomer(user.id)
+      const intent = await chargeMoneyTransferWithSavedCard({
+        userId: user.id,
+        transferId: transfer.id,
+        paymentMethodId: savedPaymentMethodId,
+        amount: totalAmount,
+        currency,
+        customerId,
+      })
+      await settleMoneyTransferAfterPayment(transfer.id, intent.id)
+      return NextResponse.json({
+        success: true,
+        transfer: {
+          id: transfer.id,
+          reference: transfer.reference,
+          amount,
+          currency,
+          fee: totalFee,
+          totalAmount,
+          status: "COMPLETED",
+        },
+        payment: { gateway: "STRIPE", paid: true, savedCard: true },
+      })
+    }
 
     if (shouldUsePaystack) {
       const paystackInit = await initializePaystackPayment({

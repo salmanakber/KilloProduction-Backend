@@ -3,6 +3,29 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getPrimaryAndFallbackGateways } from "@/lib/payment-gateway"
 import { invalidateAutomationAiSettingsCache } from "@/lib/automation-ai-settings"
+import { getMoneyReceiptWhatsappConfigPublic, saveMoneyReceiptWhatsappConfig } from "@/lib/money-receipt-whatsapp-config"
+
+function cloneJsonForAudit<T>(value: T): T {
+  try {
+    return structuredClone(value)
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+}
+
+/** Avoid storing Meta WhatsApp permanent tokens in audit logs. */
+function redactSystemSettingsForAudit(settings: unknown): unknown {
+  if (!settings || typeof settings !== "object") return settings
+  const s = cloneJsonForAudit(settings) as Record<string, unknown>
+  const wa = s.moneyReceiptWhatsapp
+  if (wa && typeof wa === "object" && !Array.isArray(wa)) {
+    const m = wa as Record<string, unknown>
+    if (typeof m.accessToken === "string" && m.accessToken.trim() !== "") {
+      m.accessToken = "[REDACTED]"
+    }
+  }
+  return s
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -234,6 +257,20 @@ export async function GET(request: NextRequest) {
         google: { webClientId: "", iosClientId: "", androidClientId: "" },
         facebook: { appId: "", appSecret: "" },
       },
+      moneyReceiptWhatsapp: await (async () => {
+        const c = await getMoneyReceiptWhatsappConfigPublic()
+        return {
+          enabled: c.enabled,
+          phoneNumberId: c.phoneNumberId,
+          apiVersion: c.apiVersion,
+          wabaId: c.wabaId || "",
+          messageTemplate: c.messageTemplate,
+          templateName: c.templateName || "",
+          templateLanguage: c.templateLanguage,
+          hasAccessToken: c.hasAccessToken,
+          accessToken: "",
+        }
+      })(),
     }
 
     
@@ -479,6 +516,29 @@ export async function PUT(request: NextRequest) {
 
     invalidateAutomationAiSettingsCache()
 
+    if (settings.moneyReceiptWhatsapp && typeof settings.moneyReceiptWhatsapp === "object") {
+      const wa = settings.moneyReceiptWhatsapp as Record<string, unknown>
+      await saveMoneyReceiptWhatsappConfig({
+        enabled: Boolean(wa.enabled),
+        phoneNumberId: wa.phoneNumberId != null ? String(wa.phoneNumberId).trim() : undefined,
+        accessToken:
+          typeof wa.accessToken === "string" && wa.accessToken.trim()
+            ? wa.accessToken.trim()
+            : undefined,
+        apiVersion: wa.apiVersion != null ? String(wa.apiVersion).trim() : undefined,
+        wabaId: wa.wabaId != null ? String(wa.wabaId).trim() || null : undefined,
+        messageTemplate: wa.messageTemplate != null ? String(wa.messageTemplate) : undefined,
+        templateName:
+          wa.templateName !== undefined
+            ? wa.templateName
+              ? String(wa.templateName).trim()
+              : null
+            : undefined,
+        templateLanguage:
+          wa.templateLanguage != null ? String(wa.templateLanguage).trim() : undefined,
+      })
+    }
+
     // Create audit log
     await prisma.auditLog.create({
       data: {
@@ -487,7 +547,7 @@ export async function PUT(request: NextRequest) {
         entityType: "SYSTEM_SETTINGS",
         entityId: "1",
         details: {
-          changes: settings,
+          changes: redactSystemSettingsForAudit(settings),
         },
       },
     })

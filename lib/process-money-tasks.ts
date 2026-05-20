@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { getMoneyTransferFxRate } from "@/lib/money-fx-rate"
 import { MoneyScheduleFrequency } from "@prisma/client"
+import { purchaseVtpassService } from "@/lib/vtpass-purchase"
+import type { VtpassServiceType } from "@/lib/vtpass"
 
 function isMissingTableError(error: unknown): boolean {
   const e = error as any
@@ -43,6 +45,7 @@ export async function processMoneyScheduledDue(): Promise<{ processed: number }>
       include: {
         receiver: { select: { name: true, email: true, phone: true } },
       },
+      // receiver may be null for VTpass schedules
     })
   } catch (e) {
     if (isMissingTableError(e)) {
@@ -54,26 +57,67 @@ export async function processMoneyScheduledDue(): Promise<{ processed: number }>
 
   let processed = 0
   for (const s of due) {
-    const label = s.receiver.name || s.receiver.email || s.receiver.phone || "recipient"
-    try {
-      await NotificationBridge.sendNotification({
-        userId: s.userId,
-        title: "Scheduled transfer due",
-        message: `Time to send ${s.currency} ${s.amount} to ${label}. Open Money to complete your transfer.`,
-        type: "SYSTEM",
-        module: "MONEY_TRANSFER",
-        data: {
-          actionType: "navigate",
-          screen: "SendMoney",
-          params: [
-            { name: "amount", value: String(s.amount) },
-            { name: "receiver", value: { id: s.receiverId } },
-          ],
-        },
-        actionUrl: `/money-app`,
-      })
-    } catch (e) {
-      console.error("processMoneyScheduledDue notify", s.id, e)
+    const isVtpass = s.scheduleKind && s.scheduleKind !== "P2P_TRANSFER"
+
+    if (isVtpass && s.servicePayload) {
+      try {
+        const payload = s.servicePayload as Record<string, string>
+        const typeMap: Record<string, VtpassServiceType> = {
+          VTPASS_AIRTIME: "airtime",
+          VTPASS_DATA: "data",
+          VTPASS_ELECTRICITY: "electricity",
+          VTPASS_CABLE: "cable",
+        }
+        const serviceType = typeMap[s.scheduleKind] || "airtime"
+        await purchaseVtpassService({
+          userId: s.userId,
+          serviceType,
+          serviceId: payload.serviceId,
+          billersCode: payload.billersCode,
+          amount: s.amount,
+          phone: payload.phone,
+          variationCode: payload.variationCode,
+          scheduleId: s.id,
+        })
+        await NotificationBridge.sendNotification({
+          userId: s.userId,
+          title: "Scheduled bill paid",
+          message: `Your scheduled ${serviceType} payment of ₦${s.amount} was processed.`,
+          type: "SYSTEM",
+          module: "MONEY_TRANSFER",
+        })
+      } catch (e) {
+        console.error("processMoneyScheduledDue vtpass", s.id, e)
+        await NotificationBridge.sendNotification({
+          userId: s.userId,
+          title: "Scheduled bill failed",
+          message: `Could not complete scheduled payment: ${e instanceof Error ? e.message : "Error"}`,
+          type: "SYSTEM",
+          module: "MONEY_TRANSFER",
+        })
+      }
+    } else if (s.receiver) {
+      const label = s.receiver.name || s.receiver.email || s.receiver.phone || "recipient"
+      try {
+        await NotificationBridge.sendNotification({
+          userId: s.userId,
+          title: "Scheduled transfer due",
+          message: `Time to send ${s.currency} ${s.amount} to ${label}. Open Money to complete your transfer.`,
+          type: "SYSTEM",
+          module: "MONEY_TRANSFER",
+          data: {
+            actionType: "navigate",
+            screen: "SendMoney",
+            params: [
+              { name: "amount", value: String(s.amount) },
+              { name: "receiver", value: { id: s.receiverId } },
+            ],
+          },
+          actionUrl: `/money-app`,
+        })
+      } catch (e) {
+        console.error("processMoneyScheduledDue notify", s.id, e)
+      }
     }
 
     const lastRun = new Date()
@@ -171,3 +215,5 @@ export async function processMoneyRateAlerts(): Promise<{ notified: number }> {
 
   return { notified }
 }
+
+export { processDueMoneyWalletWithdrawals, processSmartAutoPendingWithdrawals } from "@/lib/money-wallet-withdrawal"

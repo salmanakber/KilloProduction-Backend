@@ -17,7 +17,12 @@ import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
 import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
 import { prisma } from "@/lib/prisma";
-import { processMoneyRateAlerts, processMoneyScheduledDue } from "@/lib/process-money-tasks";
+import {
+  processMoneyRateAlerts,
+  processMoneyScheduledDue,
+  processDueMoneyWalletWithdrawals,
+  processSmartAutoPendingWithdrawals,
+} from "@/lib/process-money-tasks";
 import { MONEY_FX_SNAPSHOT_QUEUE_NAME } from "@/lib/money-fx-snapshot-queue";
 import { runMoneyFxSnapshotTick } from "@/lib/process-money-fx-snapshot-job";
 import { processDueNotificationBroadcasts } from "@/lib/process-due-notification-broadcasts";
@@ -396,10 +401,25 @@ void processScheduledAccountDeletionPurge().catch((e) =>
 );
 
 setInterval(() => {
-  Promise.all([processMoneyScheduledDue(), processMoneyRateAlerts()])
-    .then(([d, a]) => {
-      if (d.processed > 0 || a.notified > 0) {
-        console.log(`[money-transfer-worker] schedules=${d.processed} rateAlerts=${a.notified}`);
+  Promise.all([
+      processMoneyScheduledDue(),
+      processMoneyRateAlerts(),
+      processDueMoneyWalletWithdrawals(),
+      processSmartAutoPendingWithdrawals(),
+    ])
+    .then(([d, a, w, s]) => {
+      if (
+        d.processed > 0 ||
+        a.notified > 0 ||
+        w.processed > 0 ||
+        w.failed > 0 ||
+        s.processed > 0 ||
+        s.failed > 0 ||
+        s.skipped > 0
+      ) {
+        console.log(
+          `[money-transfer-worker] schedules=${d.processed} rateAlerts=${a.notified} walletPayouts=${w.processed} walletPayoutFailed=${w.failed} smartAuto=${s.processed}/${s.failed}/${s.skipped}`
+        );
       }
     })
     .catch((e) => console.error("[money-transfer-worker]", e));
