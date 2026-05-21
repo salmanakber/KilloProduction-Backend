@@ -126,7 +126,9 @@ export async function GET(request: NextRequest) {
             where: {
               OR: [
                 { orderId: { in: orderIds } },
-                { metadata: { path: ["parentOrderId"], in: orderIds as string[] } },
+                ...orderIds.map((id) => ({
+                  metadata: { path: ["parentOrderId"], equals: id },
+                })),
               ],
             },
             select: {
