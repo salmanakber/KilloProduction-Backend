@@ -16,6 +16,9 @@ import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
 import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
 import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
+import { runHealthActivityNotificationsJob } from "@/lib/health-activity-notifications-runner";
+import { runLowStockNotificationsJob } from "@/lib/low-stock-notifications-runner";
+import { runHealthDietMealRemindersJob, runHealthDietMorningAdviceJob } from "@/lib/health-diet-notifications-runner";
 import { prisma } from "@/lib/prisma";
 import {
   processMoneyRateAlerts,
@@ -180,6 +183,12 @@ const MARKETING_CATCHUP_MS = parseMs(process.env.MARKETING_SCHEDULED_CATCHUP_MS,
 const WALLET_CLEARANCE_MS = parseMs(process.env.RIDER_WALLET_CLEARANCE_TICK_MS, 15 * 60 * 1000);
 /** Same logic as GET /api/cron/pill-reminders — keeps reminders firing if external cron is misconfigured. */
 const PILL_REMINDERS_MS = parseMs(process.env.PILL_REMINDERS_TICK_MS, 60 * 1000, 30 * 1000);
+/** Health activity summaries, goal achievements, evening nudges (`runHealthActivityNotificationsJob`). */
+const HEALTH_ACTIVITY_MS = parseMs(process.env.HEALTH_ACTIVITY_TICK_MS, 60 * 60 * 1000, 5 * 60 * 1000);
+/** Low stock alerts for vendor inventory (`runLowStockNotificationsJob`). */
+const LOW_STOCK_MS = parseMs(process.env.LOW_STOCK_TICK_MS, 30 * 60 * 1000, 5 * 60 * 1000);
+/** Diet meal reminders on active health diet plans (`runHealthDietMealRemindersJob`). */
+const HEALTH_DIET_MS = parseMs(process.env.HEALTH_DIET_TICK_MS, 30 * 60 * 1000, 5 * 60 * 1000);
 const BOOKING_CLEANUP_MS = parseMs(process.env.BOOKING_CLEANUP_TICK_MS, 15 * 60 * 1000);
 const MONEY_TRANSFER_TICK_MS = parseMs(process.env.MONEY_TRANSFER_WORKER_MS, 60 * 1000, 10 * 1000);
 const ACCOUNT_DELETION_PURGE_MS = parseMs(
@@ -201,7 +210,7 @@ const PICKUP_WAITING_NOTIFY_MS = parseMs(
 );
 
 console.log(
-  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
+  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms healthActivity=${HEALTH_ACTIVITY_MS}ms healthDiet=${HEALTH_DIET_MS}ms lowStock=${LOW_STOCK_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
 );
 
 setInterval(() => {
@@ -302,6 +311,49 @@ setInterval(() => {
 }, PILL_REMINDERS_MS);
 
 void runPillRemindersJob().catch((e) => console.error("[pill-reminders] boot", e));
+
+setInterval(() => {
+  runHealthActivityNotificationsJob()
+    .then((r) => {
+      if (r.notificationsSent > 0) {
+        console.log(
+          `[health-activity] sent=${r.notificationsSent} daily=${r.dailySummaries} weekly=${r.weeklySummaries} monthly=${r.monthlySummaries} goals=${r.goalAchievements} nudges=${r.activityNudges}`
+        );
+      }
+    })
+    .catch((e) => console.error("[health-activity]", e));
+}, HEALTH_ACTIVITY_MS);
+
+void runHealthActivityNotificationsJob().catch((e) =>
+  console.error("[health-activity] boot", e)
+);
+
+setInterval(() => {
+  runLowStockNotificationsJob()
+    .then((r) => {
+      if (r.notificationsSent > 0) {
+        console.log(
+          `[low-stock] checked=${r.checked} sent=${r.notificationsSent} modules=${JSON.stringify(r.byModule)}`
+        );
+      }
+    })
+    .catch((e) => console.error("[low-stock]", e));
+}, LOW_STOCK_MS);
+
+void runLowStockNotificationsJob().catch((e) => console.error("[low-stock] boot", e));
+
+setInterval(() => {
+  runHealthDietMealRemindersJob()
+    .then((r) => {
+      if (r.notificationsSent > 0) {
+        console.log(`[health-diet] mealReminders=${r.mealReminders} sent=${r.notificationsSent}`);
+      }
+    })
+    .catch((e) => console.error("[health-diet]", e));
+  runHealthDietMorningAdviceJob().catch((e) => console.error("[health-diet-advice]", e));
+}, HEALTH_DIET_MS);
+
+void runHealthDietMealRemindersJob().catch((e) => console.error("[health-diet] boot", e));
 
 async function cleanupOldBookingRequests() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);

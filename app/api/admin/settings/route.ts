@@ -4,6 +4,7 @@ import { authenticateRequest } from "@/lib/auth"
 import { getPrimaryAndFallbackGateways } from "@/lib/payment-gateway"
 import { invalidateAutomationAiSettingsCache } from "@/lib/automation-ai-settings"
 import { getMoneyReceiptWhatsappConfigPublic, saveMoneyReceiptWhatsappConfig } from "@/lib/money-receipt-whatsapp-config"
+import { DEFAULT_RIDING_EMERGENCY_CONTACTS } from "@/lib/ride-trip-share"
 
 function cloneJsonForAudit<T>(value: T): T {
   try {
@@ -145,6 +146,11 @@ export async function GET(request: NextRequest) {
             return "none"
           })(),
         },
+        ridingEmergencyContacts: Array.isArray(
+          (systemSettings?.compnyinfo as any)?.ridingEmergencyContacts,
+        )
+          ? (systemSettings?.compnyinfo as any).ridingEmergencyContacts
+          : DEFAULT_RIDING_EMERGENCY_CONTACTS,
       },
       security: {
         passwordPolicy: {
@@ -291,7 +297,8 @@ export async function PUT(request: NextRequest) {
 
     const settings = await request.json()
 
-
+    const existingRow = await prisma.systemSettings.findUnique({ where: { id: 1 } })
+    const existingCompnyinfo = (existingRow?.compnyinfo as Record<string, unknown>) || {}
 
     // Update or create system settings
     const updatedSettings = await prisma.systemSettings.upsert({
@@ -309,6 +316,7 @@ export async function PUT(request: NextRequest) {
 
         // Company information settings
         compnyinfo: {
+          ...existingCompnyinfo,
           company: {
             name: settings.compnyinfo.company.name,
             address: settings.compnyinfo.company.address,
@@ -335,6 +343,10 @@ export async function PUT(request: NextRequest) {
             restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
             googleMapsApiKey: (settings.compnyinfo?.location?.googleMapsApiKey || "").trim(),
           },
+          ridingEmergencyContacts: Array.isArray(settings.compnyinfo?.ridingEmergencyContacts)
+            ? settings.compnyinfo.ridingEmergencyContacts
+            : (existingCompnyinfo as any)?.ridingEmergencyContacts ||
+              DEFAULT_RIDING_EMERGENCY_CONTACTS,
         },
 
         // Security settings
@@ -460,6 +472,9 @@ export async function PUT(request: NextRequest) {
             restrictAutocomplete: settings.compnyinfo?.location?.restrictAutocomplete ?? true,
             googleMapsApiKey: (settings.compnyinfo?.location?.googleMapsApiKey || "").trim(),
           },
+          ridingEmergencyContacts: Array.isArray(settings.compnyinfo?.ridingEmergencyContacts)
+            ? settings.compnyinfo.ridingEmergencyContacts
+            : DEFAULT_RIDING_EMERGENCY_CONTACTS,
         },
         customerOAuth: settings.customerOAuth ?? undefined,
       },

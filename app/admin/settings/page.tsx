@@ -154,6 +154,12 @@ interface SystemSettings {
       googleMapsApiKey?: string
       mapsApiKeySource?: "database" | "env" | "none"
     }
+    ridingEmergencyContacts?: Array<{
+      id: string
+      name: string
+      number: string
+      icon?: string
+    }>
   }
   customerOAuth?: {
     google?: { enabled?: boolean; webClientId?: string; iosClientId?: string; androidClientId?: string }
@@ -254,6 +260,17 @@ export default function SystemSettings() {
       setSettings({
         ...s,
         moneyReceiptWhatsapp: { ...defaultWa, ...(s.moneyReceiptWhatsapp || {}) },
+        compnyinfo: {
+          ...s.compnyinfo,
+          ridingEmergencyContacts:
+            s.compnyinfo?.ridingEmergencyContacts?.length > 0
+              ? s.compnyinfo.ridingEmergencyContacts
+              : [
+                  { id: "police", name: "Police", number: "199", icon: "call" },
+                  { id: "ambulance", name: "Ambulance", number: "199", icon: "medical" },
+                  { id: "fire", name: "Fire Service", number: "199", icon: "flame" },
+                ],
+        },
       })
       setCurrency(data.defaultCurrencyCode)
     } catch (error) {
@@ -1311,9 +1328,112 @@ export default function SystemSettings() {
                               </div>
                            )}
                            {moduleName === "riding" && (
-                             <div className="pt-4 mt-2 border-t border-gray-100 space-y-2">
+                             <div className="pt-4 mt-2 border-t border-gray-100 space-y-4">
                                 <ToggleSwitch label="Background Check" checked={(moduleSettings as ModuleSettings['riding']).backgroundCheck} onChange={(c) => updateNestedSettings("modules", moduleName, "backgroundCheck", c)} />
                                 <ToggleSwitch label="Insurance Required" checked={(moduleSettings as ModuleSettings['riding']).insuranceRequired} onChange={(c) => updateNestedSettings("modules", moduleName, "insuranceRequired", c)} />
+                                <div className="rounded-xl border border-red-100 bg-red-50/40 p-4 space-y-3">
+                                  <div>
+                                    <p className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                                      SOS emergency numbers
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Shown in the customer SOS screen (police, ambulance, etc.).
+                                    </p>
+                                  </div>
+                                  {(settings.compnyinfo.ridingEmergencyContacts || []).map((contact, index) => (
+                                    <div key={contact.id || index} className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                                      <InputGroup label="Name">
+                                        <TextInput
+                                          value={contact.name}
+                                          onChange={(e) => {
+                                            const list = [...(settings.compnyinfo.ridingEmergencyContacts || [])]
+                                            list[index] = { ...list[index], name: e.target.value }
+                                            setSettings((prev) =>
+                                              prev
+                                                ? {
+                                                    ...prev,
+                                                    compnyinfo: {
+                                                      ...prev.compnyinfo,
+                                                      ridingEmergencyContacts: list,
+                                                    },
+                                                  }
+                                                : prev,
+                                            )
+                                          }}
+                                        />
+                                      </InputGroup>
+                                      <InputGroup label="Phone number">
+                                        <TextInput
+                                          value={contact.number}
+                                          onChange={(e) => {
+                                            const list = [...(settings.compnyinfo.ridingEmergencyContacts || [])]
+                                            list[index] = { ...list[index], number: e.target.value }
+                                            setSettings((prev) =>
+                                              prev
+                                                ? {
+                                                    ...prev,
+                                                    compnyinfo: {
+                                                      ...prev.compnyinfo,
+                                                      ridingEmergencyContacts: list,
+                                                    },
+                                                  }
+                                                : prev,
+                                            )
+                                          }}
+                                        />
+                                      </InputGroup>
+                                      <button
+                                        type="button"
+                                        className="text-xs font-semibold text-red-600 hover:text-red-800 py-2.5"
+                                        onClick={() => {
+                                          const list = (settings.compnyinfo.ridingEmergencyContacts || []).filter(
+                                            (_, i) => i !== index,
+                                          )
+                                          setSettings((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  compnyinfo: {
+                                                    ...prev.compnyinfo,
+                                                    ridingEmergencyContacts: list,
+                                                  },
+                                                }
+                                              : prev,
+                                          )
+                                        }}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    className="text-sm font-semibold text-emerald-700 hover:text-emerald-900"
+                                    onClick={() => {
+                                      const list = [...(settings.compnyinfo.ridingEmergencyContacts || [])]
+                                      list.push({
+                                        id: `contact-${Date.now()}`,
+                                        name: "Emergency",
+                                        number: "",
+                                        icon: "call",
+                                      })
+                                      setSettings((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              compnyinfo: {
+                                                ...prev.compnyinfo,
+                                                ridingEmergencyContacts: list,
+                                              },
+                                            }
+                                          : prev,
+                                      )
+                                    }}
+                                  >
+                                    + Add emergency contact
+                                  </button>
+                                </div>
                              </div>
                            )}
                         </div>

@@ -10,6 +10,7 @@ import {
   courierMatchesRider,
   rideBookingMatchesRider,
 } from "@/lib/rider-request-eligibility";
+import { getTripShareSnapshotByToken, tripShareRoom } from "@/lib/ride-trip-share";
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -179,6 +180,42 @@ class SocketIOServer {
         }
       });
 
+      /** Family / friends: track trip with temporary share token (no login). */
+      socket.on(
+        "join_trip_share",
+        async (payload: { token?: string }, ack?: (res: unknown) => void) => {
+          try {
+            const token = String(payload?.token || "").trim();
+            if (!token) {
+              ack?.({ ok: false, error: "Missing token" });
+              return;
+            }
+            const snapshot = await getTripShareSnapshotByToken(token);
+            if (!snapshot?.trip) {
+              ack?.({ ok: false, error: "Invalid or expired link" });
+              return;
+            }
+            const room = tripShareRoom(snapshot.trip.bookingId);
+            socket.join(room);
+            socket.data.tripShareToken = token;
+            socket.data.tripShareBookingId = snapshot.trip.bookingId;
+            ack?.({ ok: true, trip: snapshot.trip, expiresAt: snapshot.expiresAt });
+            socket.emit("trip_share_update", snapshot.trip);
+          } catch (e: any) {
+            ack?.({ ok: false, error: e?.message || "Failed to join" });
+          }
+        },
+      );
+
+      socket.on("leave_trip_share", () => {
+        const bookingId = socket.data?.tripShareBookingId;
+        if (bookingId) {
+          socket.leave(tripShareRoom(String(bookingId)));
+        }
+        delete socket.data.tripShareToken;
+        delete socket.data.tripShareBookingId;
+      });
+
       socket.on("rider_status_change", (payload: { riderUserId?: string; riderId?: string; isOnline?: boolean; status?: string }) => {
         if (socket.data?.role !== "RIDER" || !socket.data?.userId) return;
         const riderUserId = payload?.riderUserId || payload?.riderId || socket.data.userId;
@@ -330,6 +367,17 @@ class SocketIOServer {
                 });
               }
             }
+
+            const shareRoom = tripShareRoom(String(bookingId));
+            const sharePayload = {
+              bookingId,
+              riderId: riderId || socket.data.userId,
+              lat,
+              lng,
+              heading: heading ?? null,
+              timestamp: timestamp || new Date().toISOString(),
+            };
+            this.io?.to(shareRoom).emit("trip_share_location", sharePayload);
           } catch (error) {
             console.error('Error finding customer for booking:', error);
           }

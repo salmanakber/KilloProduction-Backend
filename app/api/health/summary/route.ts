@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     if (!user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
-    const { period = 'WEEKLY', from, to } = body
+    const { period = 'WEEKLY', from, to, activityContext } = body
 
     // Calculate date range
     const now = new Date()
@@ -113,6 +113,20 @@ export async function POST(request: NextRequest) {
         const temps = entries.map(e => Number((e.value as any)?.celsius)).filter(Boolean)
         stats[type].avgTemp = temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : null
       }
+      if (type === 'DIET') {
+        const meals = entries.map(e => e.value as any)
+        const totals = meals.reduce(
+          (acc, m) => ({
+            calories: acc.calories + (Number(m?.calories) || 0),
+            protein: acc.protein + (Number(m?.protein) || 0),
+            carbs: acc.carbs + (Number(m?.carbs) || 0),
+            fat: acc.fat + (Number(m?.fat) || 0),
+          }),
+          { calories: 0, protein: 0, carbs: 0, fat: 0 }
+        )
+        stats[type].mealCount = meals.length
+        stats[type].totals = totals
+      }
     }
     console.log('stats', stats)
 
@@ -129,21 +143,24 @@ export async function POST(request: NextRequest) {
         doctorVisits,
         activeMedications: reminders,
         totalLogEntries: logs.length,
+        activityContext: activityContext || null,
       }
       console.log('aiData', aiData)
 
       const aiResponse = await analyzeWithAI('GENERAL_ANALYSIS' as AIUseCase, aiData, {
         category: 'TEXT_TO_TEXT',
         customPrompt: `You are a health analytics assistant. Analyze the following health data for a ${period.toLowerCase()} summary.
+Include activity, vitals, diet/nutrition (DIET logs), sleep, and medications when present.
 Provide:
 1. A brief overall health assessment
-2. Key statistics and averages
-3. Notable trends or patterns (improving, declining, stable)
-4. Any concerns or irregularities detected
-5. Actionable recommendations
-6. Medication adherence notes if applicable
+2. Plain-language explanations (2-3 sentences each) of what the data means
+3. Key statistics and averages
+4. Notable trends or patterns
+5. Diet and nutrition analysis if meals are logged
+6. Any concerns or irregularities
+7. Actionable recommendations
 
-Return JSON: { "assessment": "...", "highlights": ["..."], "trends": { "bloodPressure": "stable|improving|declining", "bloodSugar": "...", ... }, "concerns": ["..."], "recommendations": ["..."], "score": 0-100 }`,
+Return JSON: { "assessment": "...", "explanations": ["..."], "highlights": ["..."], "trends": { "activity": "...", "nutrition": "...", "vitals": "..." }, "dietAnalysis": { "summary": "...", "suggestions": ["..."] }, "concerns": ["..."], "recommendations": ["..."], "score": 0-100, "motivational": "..." }`,
       })
 
       if (aiResponse.content) {

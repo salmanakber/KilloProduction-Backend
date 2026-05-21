@@ -165,6 +165,7 @@ model User {
   healthLabResults        HealthLabResult[]         @relation("UserHealthLabResults")
   doctorVisits            DoctorVisit[]             @relation("UserDoctorVisits")
   healthSummaries         HealthSummary[]           @relation("UserHealthSummaries")
+  healthDietPlans         HealthDietPlan[]          @relation("UserHealthDietPlans")
   /// Aggregate of Review rows where this user is the rated party (targetType CUSTOMER)
   customerTargetRating       Float @default(0)
   customerTargetReviewCount  Int   @default(0)
@@ -4654,6 +4655,23 @@ model SOSAlert {
   @@map("sos_alerts")
 }
 
+/// Temporary token so family can track an active ride without logging in.
+model RideTripShareToken {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  bookingId   String
+  bookingType String    @default("RIDE")
+  customerId  String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([bookingId])
+  @@index([token])
+  @@map("ride_trip_share_tokens")
+}
+
 model AppRating {
   id         String   @id @default(cuid())
   userId     String
@@ -5472,6 +5490,7 @@ enum HealthLogType {
   MOOD
   SLEEP
   WATER_INTAKE
+  DIET
   CUSTOM
 }
 
@@ -5527,6 +5546,30 @@ enum HealthSummaryPeriod {
   DAILY
   WEEKLY
   MONTHLY
+}
+
+model HealthDietPlan {
+  id               String   @id @default(cuid())
+  userId           String
+  title            String   @default("My Diet Plan")
+  source           String   @default("MANUAL") // MANUAL | AI
+  calorieGoal      Int      @default(2000)
+  proteinGoal      Int?
+  carbsGoal        Int?
+  fatGoal          Int?
+  dietPreference   String?
+  restrictions     String?
+  meals            Json     @default("[]")
+  remindersEnabled Boolean  @default(true)
+  dailyAdvice      Json?
+  aiReport         Json?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation("UserHealthDietPlans", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("health_diet_plans")
 }
 
 /// Admin “system notice” broadcasts (maintenance, service updates, etc.) — separate from marketing campaigns.

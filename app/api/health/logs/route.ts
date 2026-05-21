@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     const validTypes = [
       'BLOOD_PRESSURE', 'BLOOD_SUGAR', 'BODY_TEMPERATURE', 'WEIGHT',
-      'STEPS', 'SYMPTOMS', 'MOOD', 'SLEEP', 'WATER_INTAKE', 'CUSTOM',
+      'STEPS', 'SYMPTOMS', 'MOOD', 'SLEEP', 'WATER_INTAKE', 'DIET', 'CUSTOM',
     ]
     if (!validTypes.includes(logType)) {
       return NextResponse.json({ error: `Invalid logType. Must be one of: ${validTypes.join(', ')}` }, { status: 400 })
