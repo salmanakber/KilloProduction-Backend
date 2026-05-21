@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getSocketServer } from "@/lib/socket-init"
 import { NotificationBridge } from "@/lib/notification-bridge"
-import { getSocketServer } from "@/lib/socket-init"
 
 const activeBookingInclude = {
   rider: {
