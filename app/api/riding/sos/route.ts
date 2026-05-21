@@ -3,6 +3,32 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getSocketServer } from "@/lib/socket-init"
 import { NotificationBridge } from "@/lib/notification-bridge"
+import { getSocketServer } from "@/lib/socket-init"
+
+const activeBookingInclude = {
+  rider: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      userProfile: { select: { firstName: true, lastName: true } },
+    },
+  },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      userProfile: { select: { firstName: true, lastName: true } },
+    },
+  },
+} as const
+
+function customerDisplayName(customer: {
+  name?: string | null
+  userProfile?: { firstName?: string | null } | null
+}): string {
+  return customer.userProfile?.firstName || customer.name || "Unknown"
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,18 +54,7 @@ export async function POST(request: NextRequest) {
             in: ['ACCEPTED', 'RIDER_ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_PICKUP', 'ARRIVED_AT_DROPOFF', 'EN_ROUTE_TO_PICKUP', 'EN_ROUTE_TO_DROPOFF']
           }
         },
-        include: {
-          rider: {
-            include: {
-              user: true
-            }
-          },
-          customer: {
-            include: {
-              userProfile: true
-            }
-          }
-        }
+        include: activeBookingInclude,
       }),
       prisma.courierBooking.findFirst({
         where: {
@@ -49,18 +64,7 @@ export async function POST(request: NextRequest) {
             in: ['ACCEPTED', 'RIDER_ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED_AT_PICKUP', 'ARRIVED_AT_DROPOFF', 'EN_ROUTE_TO_PICKUP', 'EN_ROUTE_TO_DROPOFF']
           }
         },
-        include: {
-          rider: {
-            include: {
-              user: true
-            }
-          },
-          customer: {
-            include: {
-              userProfile: true
-            }
-          }
-        }
+        include: activeBookingInclude,
       })
     ])
 
@@ -107,12 +111,14 @@ export async function POST(request: NextRequest) {
 
     const socketServer = getSocketServer()
 
+    const customerName = customerDisplayName(booking.customer)
+
     // Send notification to rider if available
     if (booking.riderId && booking.rider) {
-      await socketServer.sendNotificationToUser(booking.rider.user.id, {
-        userId: booking.rider.user.id,
+      await socketServer.sendNotificationToUser(booking.rider.id, {
+        userId: booking.rider.id,
         title: "🚨 SOS Alert",
-        message: `Customer ${booking.customer.userProfile?.firstName || 'Unknown'} has triggered an emergency alert. Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+        message: `Customer ${customerName} has triggered an emergency alert. Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
         type: "EMERGENCY",
         module: "RIDING",
         data: {
@@ -126,7 +132,7 @@ export async function POST(request: NextRequest) {
         actionUrl: `/rider/sos/${sosRecord.id}`,
       })
       await NotificationBridge.sendNotification({
-        userId: booking.rider.user.id,
+        userId: booking.rider.id,
         title: "Emergency SOS",
         message: `Customer triggered SOS for booking #${booking.bookingNumber}. Please respond immediately.`,
         type: "SYSTEM",
@@ -142,11 +148,26 @@ export async function POST(request: NextRequest) {
       select: { id: true, name: true }
     })
 
+    try {
+      getSocketServer().emitAdminBookingsMonitor("admin_sos_alert", {
+        bookingId: booking.id,
+        bookingNumber: booking.bookingNumber,
+        sosId: sosRecord.id,
+        customerId: user.id,
+        riderId: booking.riderId,
+        latitude,
+        longitude,
+        timestamp: sosRecord.timestamp.toISOString(),
+      })
+    } catch (socketErr) {
+      console.error("SOS admin socket broadcast failed:", socketErr)
+    }
+
     for (const admin of admins) {
       await socketServer.sendNotificationToUser(admin.id, {
         userId: admin.id,
         title: "🚨 Emergency SOS Alert",
-        message: `Customer ${booking.customer.userProfile?.firstName || 'Unknown'} has triggered an emergency alert during ride #${booking.bookingNumber}`,
+        message: `Customer ${customerName} has triggered an emergency alert during ride #${booking.bookingNumber}`,
         type: "EMERGENCY",
         module: "ADMIN",
         data: {

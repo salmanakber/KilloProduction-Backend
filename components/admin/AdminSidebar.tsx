@@ -16,6 +16,7 @@ import {
   Trophy,
   SlidersHorizontal,
   Database,
+  MapPinned,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { requiredFeatureForPath, resolveAdminFeatures, type AdminFeature } from "@/lib/admin-access"
@@ -356,6 +357,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       icon: Truck,
       feature: "riders.manage" as AdminFeature,
       subItems: [
+        { name: "Live bookings map", href: "/admin/modules/rider/bookings-monitor", icon: MapPinned },
         { name: "Peak bonus analytics", href: "/admin/modules/rider/bonus-analytics", icon: Trophy },
         { name: "Bonus settings", href: "/admin/modules/rider/bonus-settings", icon: SlidersHorizontal },
         { name: "Ride Settings", href: "/admin/ride-types", icon: Settings },

@@ -21,6 +21,19 @@ interface AuthenticatedSocket extends Socket {
   };
 }
 
+const ADMIN_BOOKINGS_MONITOR_ROOM = "admin:bookings_monitor";
+
+function tokenFromHandshake(socket: AuthenticatedSocket): string | null {
+  const authTok = (socket.handshake.auth as { token?: string })?.token;
+  if (authTok) return String(authTok);
+  const queryTok = (socket.handshake.query as { token?: string })?.token;
+  if (queryTok) return String(queryTok);
+  const cookie = socket.handshake.headers.cookie;
+  if (!cookie) return null;
+  const match = cookie.match(/(?:^|;\s*)admin-token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 class SocketIOServer {
   private io: IOServer | null = null;
   private clients = new Map<string, AuthenticatedSocket>();
@@ -58,9 +71,7 @@ class SocketIOServer {
     // Handshake authentication middleware
     this.io.use(async (socket: AuthenticatedSocket, next) => {
       try {
-        const token =
-          (socket.handshake.auth as any)?.token ||
-          (socket.handshake.query as any)?.token;
+        const token = tokenFromHandshake(socket);
         if (!token) {
           return next();
         }
@@ -214,6 +225,21 @@ class SocketIOServer {
         }
         delete socket.data.tripShareToken;
         delete socket.data.tripShareBookingId;
+      });
+
+      /** Admin live bookings map — uses httpOnly admin-token cookie via withCredentials. */
+      socket.on("join_admin_bookings_monitor", (_payload: unknown, ack?: (res: unknown) => void) => {
+        const role = socket.data?.role;
+        if (role !== "ADMIN" && role !== "SUPER_ADMIN") {
+          ack?.({ ok: false, error: "Admin access required" });
+          return;
+        }
+        socket.join(ADMIN_BOOKINGS_MONITOR_ROOM);
+        ack?.({ ok: true });
+      });
+
+      socket.on("leave_admin_bookings_monitor", () => {
+        socket.leave(ADMIN_BOOKINGS_MONITOR_ROOM);
       });
 
       socket.on("rider_status_change", (payload: { riderUserId?: string; riderId?: string; isOnline?: boolean; status?: string }) => {
@@ -378,6 +404,7 @@ class SocketIOServer {
               timestamp: timestamp || new Date().toISOString(),
             };
             this.io?.to(shareRoom).emit("trip_share_location", sharePayload);
+            this.emitAdminBookingsMonitor("admin_booking_location", sharePayload);
           } catch (error) {
             console.error('Error finding customer for booking:', error);
           }
@@ -431,6 +458,17 @@ class SocketIOServer {
         
         console.log(`📍 [BACKEND] Sockets to broadcast to (excluding sender):`, allSockets.length);
         
+        this.emitAdminBookingsMonitor("admin_booking_status_update", {
+          bookingId,
+          bookingType,
+          status,
+          bookingNumber,
+          riderId,
+          latitude,
+          longitude,
+          timestamp: timestamp || new Date().toISOString(),
+        });
+
         if (allSockets.length > 0) {
           console.log(`📍 [BACKEND] Broadcasting booking status to ${allSockets.length} connected users`);
           allSockets.forEach(s => {
@@ -1602,6 +1640,11 @@ class SocketIOServer {
       role: c.data?.role,
       connected: c.connected,
     }));
+  }
+
+  /** Real-time events for admin bookings monitor dashboard. */
+  emitAdminBookingsMonitor(event: string, payload: Record<string, unknown>) {
+    this.io?.to(ADMIN_BOOKINGS_MONITOR_ROOM).emit(event, payload);
   }
 }
 
