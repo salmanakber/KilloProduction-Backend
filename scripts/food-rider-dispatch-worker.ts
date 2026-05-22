@@ -317,7 +317,7 @@ setInterval(() => {
     .then((r) => {
       if (r.notificationsSent > 0) {
         console.log(
-          `[health-activity] sent=${r.notificationsSent} daily=${r.dailySummaries} weekly=${r.weeklySummaries} monthly=${r.monthlySummaries} goals=${r.goalAchievements} nudges=${r.activityNudges}`
+          `[health-activity] sent=${r.notificationsSent} daily=${r.dailySummaries} weekly=${r.weeklySummaries} monthly=${r.monthlySummaries} goals=${r.goalAchievements} nudges=${r.activityNudges} walkReports=${r.todayWalkReports}`
         );
       }
     })

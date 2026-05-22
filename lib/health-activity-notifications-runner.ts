@@ -11,6 +11,7 @@ export type HealthActivityRunResult = {
   monthlySummaries: number
   goalAchievements: number
   activityNudges: number
+  todayWalkReports: number
   notificationsSent: number
 }
 
@@ -73,6 +74,13 @@ async function sendHealthNotification(params: {
   return true
 }
 
+const STEP_TRACKING_SOURCES = new Set([
+  "apple_health",
+  "google_fit",
+  "pedometer",
+  "activity_session",
+])
+
 function stepsFromLogs(logs: { logType: string; value: unknown }[]): number {
   let max = 0
   for (const log of logs) {
@@ -82,6 +90,39 @@ function stepsFromLogs(logs: { logType: string; value: unknown }[]): number {
     if (n > max) max = n
   }
   return max
+}
+
+function distanceKmFromLogs(logs: { logType: string; value: unknown }[]): number {
+  let max = 0
+  for (const log of logs) {
+    if (log.logType !== "STEPS") continue
+    const v = log.value as { distanceKm?: number; distance?: number } | null
+    const n = Number(v?.distanceKm ?? v?.distance ?? 0)
+    if (n > max) max = n
+  }
+  return max
+}
+
+function logHasStepTrackingSource(log: {
+  value: unknown
+  notes?: string | null
+}): boolean {
+  const v = log.value as { source?: string } | null
+  const src = String(v?.source || "").toLowerCase()
+  if (STEP_TRACKING_SOURCES.has(src)) return true
+  const notes = String(log.notes || "").toLowerCase()
+  return notes.includes("auto-synced") || notes.includes("workout session")
+}
+
+async function userHasStepTrackingEnabled(userId: string): Promise<boolean> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  const recent = await prisma.healthLog.findFirst({
+    where: { userId, logType: "STEPS", recordedAt: { gte: since } },
+    orderBy: { recordedAt: "desc" },
+    select: { value: true, notes: true },
+  })
+  if (!recent) return false
+  return logHasStepTrackingSource(recent)
 }
 
 async function generateDailySummaryForUser(userId: string, dayStart: Date, dayEnd: Date) {
@@ -165,6 +206,7 @@ export async function runHealthActivityNotificationsJob(): Promise<HealthActivit
     monthlySummaries: 0,
     goalAchievements: 0,
     activityNudges: 0,
+    todayWalkReports: 0,
     notificationsSent: 0,
   }
 
@@ -375,6 +417,46 @@ export async function runHealthActivityNotificationsJob(): Promise<HealthActivit
       }
     } catch (err) {
       console.error(`[health-activity] goal notify failed for ${userId}:`, err)
+    }
+  }
+
+  // ── Evening walk report (8 PM) for users with background step tracking ──
+  if (hour === 20) {
+    for (const [userId, steps] of stepsByUser) {
+      if (steps < 100) continue
+      try {
+        const trackingOn = await userHasStepTrackingEnabled(userId)
+        if (!trackingOn) continue
+
+        const settings = await prisma.userSettings.findUnique({
+          where: { userId },
+          select: { pushNotifications: true },
+        })
+        if (settings?.pushNotifications === false) continue
+
+        const todayLogs = await prisma.healthLog.findMany({
+          where: {
+            userId,
+            logType: "STEPS",
+            recordedAt: { gte: todayStart, lte: todayEnd },
+          },
+        })
+        const distanceKm = distanceKmFromLogs(todayLogs)
+        const dedupeKey = `today-walk-report:${dateKey(todayStart)}`
+
+        if (await recentlyNotified(userId, dedupeKey, 20 * 60 * 60 * 1000)) continue
+
+        await NotificationBridge.sendHealthWalkDailyReport({
+          userId,
+          steps,
+          distanceKm,
+          dedupeKey,
+        })
+        result.todayWalkReports++
+        result.notificationsSent++
+      } catch (err) {
+        console.error(`[health-activity] walk report failed for ${userId}:`, err)
+      }
     }
   }
 

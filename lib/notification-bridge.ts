@@ -73,6 +73,38 @@ export class NotificationBridge {
    * Review / feedback prompt with a consistent app deep link (`/riderfeedback?...`) for mobile
    * `navigateFromNotification` + Notification list.
    */
+  /**
+   * Daily walk / activity recap for Health Hub users with step tracking enabled.
+   */
+  static async sendHealthWalkDailyReport(params: {
+    userId: string
+    steps: number
+    distanceKm: number
+    dedupeKey: string
+  }) {
+    const kmText =
+      params.distanceKm > 0
+        ? `${params.distanceKm.toFixed(2)} km`
+        : `${Math.max(1, Math.round(params.steps * 0.00075 * 10) / 10)} km (est.)`
+    const message = `You walked ${params.steps.toLocaleString()} steps and ${kmText} today. Tap to view your Kilo Health activity.`
+    return this.sendNotification({
+      userId: params.userId,
+      title: "🚶 Your walk today — Kilo Health",
+      message,
+      type: "REMINDER",
+      module: "PHARMACY",
+      actionUrl: "/health-record",
+      data: {
+        actionType: "navigate",
+        screen: "HealthRecord",
+        params: [],
+        healthDedupeKey: params.dedupeKey,
+        steps: params.steps,
+        distanceKm: params.distanceKm,
+      },
+    })
+  }
+
   static async sendReviewRequestWithDeepLink(params: {
     userId: string
     title: string
