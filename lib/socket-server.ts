@@ -59,7 +59,8 @@ class SocketIOServer {
         cors: { origin: process.env.SOCKET_CORS_ORIGIN || "*" },
         pingInterval: 25000,
         pingTimeout: 120000,
-        transports: ["websocket"],
+        transports: ["websocket", "polling"],
+        allowUpgrades: true,
       });
       server.io = this.io;
     }
