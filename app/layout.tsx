@@ -3,8 +3,12 @@ import "./globals.css"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "My App",
-  description: "A modern Next.js 13+ app",
+  title: "Kilo Admin",
+  description: "Kilo super app administration",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png", type: "image/png" }],
+  },
 }
 
 export default function RootLayout({
@@ -13,9 +17,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-<html lang="en">
-  <head />
-  <body>{children}</body>
-</html>
+    <html lang="en">
+      <body>{children}</body>
+    </html>
   )
 }
