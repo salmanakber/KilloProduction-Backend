@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { markRiderEarningAsPaid } from "@/lib/rider-earnings-helper"
 import { debitDeferredCustomerRideWallet } from "@/lib/deferred-ride-wallet-settlement"
+import { runPayOnArrivalRideCompletion } from "@/lib/pay-on-arrival-completion"
 
 const COMPLETION_DEBIT_REF = (rideBookingId: string) => `ride:${rideBookingId}:completion-debit`
 
@@ -27,6 +28,12 @@ export async function runRideCompletionSideEffects(rideBookingId: string): Promi
   const rideTerminal =
     booking?.status === "COMPLETED" || booking?.status === "DELIVERED"
   if (!booking || !rideTerminal || !booking.riderId) {
+    return
+  }
+
+  const paymentMethod = String(booking.paymentMethod || "").toUpperCase()
+  if (paymentMethod === "PAY_ON_ARRIVAL") {
+    await runPayOnArrivalRideCompletion(rideBookingId)
     return
   }
 

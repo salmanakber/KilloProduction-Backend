@@ -33,6 +33,7 @@ type KycModuleType =
   | "WHOLESALER"
   | "FOOD_AND_GROCERY"
   | "MECHANIC"
+  | "PROPERTY"
 
 interface RejectionHistoryItem {
   id: string
@@ -89,7 +90,7 @@ export default function KycManagementPage() {
         { url: '/api/admin/modules/food/list?status=PENDING', type: 'FOOD' },
         { url: '/api/admin/modules/grocery/list?status=PENDING', type: 'GROCERY' },
         { url: '/api/admin/modules/wholesaler/list?status=PENDING', type: 'WHOLESALER' },
-        { url: '/api/admin/modules/ /list?status=PENDING', type: 'MECHANIC' },
+        { url: '/api/admin/modules/booking-hosts/list?status=PENDING&limit=50', type: 'PROPERTY' },
       ]
 
       const responses = await Promise.all(
@@ -107,7 +108,7 @@ export default function KycManagementPage() {
       if(responses[3]?.restaurants) combinedData = [...combinedData, ...responses[3].restaurants.map((p: any) => normalizeData(p, 'FOOD', p.name, p.createdAt, p.rejectionHistory))]
       if(responses[4]?.stores) combinedData = [...combinedData, ...responses[4].stores.map((p: any) => normalizeData(p, 'GROCERY', p.storeName, p.createdAt, p.rejectionHistory))]
       if(responses[5]?.wholesalers) combinedData = [...combinedData, ...responses[5].wholesalers.map((p: any) => normalizeData(p, 'WHOLESALER', p.name, p.createdAt || p.registrationDate, p.rejectionHistory))]
-      if(responses[6]?.mechanics) combinedData = [...combinedData, ...responses[6].mechanics.map((p: any) => normalizeData(p, 'MECHANIC', p.name, p.createdAt || p.registrationDate, p.rejectionHistory))]
+      if(responses[6]?.hosts) combinedData = [...combinedData, ...responses[6].hosts.map((p: any) => normalizeData(p, 'PROPERTY', p.name || p.businessName, p.createdAt || p.registrationDate, p.rejectionHistory))]
       // Sort by newest first
       combinedData.sort((a, b) => new Date(b.registeredDate).getTime() - new Date(a.registeredDate).getTime())
 
@@ -254,6 +255,7 @@ export default function KycManagementPage() {
         GROCERY: "grocery",
         WHOLESALER: "wholesaler",
         MECHANIC: "mechanic",
+        PROPERTY: "booking-hosts",
         FOOD_AND_GROCERY: "food" // This won't be used for actions, but needed for type safety
       }
       
@@ -311,6 +313,7 @@ export default function KycManagementPage() {
       case "AUTO_PARTS": return { bg: "bg-purple-50", text: "text-purple-700", ring: "border-purple-200" }
       case "WHOLESALER": return { bg: "bg-cyan-50", text: "text-cyan-700", ring: "border-cyan-200" }
       case "MECHANIC": return { bg: "bg-indigo-50", text: "text-indigo-700", ring: "border-indigo-200" }
+      case "PROPERTY": return { bg: "bg-teal-50", text: "text-teal-700", ring: "border-teal-200" }
       default: return { bg: "bg-slate-50", text: "text-slate-700", ring: "border-slate-200" }
     }
   }
@@ -365,6 +368,7 @@ export default function KycManagementPage() {
           <StatCard title="Riders" icon={Bike} metric={calculateStats("RIDER")} color="blue" />
           <StatCard title="Food/Grocery" icon={Utensils} metric={calculateStats("FOOD_AND_GROCERY")} color="amber" />
           <StatCard title="Auto Parts" icon={Store} metric={calculateStats("AUTO_PARTS")} color="purple" />
+          <StatCard title="Booking" icon={LayoutGrid} metric={calculateStats("PROPERTY")} color="teal" />
         </div>
 
         {/* 3. CONTROL PANEL */}
@@ -395,6 +399,7 @@ export default function KycManagementPage() {
                   <SelectItem value="AUTO_PARTS">Auto Parts</SelectItem>
                   <SelectItem value="WHOLESALER">Wholesalers</SelectItem>
                   <SelectItem value="MECHANIC">Mechanics</SelectItem>
+                  <SelectItem value="PROPERTY">Booking</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -443,7 +448,7 @@ export default function KycManagementPage() {
                         </TableCell>
                         <TableCell>
                            <Badge variant="outline" className={`font-bold border ${styles.bg} ${styles.text} ${styles.ring} px-2.5 py-0.5`}>
-                            {item.type.replace("_", " ")}
+                            {item.type === "PROPERTY" ? "Booking" : item.type.replace("_", " ")}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -769,6 +774,15 @@ const InfoSection = ({ item }: { item: PendingKycItem }) => {
       <InfoRow label="Tax ID" value={d.taxId} />
     </>
   )
+  if (item.type === "PROPERTY") return (
+    <>
+      <InfoRow label="Host name" value={d.name} />
+      <InfoRow label="Business" value={d.businessName} />
+      <InfoRow label="Business type" value={d.businessType} />
+      <InfoRow label="Location" value={[d.address, d.city, d.state].filter(Boolean).join(", ")} />
+      <InfoRow label="Listing" value={d.listing?.title} />
+    </>
+  )
   return null
 }
 
@@ -795,6 +809,20 @@ const DocumentSection = ({ item }: { item: PendingKycItem }) => {
       { title: "Logo", url: docBlock.logo || null },
       { title: "Cover", url: docBlock.coverImage || null },
     ]
+  }
+  else if (item.type === "PROPERTY") {
+    const reg = d.registrationDocuments || {}
+    const uploads = reg.uploads && typeof reg.uploads === "object" ? reg.uploads : {}
+    docs = Object.entries(uploads).map(([key, url]) => ({
+      title: key.replace(/_/g, " "),
+      url: typeof url === "string" ? url : null,
+    }))
+    if (docs.length === 0) {
+      docs = [
+        { title: "NIN", url: reg.nin ? null : null },
+        { title: "Partner type", url: null },
+      ]
+    }
   }
 
   const vehiclePhotos: string[] = Array.isArray(d.vehiclePhotos) ? d.vehiclePhotos.filter((x: any) => typeof x === "string" && x.trim()) : []

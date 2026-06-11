@@ -2,9 +2,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+
+
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://postgres:postgres@localhost:5432/killo_super_app"
+  url      = env("DATABASE_URL")
 }
 
 model Currency {
@@ -114,6 +116,7 @@ model User {
   rideMessages            RideMessage[]             @relation("RideMessageSender")
   riderCashouts           RiderCashout[]            @relation("RiderCashouts")
   riderCommissions        RiderCommission[]         @relation("RiderCommissions")
+  riderPayableCommissions RiderPayableCommission[]  @relation("RiderPayableCommissions")
   riderEarnings           RiderEarning[]            @relation("RiderEarnings")
   riderProfile            RiderProfile?
   supportTickets          SupportTicket[]
@@ -126,6 +129,19 @@ model User {
   vendorCommissions       VendorCommission[]        @relation("VendorCommissions")
   customerTaxes           CustomerTax[]             @relation("CustomerTaxes")
   vendorProfile           VendorProfile?            @relation("UserVendorProfile")
+  propertyListings        PropertyListing[]         @relation("VendorPropertyListings")
+  propertyBookingsAsGuest PropertyBooking[]         @relation("CustomerPropertyBookings")
+  propertyBookingsAsHost  PropertyBooking[]         @relation("HostPropertyBookings")
+  propertyBookingsApproved PropertyBooking[]        @relation("PropertyBookingApprovedBy")
+  propertyBookingsRejected PropertyBooking[]        @relation("PropertyBookingRejectedBy")
+  propertyBookingsCheckedIn PropertyBooking[]       @relation("PropertyBookingCheckedInBy")
+  propertyBookingsCheckedOut PropertyBooking[]      @relation("PropertyBookingCheckedOutBy")
+  propertyWishlists       PropertyWishlist[]        @relation("UserPropertyWishlists")
+  propertyReviews         PropertyReview[]          @relation("UserPropertyReviews")
+  propertyHostTeamOwned   PropertyHostMember[]      @relation("PropertyHostTeamOwner")
+  propertyHostMembership  PropertyHostMember?       @relation("PropertyHostTeamMember")
+  propertyGuestVerifications PropertyGuestVerification[] @relation("PropertyGuestVerifications")
+  propertyGuestVerificationsReviewed PropertyGuestVerification[] @relation("PropertyGuestVerificationReviewer")
   vendorWithdrawals       VendorWithdrawal[]        @relation("VendorWithdrawals")
   walletTransactions      WalletTransaction[]       @relation("UserWalletTransactions")
   wallet                  Wallet?
@@ -775,19 +791,21 @@ model AutoPartsMechanicPickupSettings {
 model VendorCommission {
   id               String           @id @default(cuid())
   vendorId         String
-  orderId          String?
-  module           Module
-  commissionType   CommissionType
-  orderAmount      Float
-  commissionRate   Float
-  commissionAmount Float
-  status           CommissionStatus @default(PENDING)
-  paidAt           DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  order            Order?           @relation(fields: [orderId], references: [id])
-  vendor           User             @relation("VendorCommissions", fields: [vendorId], references: [id])
-
+  orderId            String?
+  propertyBookingId  String?
+  module             Module
+  commissionType     CommissionType
+  orderAmount        Float
+  commissionRate     Float
+  commissionAmount   Float
+  status             CommissionStatus @default(PENDING)
+  paidAt             DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  order              Order?           @relation(fields: [orderId], references: [id])
+  propertyBooking    PropertyBooking? @relation(fields: [propertyBookingId], references: [id])
+  vendor             User             @relation("VendorCommissions", fields: [vendorId], references: [id])
+  @@index([propertyBookingId])
   @@map("vendor_commissions")
 }
 
@@ -830,9 +848,38 @@ model RiderCommission {
   rideBooking      RideBooking?     @relation(fields: [rideBookingId], references: [id])
   courierBooking   CourierBooking?  @relation(fields: [courierBookingId], references: [id])
   rider            User             @relation("RiderCommissions", fields: [riderId], references: [id])
+  payableCommission RiderPayableCommission?
 
   @@index([courierBookingId])
   @@map("rider_commissions")
+}
+
+/// Platform commission owed by rider after Pay-on-Arrival cash collection.
+model RiderPayableCommission {
+  id                 String                       @id @default(cuid())
+  riderId            String
+  rideBookingId      String                       @unique
+  riderCommissionId  String?                      @unique
+  commissionAmount   Float
+  currency           String                       @default("USD")
+  status             RiderPayableCommissionStatus @default(PENDING)
+  dueAt              DateTime
+  collectedAt        DateTime?
+  lockedAt           DateTime?
+  remindersSentToday Int                          @default(0)
+  lastReminderDay    String?
+  lastReminderAt     DateTime?
+  totalRemindersSent Int                          @default(0)
+  finalNoticeSentAt  DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  rider              User                         @relation("RiderPayableCommissions", fields: [riderId], references: [id])
+  rideBooking        RideBooking                  @relation(fields: [rideBookingId], references: [id], onDelete: Cascade)
+  riderCommission    RiderCommission?             @relation(fields: [riderCommissionId], references: [id])
+
+  @@index([riderId, status])
+  @@index([status, dueAt])
+  @@map("rider_payable_commissions")
 }
 
 model Wallet {
@@ -2455,6 +2502,10 @@ model RiderProfile {
   bankDetails         Json?
   documentsComplete   Boolean              @default(false)
   documentsVerified   Boolean              @default(false)
+  /// Temporary lock when unpaid Pay-on-Arrival platform commission exceeds grace period.
+  isCommissionLocked  Boolean              @default(false)
+  commissionLockedAt  DateTime?
+  commissionLockReason String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   isOnline            DateTime             @default(now())
@@ -2757,6 +2808,7 @@ model RideBooking {
   rideMessages      RideMessage[]
   rideTracking      RideTracking[]
   riderCommissions  RiderCommission[]
+  payableCommission RiderPayableCommission?
   ridePromoUsages   PromoCodeUsage[]  @relation("RidePromoUsages")
 
   @@map("ride_bookings")
@@ -2981,6 +3033,7 @@ enum TemplateModule {
   AUTO_PARTS
   RIDING
   DELIVERY
+  PROPERTY
   ADMIN
 }
 
@@ -3352,12 +3405,24 @@ model VendorProfile {
   latitude        Float?
   longitude       Float?
   vehicleMakes    Json? // Array of vehicle makes the vendor sells parts for (e.g., ["Toyota", "Honda", "Ford"])
-  categories      Json? // Array of category IDs the vendor specializes in
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User     @relation("UserVendorProfile", fields: [userId], references: [id], onDelete: Cascade)
+  categories             Json? // Array of category IDs the vendor specializes in
+  registrationDocuments  Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation("UserVendorProfile", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("vendor_profiles")
+}
+
+model PropertyModuleConfig {
+  id           Int      @id @default(1)
+  categories   Json     @default("[]")
+  destinations Json     @default("[]")
+  compliance   Json     @default("[]")
+  folders      Json     @default("[]")
+  updatedAt    DateTime @updatedAt
+
+  @@map("property_module_config")
 }
 
 model AdminProfile {
@@ -3495,6 +3560,9 @@ model SystemSettings {
   groceryBulkOrders           Boolean  @default(true)
   ridingEnabled               Boolean  @default(true)
   ridingAutoApproval          Boolean  @default(false)
+  propertyEnabled             Boolean  @default(true)
+  propertyAutoApproval        Boolean  @default(false)
+  propertyCommission          Float    @default(10.0)
   ridingBackgroundCheck       Boolean  @default(true)
   ridingInsuranceRequired     Boolean  @default(true)
   createdAt                   DateTime @default(now())
@@ -3849,6 +3917,7 @@ enum Module {
   ADMIN
   CUSTOMER
   WALLET
+  PROPERTY
 }
 
 enum OrderStatus {
@@ -4407,6 +4476,12 @@ enum CommissionStatus {
   CALCULATED
   PAID
   CANCELLED
+}
+
+enum RiderPayableCommissionStatus {
+  PENDING
+  COLLECTED
+  LOCKED
 }
 
 enum ProductType {
@@ -5598,4 +5673,246 @@ model NotificationCampaign {
 
   @@index([status])
   @@map("notification_campaigns")
+}
+
+// ─── Property / Accommodation ─────────────────────────────────────────────────
+
+enum PropertyListingType {
+  APARTMENT
+  HOUSE
+  HOTEL
+  VILLA
+  SHARED_ROOM
+}
+
+enum PropertyListingStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum PropertyBookingStatus {
+  PENDING_PAYMENT
+  PENDING_APPROVAL
+  CONFIRMED
+  CHECKED_IN
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  REJECTED
+  REFUNDED
+}
+
+model PropertyListing {
+  id                  String                @id @default(cuid())
+  vendorId            String
+  type                PropertyListingType
+  categorySlug        String?
+  folderId            String?
+  title               String
+  tagline             String?
+  description         String?
+  address             String
+  city                String
+  state               String?
+  zip                 String?
+  country             String                @default("Nigeria")
+  latitude            Float?
+  longitude           Float?
+  hasGatedCommunity   Boolean               @default(false)
+  hasOceanfront       Boolean               @default(false)
+  hasClifftop         Boolean               @default(false)
+  hasJungleView       Boolean               @default(false)
+  amenities           Json                  @default("[]")
+  images              Json                  @default("[]")
+  videoUrl            String?
+  tourUrl             String?
+  nightlyRate         Float
+  cleaningFee         Float                 @default(0)
+  securityDeposit     Float                 @default(0)
+  discountPercent     Float                 @default(0)
+  badge               String?
+  guestTier           String                @default("Standard")
+  sqm                 Float?
+  bedrooms            Int                   @default(1)
+  beds                Int                   @default(1)
+  masterBeds          Int                   @default(0)
+  maxAdults           Int                   @default(2)
+  maxChildren         Int                   @default(0)
+  maxInfants          Int                   @default(0)
+  wifiSsid            String?
+  wifiPassword        String?
+  gatePin             String?
+  status              PropertyListingStatus @default(DRAFT)
+  requiresApproval    Boolean               @default(true)
+  requireGuidedSelfie Boolean               @default(false)
+  rating              Float                 @default(0)
+  reviewCount         Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  vendor              User                  @relation("VendorPropertyListings", fields: [vendorId], references: [id], onDelete: Cascade)
+  blockedDates        PropertyBlockedDate[]
+  bookings            PropertyBooking[]
+  wishlists           PropertyWishlist[]
+  reviews             PropertyReview[]
+
+  @@index([vendorId, status])
+  @@index([city])
+  @@map("property_listings")
+}
+
+model PropertyBlockedDate {
+  id        String          @id @default(cuid())
+  listingId String
+  date      DateTime        @db.Date
+  listing   PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, date])
+  @@map("property_blocked_dates")
+}
+
+model PropertyBooking {
+  id                String                @id @default(cuid())
+  bookingNumber     String                @unique
+  listingId         String
+  customerId        String
+  vendorId          String
+  checkIn           DateTime              @db.Date
+  checkOut          DateTime              @db.Date
+  nights            Int
+  adults            Int                   @default(1)
+  children          Int                   @default(0)
+  infants           Int                   @default(0)
+  guestNotes        String?
+  guestIdentity     Json?
+  guestTier         String                @default("Standard")
+  subtotal          Float
+  cleaningFee       Float                 @default(0)
+  securityDeposit   Float                 @default(0)
+  platformFee       Float                 @default(0)
+  totalAmount       Float
+  status            PropertyBookingStatus @default(PENDING_PAYMENT)
+  paymentStatus     PaymentStatus         @default(PENDING)
+  paymentMethod     String?
+  escrowReleasedAt          DateTime?
+  securityDepositRefundedAt DateTime?
+  checkedInAt               DateTime?
+  checkedOutAt      DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  approvedById      String?
+  approvedAt        DateTime?
+  rejectedById      String?
+  rejectedAt        DateTime?
+  checkedInById     String?
+  checkedOutById    String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  listing           PropertyListing       @relation(fields: [listingId], references: [id])
+  customer          User                  @relation("CustomerPropertyBookings", fields: [customerId], references: [id])
+  vendor            User                  @relation("HostPropertyBookings", fields: [vendorId], references: [id])
+  approvedBy        User?                 @relation("PropertyBookingApprovedBy", fields: [approvedById], references: [id])
+  rejectedBy        User?                 @relation("PropertyBookingRejectedBy", fields: [rejectedById], references: [id])
+  checkedInBy       User?                 @relation("PropertyBookingCheckedInBy", fields: [checkedInById], references: [id])
+  checkedOutBy      User?                 @relation("PropertyBookingCheckedOutBy", fields: [checkedOutById], references: [id])
+  reviews           PropertyReview[]
+  vendorCommissions VendorCommission[]
+  bookingVerifications PropertyBookingVerification[]
+
+  @@index([customerId, status])
+  @@index([vendorId, status])
+  @@index([listingId, checkIn, checkOut])
+  @@map("property_bookings")
+}
+
+model PropertyWishlist {
+  id        String          @id @default(cuid())
+  userId    String
+  listingId String
+  createdAt DateTime        @default(now())
+  user      User            @relation("UserPropertyWishlists", fields: [userId], references: [id], onDelete: Cascade)
+  listing   PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@map("property_wishlists")
+}
+
+model PropertyReview {
+  id         String          @id @default(cuid())
+  bookingId  String          @unique
+  listingId  String
+  customerId String
+  rating     Int
+  comment    String?
+  photos     Json?
+  createdAt  DateTime        @default(now())
+  booking    PropertyBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  listing    PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  customer   User            @relation("UserPropertyReviews", fields: [customerId], references: [id])
+
+  @@index([listingId])
+  @@map("property_reviews")
+}
+
+enum PropertyGuestVerificationStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PropertyHostAccessRole {
+  FULL_ACCESS
+  BOOKINGS_ONLY
+}
+
+model PropertyGuestVerification {
+  id              String                          @id @default(cuid())
+  userId          String
+  complianceId    String
+  documentName    String
+  files           Json                            @default("[]")
+  status          PropertyGuestVerificationStatus @default(SUBMITTED)
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  metadata        Json?
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+  user            User                            @relation("PropertyGuestVerifications", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy      User?                           @relation("PropertyGuestVerificationReviewer", fields: [reviewedById], references: [id])
+  bookingLinks    PropertyBookingVerification[]
+
+  @@index([userId, complianceId])
+  @@index([status])
+  @@map("property_guest_verifications")
+}
+
+model PropertyBookingVerification {
+  id             String                    @id @default(cuid())
+  bookingId      String
+  verificationId String
+  createdAt      DateTime                  @default(now())
+  booking        PropertyBooking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  verification   PropertyGuestVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, verificationId])
+  @@index([bookingId])
+  @@map("property_booking_verifications")
+}
+
+model PropertyHostMember {
+  id           String                 @id @default(cuid())
+  hostVendorId String
+  userId       String                 @unique
+  accessRole   PropertyHostAccessRole @default(BOOKINGS_ONLY)
+  status       String                 @default("ACTIVE")
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  host         User                   @relation("PropertyHostTeamOwner", fields: [hostVendorId], references: [id], onDelete: Cascade)
+  member       User                   @relation("PropertyHostTeamMember", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([hostVendorId])
+  @@map("property_host_members")
 }

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +10,9 @@ export async function POST(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized - Rider access only" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     // Get location data from request body instead of search params
     const body = await request.json()

@@ -15,9 +15,10 @@ interface UserEditModalProps {
   user: User
   onSuccess: () => void
   onClose: () => void
+  systemCurrency: string
 }
 
-export function UserEditModal({ user, onSuccess, onClose }: UserEditModalProps) {
+export function UserEditModal({ user, onSuccess, onClose, systemCurrency }: UserEditModalProps) {
   const [name, setName] = useState(user.name)
   const [email, setEmail] = useState(user.email)
   const [phone, setPhone] = useState(user.phone)

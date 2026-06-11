@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
+import {
+  BankAccountResolveError,
+  requireVerifiedBankAccount,
+} from "@/lib/resolve-bank-account"
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,6 +14,9 @@ export async function GET(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const bankAccounts = await prisma.vendorBankAccount.findMany({
       where: {
@@ -20,7 +28,22 @@ export async function GET(request: NextRequest) {
       ],
     })
 
-    return NextResponse.json(bankAccounts)
+    // Transform to match GlobalBankScreen interface
+    const transformed = bankAccounts.map((acc) => ({
+      id: acc.id,
+      accountName: acc.accountName,
+      accountNumber: acc.accountNumber,
+      bankName: acc.bankName,
+      bankCode: acc.bankCode || acc.routingNumber || acc.swiftCode || "",
+      swiftCode: acc.swiftCode,
+      routingNumber: acc.routingNumber,
+      isDefault: acc.isPrimary,
+      isPrimary: acc.isPrimary,
+      isVerified: acc.isVerified,
+      createdAt: acc.createdAt.toISOString(),
+    }))
+
+    return NextResponse.json(transformed)
   } catch (error) {
     console.error("Error fetching bank accounts:", error)
     return NextResponse.json(
@@ -38,11 +61,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
+
     const body = await request.json()
     const {
       bankName,
       accountNumber,
       accountName,
+      bankCode,
       routingNumber,
       swiftCode,
       branchCode,
@@ -51,12 +78,26 @@ export async function POST(request: NextRequest) {
       isPrimary,
     } = body
 
-    // Validation
-    if (!bankName || !accountNumber || !accountName) {
+    const resolvedBankCode = String(routingNumber || bankCode || "").trim()
+    if (!bankName || !accountNumber || !resolvedBankCode) {
       return NextResponse.json(
-        { error: "Bank name, account number, and account name are required" },
+        { error: "Bank name, account number, and bank code are required" },
         { status: 400 }
       )
+    }
+
+    let verified: Awaited<ReturnType<typeof requireVerifiedBankAccount>>
+    try {
+      verified = await requireVerifiedBankAccount({
+        accountNumber,
+        bankCode: resolvedBankCode,
+        userId: session.id,
+      })
+    } catch (err) {
+      if (err instanceof BankAccountResolveError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+      throw err
     }
 
     // Check for duplicate account number
@@ -91,17 +132,18 @@ export async function POST(request: NextRequest) {
       data: {
         vendorId: session.id,
         bankName: bankName.trim(),
-        accountNumber: accountNumber.trim(),
-        accountName: accountName.trim(),
-        routingNumber: routingNumber?.trim() || null,
+        accountNumber: verified.accountNumber,
+        accountName: verified.accountName,
+        bankCode: verified.bankCode,
+        routingNumber: verified.bankCode,
         swiftCode: swiftCode?.trim() || null,
         branchCode: branchCode?.trim() || null,
         accountType: accountType || "checking",
         currency: currency || "NGN",
         isPrimary: isPrimary || false,
-        // Account name is provider-verified in `resolve-account` before submit.
         isVerified: true,
         verificationStatus: "VERIFIED",
+        verifiedAt: new Date(),
       },
     })
 

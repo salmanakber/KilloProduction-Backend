@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { getRiderWithdrawableBalance } from "@/lib/rider-available-balance"
+import { NotificationBridge } from "@/lib/notification-bridge"
 
 
 
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const withdrawals = await prisma.vendorWithdrawal.findMany({
       where: { vendorId: session.id }, // Using rider id as vendorId
@@ -45,6 +49,9 @@ export async function POST(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const { bankAccountId, amount, currency, minwithdraw } = await request.json()
 
@@ -106,6 +113,18 @@ export async function POST(request: NextRequest) {
             accountName: true,
           },
         },
+      },
+    })
+    await NotificationBridge.sendNotification({
+      userId: session.id,
+      title: "Withdrawal Request Submitted",
+      message: `A rider has submitted a withdrawal request of ${currency} ${amount}.`,
+      type: "SYSTEM",
+      module: "ADMIN",
+      actionUrl: `/admin/payments#withdrawals-${withdrawal.id}`,
+      data: {
+        actionType: "navigate",
+        screen: "AdminPaymentsWithdrawals",
       },
     })
 

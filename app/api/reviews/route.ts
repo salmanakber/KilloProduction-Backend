@@ -17,7 +17,16 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const targetId = searchParams.get("targetId")
-    const targetType = searchParams.get("targetType") as "VENDOR" | "RIDER" | "MECHANIC" | "PRODUCT" | "SERVICE" | "CUSTOMER" | null
+    const targetType = searchParams.get("targetType") as
+      | "VENDOR"
+      | "RIDER"
+      | "MECHANIC"
+      | "PRODUCT"
+      | "SERVICE"
+      | "CUSTOMER"
+      | "PROPERTY_LISTING"
+      | "PROPERTY_HOST"
+      | null
     const moduleParam = searchParams.get("module")
     const limitRaw = searchParams.get("limit")
     const take =
@@ -33,12 +42,75 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate targetType
-    const validTargetTypes = ["VENDOR", "RIDER", "MECHANIC", "PRODUCT", "SERVICE", "CUSTOMER"]
+    const validTargetTypes = [
+      "VENDOR",
+      "RIDER",
+      "MECHANIC",
+      "PRODUCT",
+      "SERVICE",
+      "CUSTOMER",
+      "PROPERTY_LISTING",
+      "PROPERTY_HOST",
+    ]
     if (!validTargetTypes.includes(targetType)) {
       return NextResponse.json(
-        { error: "Invalid targetType. Must be one of: VENDOR, RIDER, MECHANIC, PRODUCT, SERVICE, CUSTOMER" },
+        {
+          error:
+            "Invalid targetType. Must be one of: VENDOR, RIDER, MECHANIC, PRODUCT, SERVICE, CUSTOMER, PROPERTY_LISTING, PROPERTY_HOST",
+        },
         { status: 400 }
       )
+    }
+
+    if (targetType === "PROPERTY_LISTING" || targetType === "PROPERTY_HOST") {
+      const where: { listingId?: string; listing?: { vendorId: string } } =
+        targetType === "PROPERTY_LISTING"
+          ? { listingId: targetId }
+          : { listing: { vendorId: targetId } }
+
+      const [reviews, stats] = await Promise.all([
+        prisma.propertyReview.findMany({
+          where,
+          take,
+          orderBy: { createdAt: "desc" },
+          include: {
+            customer: { select: { id: true, name: true, avatar: true } },
+            listing: { select: { id: true, title: true } },
+          },
+        }),
+        prisma.propertyReview.aggregate({
+          where,
+          _avg: { rating: true },
+          _count: true,
+        }),
+      ])
+
+      const formattedReviews = reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        title: review.listing?.title || undefined,
+        comment: review.comment || "",
+        images: review.photos,
+        isVerified: true,
+        isHelpful: 0,
+        response: null,
+        respondedAt: null,
+        createdAt: review.createdAt.toISOString(),
+        updatedAt: review.createdAt.toISOString(),
+        listingTitle: review.listing?.title,
+        reviewer: {
+          id: review.customer.id,
+          name: review.customer.name || "Guest",
+          avatar: review.customer.avatar,
+        },
+      }))
+
+      return NextResponse.json({
+        reviews: formattedReviews,
+        averageRating: stats._avg.rating || 0,
+        totalReviews: stats._count || 0,
+        module: "PROPERTY",
+      })
     }
 
     // Build where clause based on targetType

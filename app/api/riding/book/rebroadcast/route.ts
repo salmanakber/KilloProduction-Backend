@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
     const eligibleRiders = (await filterRidersWithoutActiveBooking(nearbyRiders)).slice(0, RETRY_TARGET_MAX_RIDERS)
 
     const socketServer = getGlobalSocketServer()
+    socketServer.ensureRuntimeAttached()
     const createdAt = new Date().toISOString()
     const expiresAt = new Date(Date.now() + RETRY_BROADCAST_SECONDS * 1000).toISOString()
     const lockUntil = new Date(Date.now() + RETRY_LOCK_SECONDS * 1000).toISOString()

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { getDrivingDistanceKmSmart } from "@/lib/driving-distance-smart"
 
 export async function POST(request: NextRequest) {
@@ -8,6 +9,9 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     const body = await request.json()
     const { originAddress, destinationAddress, vehicleType, orderId, datalonAndlatLong } = body

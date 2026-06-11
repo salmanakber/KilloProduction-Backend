@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
+import {
+  applyRiderKycApproved,
+  applyRiderKycRejected,
+  applyUserKycApproved,
+  applyUserKycRejected,
+  createKycRejectionRecord,
+  ensureUserWalletAndProfile,
+} from "@/lib/kyc-admin-status-sync"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -45,58 +53,29 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // Update rider profile status
-    const updatedProfile = await prisma.riderProfile.update({
-      where: { userId: riderId },
-      data: {
-        isApproved: status === "APPROVED",
-        isVerified: status !== "REJECTED",
-        approvedAt: status === "APPROVED" ? new Date() : null,
-        approvedBy: status === "APPROVED" ? session.id : null,
-        verificationNotes: status === "REJECTED" ? (reason || "Rejected by admin") : null,
-      },
-    })
-    // Update user status
     if (action === "approve") {
-      await prisma.user.update({
-        where: { id: rider.id },
-        data: {
-          isActive: true,
-          isVerified: true,
-          status: "ACTIVE",
-        },
-      })
-
-      // Ensure wallet + userProfile exist (safety for legacy records)
-      const defaultCurrency = await prisma.currency.findFirst({ where: { isDefault: true }, select: { code: true } })
-      const currencyCode = defaultCurrency?.code || process.env.DEFAULT_CURRENCY || "USD"
-      const fullName = rider.name || "Rider"
-      const [firstName, ...rest] = fullName.trim().split(/\s+/)
-      const lastName = rest.join(" ")
-
-      await prisma.wallet.upsert({
-        where: { userId: riderId },
-        update: { currency: currencyCode },
-        create: { userId: riderId, balance: 0, currency: currencyCode },
-      })
-      await prisma.userProfile.upsert({
-        where: { userId: riderId },
-        update: { firstName: firstName || null, lastName: lastName || null },
-        create: { userId: riderId, firstName: firstName || null, lastName: lastName || null },
-      })
+      await applyRiderKycApproved(riderId, session.id)
+      await applyUserKycApproved(riderId)
+      await ensureUserWalletAndProfile(riderId, rider.name || "Rider")
+    } else {
+      await applyRiderKycRejected(riderId, reason || "Rejected by admin")
+      await applyUserKycRejected(riderId)
     }
+
+    const updatedProfile = await prisma.riderProfile.findUnique({
+      where: { userId: riderId },
+    })
 
     // Save rejection reason if rejecting
     if (action === "reject" && rider.riderProfile) {
-      await prisma.kycRejection.create({
-        data: {
-          entityType: "RIDER",
-          // Keep entityId consistent across rider admin APIs (use user.id)
-          entityId: riderId,
-          userId: riderId,
-          rejectionReason: reason,
-          rejectedFields: rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
-          rejectedBy: session.id,
-        },
+      await createKycRejectionRecord({
+        entityType: "RIDER",
+        entityId: riderId,
+        userId: riderId,
+        rejectionReason: reason,
+        rejectedBy: session.id,
+        rejectedFields:
+          rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
       })
     }
 
@@ -109,7 +88,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         entityId: riderId,
         details: {
           newStatus: status,
-          previousStatus: updatedProfile.isApproved ? "APPROVED" : "PENDING",
+          previousStatus: updatedProfile?.isApproved ? "APPROVED" : "PENDING",
           reason,
           rejectedFields,
         },

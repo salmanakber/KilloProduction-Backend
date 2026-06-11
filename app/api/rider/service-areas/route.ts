@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 
 // GET /api/rider/service-areas - Get service areas for riders
 export async function GET(request: NextRequest) {
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     // Get service areas: global areas + rider's personal areas
     const serviceAreas = await prisma.serviceArea.findMany({
@@ -90,6 +94,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     const body = await request.json()
     const { name, type, priority, polygon, gridCells } = body

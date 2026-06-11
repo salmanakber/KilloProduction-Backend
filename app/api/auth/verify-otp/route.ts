@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateToken } from "@/lib/auth"
+import { authUserModuleInclude, formatAuthUserPayload, getUserModules } from "@/lib/auth-user-modules"
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,18 +30,7 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: {
-        userProfile: true,
-        userSettings: true,
-        wallet: true,
-        autoPartsStore: true,
-        pharmacy: true,
-        restaurant: true,
-        mechanicProfile: true,
-        groceryStore: true,
-        riderProfile: true,
-        wholesaler: true,
-      },
+      include: authUserModuleInclude,
     })
 
     if (!user) {
@@ -135,56 +125,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       token,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        email: user.email,
-        name: user.name,
-        role: user.role,
+      user: formatAuthUserPayload({
+        ...user,
         isVerified: isFirstCustomerVerification ? true : user.isVerified,
         isActive: isFirstCustomerVerification ? true : user.isActive,
         status: isFirstCustomerVerification ? "ACTIVE" : user.status,
-        avatar: user.avatar,
-        profile: user.userProfile,
-        settings: user.userSettings,
-        wallet: user.wallet,
-        modules: getUserModules(user),
-      },
+      }),
     })
   } catch (error) {
     console.error("OTP verification error:", error)
     return NextResponse.json({ error: "OTP verification failed" }, { status: 500 })
   }
-}
-
-function getUserModules(user: any): string[] {
-  const modules: string[] = []
-
-  // Helper to check values: arrays, objects, primitives
-  const hasValue = (field: any): boolean => {
-    if (!field) return false              // null, undefined, 0, false
-    if (Array.isArray(field)) return field.length > 0  // array not empty
-    if (typeof field === "object") return Object.keys(field).length > 0 // object not empty
-    return true                           // primitive is truthy
-  }
-
-  // Map user fields to module names
-  const fieldModuleMap: [any, string][] = [
-    [user.autoPartsStore, "AUTO_PARTS"],
-    [user.pharmacy, "PHARMACY"],
-    [user.restaurant, "FOOD"],
-    [user.groceryStore, "GROCERY"],
-    [user.riderProfile, "RIDING"],
-    [user.mechanicProfile, "MECHANIC"],
-    [user.userProfile, "CUSTOMER"],
-    [user.wholesaler, "SUPPLIER"],
-  ]
-
-  fieldModuleMap.forEach(([field, moduleName]) => {
-    if (hasValue(field)) {
-      modules.push(moduleName)
-    }
-  })
-
-  return modules
 }

@@ -218,6 +218,7 @@ export async function GET(request: NextRequest) {
           food: systemSettings?.foodCommission || 15.0,
           grocery: systemSettings?.groceryCommission || 8.0,
           riding: systemSettings?.ridingCommission || 20.0,
+          booking: systemSettings?.propertyCommission || 10.0,
         },
         paymentMethods: systemSettings?.paymentMethods || ["CARD", "BANK_TRANSFER", "WALLET"],
         /** Resolved Stripe/Paystack order for mobile checkout; persisted preference in paymentMethods JSON. */
@@ -256,6 +257,10 @@ export async function GET(request: NextRequest) {
           autoApproval: systemSettings?.ridingAutoApproval ?? false,
           backgroundCheck: systemSettings?.ridingBackgroundCheck ?? true,
           insuranceRequired: systemSettings?.ridingInsuranceRequired ?? true,
+        },
+        booking: {
+          enabled: systemSettings?.propertyEnabled ?? true,
+          autoApproval: systemSettings?.propertyAutoApproval ?? false,
         },
       },
       loyaltyPoints: loyaltyPointsMap,
@@ -432,6 +437,9 @@ export async function PUT(request: NextRequest) {
         ridingAutoApproval: settings.modules.riding.autoApproval,
         ridingBackgroundCheck: settings.modules.riding.backgroundCheck,
         ridingInsuranceRequired: settings.modules.riding.insuranceRequired,
+        propertyEnabled: settings.modules.booking?.enabled ?? true,
+        propertyAutoApproval: settings.modules.booking?.autoApproval ?? false,
+        propertyCommission: settings.payments.commissionRates.booking ?? 10.0,
 
         updatedAt: new Date(),
       },

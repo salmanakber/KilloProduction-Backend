@@ -390,6 +390,17 @@ export async function markRiderEarningAsPaid(
     if (!riderId) {
       throw new Error("Unable to resolve rider for earning payout.")
     }
+
+    if (rideBookingId) {
+      const ride = await prisma.rideBooking.findUnique({
+        where: { id: rideBookingId },
+        select: { paymentMethod: true },
+      })
+      if (String(ride?.paymentMethod || "").toUpperCase() === "PAY_ON_ARRIVAL") {
+        return { earning: { count: 0 }, commission: { count: 0 }, walletSkipped: true }
+      }
+    }
+
     const totalNet = pendingRows.reduce((s, e) => s + (e.netAmount || 0), 0)
 
     const updatedEarning = await prisma.riderEarning.updateMany({

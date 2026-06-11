@@ -95,6 +95,15 @@ async function main() {
       maxAmount: 1000, // Maximum 1000 NGN
       description: 'Platform commission for auto parts orders',
       isActive: true
+    },
+    {
+      module: 'PROPERTY',
+      commissionType: 'PLATFORM_FEE',
+      rate: 5,
+      minAmount: 50,
+      maxAmount: 5000,
+      description: 'Platform commission for property bookings',
+      isActive: true
     }
   ]
 
@@ -113,6 +122,15 @@ async function main() {
       minAmount: 5, // Minimum 5 NGN
       maxAmount: 300, // Maximum 300 NGN
       description: 'Wholesaler commission for pharmacy orders',
+      isActive: true
+    },
+    {
+      module: 'PROPERTY',
+      commissionType: 'VENDOR_COMMISSION',
+      rate: 10,
+      minAmount: 100,
+      maxAmount: 50000,
+      description: 'Host commission on completed property stays',
       isActive: true
     }
   ]

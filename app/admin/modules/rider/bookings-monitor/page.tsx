@@ -179,7 +179,7 @@ export default function RideBookingsMonitorPage() {
           <div className="flex flex-wrap items-center gap-3">
             <div className={cn("flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold", socketConnected ? "border-emerald-300/40 bg-emerald-500/20 text-emerald-100" : "border-white/15 bg-white/10 text-white/70")}>
               <span className={cn("h-2 w-2 rounded-full", socketConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-400")} />
-              {socketConnected ? "Live socket" : "Socket connecting…"}
+              {socketConnected ? "Live" : "connecting…"}
             </div>
             <button onClick={() => fetchData()} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-teal-900 shadow-lg hover:bg-teal-50">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Refresh

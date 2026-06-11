@@ -24,13 +24,13 @@ const nextConfig = {
   },
   experimental: {
     // pdfkit loads StandardFont .afm files from its package `data/` folder; bundling breaks those paths.
-    serverComponentsExternalPackages: ['ws', 'pdfkit'],
+    serverComponentsExternalPackages: ['ws', 'pdfkit', 'tesseract.js', 'tesseract.js-core'],
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals || []
       if (Array.isArray(config.externals)) {
-        config.externals.push('pdfkit')
+        config.externals.push('pdfkit', 'tesseract.js', 'tesseract.js-core')
       }
     }
     return config

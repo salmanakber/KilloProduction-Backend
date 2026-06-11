@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     const endDateParam = searchParams.get("endDate")
     const range = searchParams.get("range")
     const q = (searchParams.get("q") || "").trim().toLowerCase()
+    const moduleFilter = (searchParams.get("module") || "").trim().toUpperCase()
 
     const skip = (page - 1) * limit
 
@@ -49,6 +50,14 @@ export async function GET(request: NextRequest) {
           { orderId: { contains: q, mode: "insensitive" } },
           { user: { name: { contains: q, mode: "insensitive" } } },
           { user: { email: { contains: q, mode: "insensitive" } } },
+        ],
+      })
+    }
+    if (moduleFilter && moduleFilter !== "ALL") {
+      parts.push({
+        OR: [
+          { metadata: { path: ["module"], equals: moduleFilter } },
+          { description: { contains: moduleFilter === "PROPERTY" ? "property" : moduleFilter.toLowerCase(), mode: "insensitive" } },
         ],
       })
     }

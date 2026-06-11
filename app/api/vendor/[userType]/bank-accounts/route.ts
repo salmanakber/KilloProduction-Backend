@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import {
+  BankAccountResolveError,
+  requireVerifiedBankAccount,
+} from "@/lib/resolve-bank-account"
 
 export async function GET(
   request: NextRequest,
@@ -60,12 +64,27 @@ export async function POST(
       isDefault,
     } = body
 
-    // Validate required fields
-    if (!accountName || !accountNumber || !bankName) {
+    const resolvedBankCode = String(routingNumber || bankCode || "").trim()
+
+    if (!accountNumber || !bankName || !resolvedBankCode) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Bank name, account number, and bank code are required" },
         { status: 400 }
       )
+    }
+
+    let verified: Awaited<ReturnType<typeof requireVerifiedBankAccount>>
+    try {
+      verified = await requireVerifiedBankAccount({
+        accountNumber,
+        bankCode: resolvedBankCode,
+        userId: session.id,
+      })
+    } catch (err) {
+      if (err instanceof BankAccountResolveError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+      throw err
     }
 
     // If setting as default/primary, unset other primary accounts
@@ -80,15 +99,16 @@ export async function POST(
       data: {
         vendorId: session.id,
         bankName: bankName.trim(),
-        accountNumber: accountNumber.trim(),
-        accountName: accountName.trim().toUpperCase(),
-        routingNumber: routingNumber || bankCode || null,
+        accountNumber: verified.accountNumber,
+        accountName: verified.accountName,
+        bankCode: verified.bankCode,
+        routingNumber: verified.bankCode,
         swiftCode: swiftCode || null,
         isPrimary: isDefault || false,
-        // Account name is provider-verified in `resolve-account` before submit.
         isVerified: true,
         verificationStatus: "VERIFIED",
-        currency: "NGN", // For Nigerian banks
+        verifiedAt: new Date(),
+        currency: "NGN",
         accountType: "checking",
       },
     })

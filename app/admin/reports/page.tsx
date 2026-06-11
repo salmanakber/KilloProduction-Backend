@@ -107,6 +107,7 @@ const MODULE_COLORS: Record<string, string> = {
   PHARMACY: "#10b981",
   RIDING: "#f59e0b",
   AUTO_PARTS: "#ef4444",
+  PROPERTY: "#14b8a6",
 }
 const MODULE_LABELS: Record<string, string> = {
   FOOD: "Food",
@@ -114,6 +115,7 @@ const MODULE_LABELS: Record<string, string> = {
   PHARMACY: "Pharmacy",
   RIDING: "Riding",
   AUTO_PARTS: "Auto Parts",
+  PROPERTY: "Booking",
 }
 const TOP_LIST_PAGE_SIZE = 5
 
@@ -508,6 +510,7 @@ You MUST respond ONLY with a valid JSON object. Do not include markdown text out
             <option value="FOOD">Food</option>
             <option value="GROCERY">Grocery</option>
             <option value="RIDING">Riding</option>
+            <option value="PROPERTY">Booking</option>
           </select>
           <button onClick={() => generateReport("COMPREHENSIVE")} className="flex items-center text-xs h-10 px-4 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 shadow-sm transition-all">
             <BarChart3 className="h-4 w-4 mr-2" /> Generate Report

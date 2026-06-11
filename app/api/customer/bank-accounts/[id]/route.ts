@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
+import {
+  BankAccountResolveError,
+  requireVerifiedBankAccount,
+} from "@/lib/resolve-bank-account"
 
 export async function PUT(
   request: NextRequest,
@@ -42,17 +46,46 @@ export async function PUT(
       })
     }
 
-    const updateData: any = {}
-    if (body.accountName) updateData.accountHolderName = body.accountName.trim().toUpperCase()
-    if (body.accountNumber) updateData.accountNumber = body.accountNumber.trim()
+    const updatedAccountNumber = body.accountNumber?.trim() || existingAccount.accountNumber
+    const updatedBankCode = String(
+      body.routingNumber || body.bankCode || existingAccount.routingNumber || ""
+    ).trim()
+
+    let verifiedName = existingAccount.accountHolderName
+    const bankDetailsChanged =
+      updatedAccountNumber !== existingAccount.accountNumber ||
+      updatedBankCode !== String(existingAccount.routingNumber || "").trim()
+
+    if (bankDetailsChanged) {
+      if (!updatedBankCode) {
+        return NextResponse.json({ error: "Bank code is required" }, { status: 400 })
+      }
+      try {
+        const verified = await requireVerifiedBankAccount({
+          accountNumber: updatedAccountNumber,
+          bankCode: updatedBankCode,
+          userId: session.id,
+        })
+        verifiedName = verified.accountName
+      } catch (err) {
+        if (err instanceof BankAccountResolveError) {
+          return NextResponse.json({ error: err.message }, { status: err.status })
+        }
+        throw err
+      }
+    }
+
+    const updateData: Record<string, unknown> = {}
+    if (bankDetailsChanged || body.accountName) updateData.accountHolderName = verifiedName
+    if (body.accountNumber) updateData.accountNumber = updatedAccountNumber
     if (body.bankName) updateData.bankName = body.bankName.trim()
-    if (body.bankCode) updateData.routingNumber = body.bankCode
-    if (body.routingNumber) updateData.routingNumber = body.routingNumber
+    if (body.bankCode || body.routingNumber) updateData.routingNumber = updatedBankCode
     if (body.swiftCode) updateData.swiftCode = body.swiftCode
     if (body.isDefault !== undefined) updateData.isDefault = body.isDefault
     if (body.currency != null && String(body.currency).trim()) {
       updateData.currency = String(body.currency).trim().toUpperCase().slice(0, 3)
     }
+    if (bankDetailsChanged) updateData.isVerified = true
 
     const updatedAccount = await prisma.bankAccount.update({
       where: { id: bankAccountId },

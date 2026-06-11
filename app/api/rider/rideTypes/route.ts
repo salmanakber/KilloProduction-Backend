@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,6 +9,9 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     // Get all active ride types
     const rideTypes = await prisma.rideType.findMany({
@@ -56,6 +60,9 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     // Check if user is admin or has permission to create ride types
     if (user.role !== "ADMIN") {

@@ -2,6 +2,10 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { getSystemDefaultCurrency } from "@/lib/money-transfer-wallet"
+import {
+  BankAccountResolveError,
+  requireVerifiedBankAccount,
+} from "@/lib/resolve-bank-account"
 
 function normalizeBankCurrency(raw: unknown, fallback: string): string {
   if (typeof raw === "string" && raw.trim()) {
@@ -83,13 +87,27 @@ export async function POST(request: NextRequest) {
 
     const defaultCurrency = await getSystemDefaultCurrency()
     const currency = normalizeBankCurrency(bodyCurrency, defaultCurrency)
+    const resolvedBankCode = String(routingNumber || bankCode || "").trim()
 
-    // Validate required fields
-    if (!accountName || !accountNumber || !bankName) {
+    if (!accountNumber || !bankName || !resolvedBankCode) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Bank name, account number, and bank code are required" },
         { status: 400 }
       )
+    }
+
+    let verified: Awaited<ReturnType<typeof requireVerifiedBankAccount>>
+    try {
+      verified = await requireVerifiedBankAccount({
+        accountNumber,
+        bankCode: resolvedBankCode,
+        userId: session.id,
+      })
+    } catch (err) {
+      if (err instanceof BankAccountResolveError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+      throw err
     }
 
     // If setting as default, unset other default accounts
@@ -103,10 +121,10 @@ export async function POST(request: NextRequest) {
     const bankAccount = await prisma.bankAccount.create({
       data: {
         userId: session.id,
-        accountHolderName: accountName.trim().toUpperCase(),
-        accountNumber: accountNumber.trim(),
+        accountHolderName: verified.accountName,
+        accountNumber: verified.accountNumber,
         bankName: bankName.trim(),
-        routingNumber: routingNumber || bankCode || null,
+        routingNumber: verified.bankCode,
         swiftCode: swiftCode || null,
         accountType: "checking",
         currency,

@@ -1,0 +1,7 @@
+-- Property listing space & guest capacity
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "bedrooms" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "beds" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "masterBeds" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "maxAdults" INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "maxChildren" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "property_listings" ADD COLUMN IF NOT EXISTS "maxInfants" INTEGER NOT NULL DEFAULT 0;

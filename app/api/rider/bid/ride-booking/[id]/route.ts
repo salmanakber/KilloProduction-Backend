@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import {
@@ -32,6 +33,9 @@ export async function POST(
     if (!user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     const { id: rideBookingId } = params
     const { bidAmount, estimatedTime, message } = await request.json()

@@ -42,7 +42,7 @@ async function getDrivingDistance(
   try {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY
     if (!apiKey) {
-      console.log('⚠️ Google Maps API key not found, using Haversine distance')
+      
       return null
     }
 
@@ -62,7 +62,7 @@ async function getDrivingDistance(
       }
     }
     
-    console.log('⚠️ Google Maps API returned error:', data.status)
+    
     return null
   } catch (error) {
     console.error('❌ Error calling Google Maps API:', error)
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
       }, { status: 400 })
     }
 
-    console.log(`🔍 Searching for riders near ${latitude}, ${longitude} within ${maxDistance}km`)
+    
 
     // Fetch all available riders with their profiles
     const riders = await prisma.riderProfile.findMany({
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
       take: 200 // Get more than needed for filtering
     })
 
-    console.log(`📍 Found ${riders.length} available riders with recent locations`)
+    
 
     // Filter riders by distance and other criteria
     const nearbyRiders: any[] = []
@@ -221,8 +221,7 @@ export async function GET(request: NextRequest) {
     nearbyRiders.sort((a, b) => a.distance.meters - b.distance.meters)
     const limitedRiders = nearbyRiders.slice(0, limit)
 
-    console.log(`✅ Found ${limitedRiders.length} riders within ${maxDistance}km`)
-    console.log('💰 nearbyRiders', nearbyRiders)
+    
 
     // Calculate statistics
     const stats = {

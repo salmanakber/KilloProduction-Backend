@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { RiderBonusChallengeStatus } from "@prisma/client"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { prisma } from "@/lib/prisma"
 
 /** Current rider bonus challenge + participation (if any). */
@@ -10,6 +11,9 @@ export async function GET(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const now = new Date()
     const challenge = await prisma.riderPeakBonusChallenge.findFirst({

@@ -62,6 +62,29 @@ export class NotificationBridge {
         actionUrl: data.actionUrl
       })
 
+      // Always mirror to websocket (in-app badge + list), independent of push tokens
+      try {
+        const { getSocketServer } = await import("./socket-init")
+        const socketServer = getSocketServer()
+        socketServer.emitEventToUser(data.userId, "notification", {
+          id: notification.id,
+          userId: data.userId,
+          title: data.title,
+          message: data.message,
+          type: data.type,
+          module: data.module,
+          data: data.data,
+          imageUrl: data.imageUrl,
+          actionUrl: data.actionUrl,
+          isRead: false,
+          createdAt: notification.createdAt.toISOString(),
+          status: "SENT",
+        })
+        await socketServer.emitNotificationCountToUser(data.userId)
+      } catch {
+        /* non-fatal */
+      }
+
       return notification
     } catch (error) {
       console.error("Notification send error:", error)

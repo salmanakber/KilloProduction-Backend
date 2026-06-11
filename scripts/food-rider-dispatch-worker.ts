@@ -15,6 +15,7 @@ import { catchUpOverdueScheduledCampaigns } from "@/lib/marketing-scheduled-catc
 import { processRiderBonusTick } from "@/lib/rider-bonus-engine";
 import { runMarketingAutomationTick } from "@/lib/marketing-automation-runner";
 import { processRiderWalletClearance } from "@/lib/process-rider-wallet-clearance";
+import { processRiderPayableCommissionRecovery } from "@/lib/process-rider-payable-commission";
 import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
 import { runHealthActivityNotificationsJob } from "@/lib/health-activity-notifications-runner";
 import { runLowStockNotificationsJob } from "@/lib/low-stock-notifications-runner";
@@ -30,6 +31,8 @@ import { MONEY_FX_SNAPSHOT_QUEUE_NAME } from "@/lib/money-fx-snapshot-queue";
 import { runMoneyFxSnapshotTick } from "@/lib/process-money-fx-snapshot-job";
 import { processDueNotificationBroadcasts } from "@/lib/process-due-notification-broadcasts";
 import { runPickupWaitingJobs } from "@/lib/pickup-waiting";
+import { processPropertyBookingScheduledJobs } from "@/lib/process-property-booking-jobs";
+import { createGuardedInterval } from "@/lib/worker-interval";
 
 const url = process.env.REDIS_URL;
 
@@ -181,6 +184,7 @@ const BONUS_MS = parseMs(process.env.RIDER_BONUS_TICK_MS, 10 * 60 * 1000);
 const MARKETING_MS = parseMs(process.env.MARKETING_AUTOMATION_MS, 6 * 60 * 60 * 1000, 60 * 1000);
 const MARKETING_CATCHUP_MS = parseMs(process.env.MARKETING_SCHEDULED_CATCHUP_MS, 60 * 1000, 15 * 1000);
 const WALLET_CLEARANCE_MS = parseMs(process.env.RIDER_WALLET_CLEARANCE_TICK_MS, 15 * 60 * 1000);
+const PAYABLE_COMMISSION_MS = parseMs(process.env.RIDER_PAYABLE_COMMISSION_TICK_MS, 15 * 60 * 1000);
 /** Same logic as GET /api/cron/pill-reminders — keeps reminders firing if external cron is misconfigured. */
 const PILL_REMINDERS_MS = parseMs(process.env.PILL_REMINDERS_TICK_MS, 60 * 1000, 30 * 1000);
 /** Health activity summaries, goal achievements, evening nudges (`runHealthActivityNotificationsJob`). */
@@ -210,150 +214,150 @@ const PICKUP_WAITING_NOTIFY_MS = parseMs(
 );
 
 console.log(
-  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms pill=${PILL_REMINDERS_MS}ms healthActivity=${HEALTH_ACTIVITY_MS}ms healthDiet=${HEALTH_DIET_MS}ms lowStock=${LOW_STOCK_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
+  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms payableCommission=${PAYABLE_COMMISSION_MS}ms pill=${PILL_REMINDERS_MS}ms healthActivity=${HEALTH_ACTIVITY_MS}ms healthDiet=${HEALTH_DIET_MS}ms lowStock=${LOW_STOCK_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
 );
 
-setInterval(() => {
-  processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick]", e));
-}, BONUS_MS);
+createGuardedInterval("rider-bonus-tick", () => processRiderBonusTick(), BONUS_MS);
 
 /** Heuristic abandoned-cart style automation (not schedule-based). */
-setInterval(() => {
-  runMarketingAutomationTick()
-    .then(({ sent, skipped }) => {
-      if (sent > 0 || skipped !== "ok") {
-        console.log(`[marketing-automation] sent=${sent} skipped=${skipped}`);
-      }
-    })
-    .catch((e) => console.error("[marketing-automation]", e));
-}, MARKETING_MS);
+createGuardedInterval(
+  "marketing-automation",
+  async () => {
+    const { sent, skipped } = await runMarketingAutomationTick();
+    if (sent > 0 || skipped !== "ok") {
+      console.log(`[marketing-automation] sent=${sent} skipped=${skipped}`);
+    }
+  },
+  MARKETING_MS
+);
 
 /** Safety net for SCHEDULED campaigns if a delayed BullMQ job was missed. */
-setInterval(() => {
-  catchUpOverdueScheduledCampaigns()
-    .then(({ attempted, launched }) => {
-      if (attempted > 0) {
-        console.log(`[marketing-scheduled-catchup] attempted=${attempted} launched=${launched}`);
-      }
-    })
-    .catch((e) => console.error("[marketing-scheduled-catchup]", e));
-}, MARKETING_CATCHUP_MS);
-
-void processRiderBonusTick().catch((e) => console.error("[rider-bonus-tick] boot", e));
-
-void runMarketingAutomationTick()
-  .then(({ sent, skipped }) => {
-    console.log(`[marketing-automation] boot sent=${sent} skipped=${skipped}`);
-  })
-  .catch((e) => console.error("[marketing-automation] boot", e));
-
-void catchUpOverdueScheduledCampaigns().catch((e) =>
-  console.error("[marketing-scheduled-catchup] boot", e)
+createGuardedInterval(
+  "marketing-scheduled-catchup",
+  async () => {
+    const { attempted, launched } = await catchUpOverdueScheduledCampaigns();
+    if (attempted > 0) {
+      console.log(`[marketing-scheduled-catchup] attempted=${attempted} launched=${launched}`);
+    }
+  },
+  MARKETING_CATCHUP_MS
 );
 
-setInterval(() => {
-  processDueNotificationBroadcasts()
-    .then(({ attempted, launched }) => {
-      if (attempted > 0) {
-        console.log(`[admin-notification-schedule] due=${attempted} sent=${launched}`);
-      }
-    })
-    .catch((e) => console.error("[admin-notification-schedule]", e));
-}, NOTIFICATION_BROADCAST_MS);
-
-void processDueNotificationBroadcasts().catch((e) =>
-  console.error("[admin-notification-schedule] boot", e)
+createGuardedInterval(
+  "admin-notification-schedule",
+  async () => {
+    const { attempted, launched } = await processDueNotificationBroadcasts();
+    if (attempted > 0) {
+      console.log(`[admin-notification-schedule] due=${attempted} sent=${launched}`);
+    }
+  },
+  NOTIFICATION_BROADCAST_MS
 );
 
-setInterval(() => {
-  runPickupWaitingJobs()
-    .then(({ rideCandidates, courierCandidates, grace50, grace90, accruals, chargeStarts }) => {
-      if (
-        grace50 > 0 ||
-        grace90 > 0 ||
-        accruals > 0 ||
-        chargeStarts > 0 ||
-        rideCandidates > 0 ||
-        courierCandidates > 0
-      ) {
-        console.log(
-          `[pickup-waiting] rideQ=${rideCandidates} courierQ=${courierCandidates} grace50=${grace50} grace90=${grace90} accruals=${accruals} chargeStarts=${chargeStarts}`
-        );
-      }
-    })
-    .catch((e) => console.error("[pickup-waiting]", e));
-}, PICKUP_WAITING_NOTIFY_MS);
-
-void runPickupWaitingJobs().catch((e) => console.error("[pickup-waiting] boot", e));
-
-setInterval(() => {
-  processRiderWalletClearance()
-    .then(({ cleared }) => {
-      if (cleared > 0) console.log(`[rider-wallet-clearance] cleared=${cleared}`);
-    })
-    .catch((e) => console.error("[rider-wallet-clearance]", e));
-}, WALLET_CLEARANCE_MS);
-
-void processRiderWalletClearance().catch((e) =>
-  console.error("[rider-wallet-clearance] boot", e)
+createGuardedInterval(
+  "pickup-waiting",
+  async () => {
+    const { rideCandidates, courierCandidates, grace50, grace90, accruals, chargeStarts } =
+      await runPickupWaitingJobs();
+    if (
+      grace50 > 0 ||
+      grace90 > 0 ||
+      accruals > 0 ||
+      chargeStarts > 0 ||
+      rideCandidates > 0 ||
+      courierCandidates > 0
+    ) {
+      console.log(
+        `[pickup-waiting] rideQ=${rideCandidates} courierQ=${courierCandidates} grace50=${grace50} grace90=${grace90} accruals=${accruals} chargeStarts=${chargeStarts}`
+      );
+    }
+  },
+  PICKUP_WAITING_NOTIFY_MS
 );
 
-setInterval(() => {
-  runPillRemindersJob()
-    .then(({ notificationsSent, remindersChecked }) => {
-      if (notificationsSent > 0 || remindersChecked > 0) {
-        console.log(
-          `[pill-reminders] checked=${remindersChecked} notifications=${notificationsSent}`
-        );
-      }
-    })
-    .catch((e) => console.error("[pill-reminders]", e));
-}, PILL_REMINDERS_MS);
-
-void runPillRemindersJob().catch((e) => console.error("[pill-reminders] boot", e));
-
-setInterval(() => {
-  runHealthActivityNotificationsJob()
-    .then((r) => {
-      if (r.notificationsSent > 0) {
-        console.log(
-          `[health-activity] sent=${r.notificationsSent} daily=${r.dailySummaries} weekly=${r.weeklySummaries} monthly=${r.monthlySummaries} goals=${r.goalAchievements} nudges=${r.activityNudges} walkReports=${r.todayWalkReports}`
-        );
-      }
-    })
-    .catch((e) => console.error("[health-activity]", e));
-}, HEALTH_ACTIVITY_MS);
-
-void runHealthActivityNotificationsJob().catch((e) =>
-  console.error("[health-activity] boot", e)
+createGuardedInterval(
+  "rider-wallet-clearance",
+  async () => {
+    const { cleared } = await processRiderWalletClearance();
+    if (cleared > 0) console.log(`[rider-wallet-clearance] cleared=${cleared}`);
+  },
+  WALLET_CLEARANCE_MS
 );
 
-setInterval(() => {
-  runLowStockNotificationsJob()
-    .then((r) => {
-      if (r.notificationsSent > 0) {
-        console.log(
-          `[low-stock] checked=${r.checked} sent=${r.notificationsSent} modules=${JSON.stringify(r.byModule)}`
-        );
-      }
-    })
-    .catch((e) => console.error("[low-stock]", e));
-}, LOW_STOCK_MS);
+createGuardedInterval(
+  "rider-payable-commission",
+  async () => {
+    const { collected, reminded, locked } = await processRiderPayableCommissionRecovery();
+    if (collected > 0 || reminded > 0 || locked > 0) {
+      console.log(
+        `[rider-payable-commission] collected=${collected} reminded=${reminded} locked=${locked}`
+      );
+    }
+  },
+  PAYABLE_COMMISSION_MS
+);
 
-void runLowStockNotificationsJob().catch((e) => console.error("[low-stock] boot", e));
+createGuardedInterval(
+  "pill-reminders",
+  async () => {
+    const { notificationsSent, remindersChecked } = await runPillRemindersJob();
+    if (notificationsSent > 0 || remindersChecked > 0) {
+      console.log(`[pill-reminders] checked=${remindersChecked} notifications=${notificationsSent}`);
+    }
+  },
+  PILL_REMINDERS_MS
+);
 
-setInterval(() => {
-  runHealthDietMealRemindersJob()
-    .then((r) => {
-      if (r.notificationsSent > 0) {
-        console.log(`[health-diet] mealReminders=${r.mealReminders} sent=${r.notificationsSent}`);
-      }
-    })
-    .catch((e) => console.error("[health-diet]", e));
-  runHealthDietMorningAdviceJob().catch((e) => console.error("[health-diet-advice]", e));
-}, HEALTH_DIET_MS);
+createGuardedInterval(
+  "health-activity",
+  async () => {
+    const r = await runHealthActivityNotificationsJob();
+    if (r.notificationsSent > 0) {
+      console.log(
+        `[health-activity] sent=${r.notificationsSent} daily=${r.dailySummaries} weekly=${r.weeklySummaries} monthly=${r.monthlySummaries} goals=${r.goalAchievements} nudges=${r.activityNudges} walkReports=${r.todayWalkReports}`
+      );
+    }
+  },
+  HEALTH_ACTIVITY_MS
+);
 
-void runHealthDietMealRemindersJob().catch((e) => console.error("[health-diet] boot", e));
+createGuardedInterval(
+  "low-stock",
+  async () => {
+    const r = await runLowStockNotificationsJob();
+    if (r.notificationsSent > 0) {
+      console.log(
+        `[low-stock] checked=${r.checked} sent=${r.notificationsSent} modules=${JSON.stringify(r.byModule)}`
+      );
+    }
+  },
+  LOW_STOCK_MS
+);
+
+createGuardedInterval(
+  "health-diet",
+  async () => {
+    const r = await runHealthDietMealRemindersJob();
+    if (r.notificationsSent > 0) {
+      console.log(`[health-diet] mealReminders=${r.mealReminders} sent=${r.notificationsSent}`);
+    }
+    await runHealthDietMorningAdviceJob();
+  },
+  HEALTH_DIET_MS
+);
+
+const PROPERTY_BOOKING_JOBS_MS = parseMs(process.env.PROPERTY_BOOKING_JOBS_MS, 5 * 60 * 1000, 60 * 1000);
+
+createGuardedInterval(
+  "property-booking-jobs",
+  async () => {
+    const r = await processPropertyBookingScheduledJobs();
+    if (r.reminders > 0 || r.autoCompleted > 0) {
+      console.log(`[property-booking-jobs] reminders=${r.reminders} autoCompleted=${r.autoCompleted}`);
+    }
+  },
+  PROPERTY_BOOKING_JOBS_MS
+);
 
 async function cleanupOldBookingRequests() {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -438,47 +442,39 @@ async function processScheduledAccountDeletionPurge() {
   }
 }
 
-setInterval(() => {
-  cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup]", e));
-}, BOOKING_CLEANUP_MS);
+createGuardedInterval("booking-cleanup", () => cleanupOldBookingRequests(), BOOKING_CLEANUP_MS);
 
-void cleanupOldBookingRequests().catch((e) => console.error("[booking-cleanup] boot", e));
-
-setInterval(() => {
-  processScheduledAccountDeletionPurge().catch((e) => console.error("[account-deletion-purge]", e));
-}, ACCOUNT_DELETION_PURGE_MS);
-
-void processScheduledAccountDeletionPurge().catch((e) =>
-  console.error("[account-deletion-purge] boot", e)
+createGuardedInterval(
+  "account-deletion-purge",
+  () => processScheduledAccountDeletionPurge(),
+  ACCOUNT_DELETION_PURGE_MS
 );
 
-setInterval(() => {
-  Promise.all([
+createGuardedInterval(
+  "money-transfer-worker",
+  async () => {
+    const [d, a, w, s] = await Promise.all([
       processMoneyScheduledDue(),
       processMoneyRateAlerts(),
       processDueMoneyWalletWithdrawals(),
       processSmartAutoPendingWithdrawals(),
-    ])
-    .then(([d, a, w, s]) => {
-      if (
-        d.processed > 0 ||
-        a.notified > 0 ||
-        w.processed > 0 ||
-        w.failed > 0 ||
-        s.processed > 0 ||
-        s.failed > 0 ||
-        s.skipped > 0
-      ) {
-        console.log(
-          `[money-transfer-worker] schedules=${d.processed} rateAlerts=${a.notified} walletPayouts=${w.processed} walletPayoutFailed=${w.failed} smartAuto=${s.processed}/${s.failed}/${s.skipped}`
-        );
-      }
-    })
-    .catch((e) => console.error("[money-transfer-worker]", e));
-}, MONEY_TRANSFER_TICK_MS);
-
-void processMoneyScheduledDue().catch((e) => console.error("[money-transfer-worker] boot schedules", e));
-void processMoneyRateAlerts().catch((e) => console.error("[money-transfer-worker] boot alerts", e));
+    ]);
+    if (
+      d.processed > 0 ||
+      a.notified > 0 ||
+      w.processed > 0 ||
+      w.failed > 0 ||
+      s.processed > 0 ||
+      s.failed > 0 ||
+      s.skipped > 0
+    ) {
+      console.log(
+        `[money-transfer-worker] schedules=${d.processed} rateAlerts=${a.notified} walletPayouts=${w.processed} walletPayoutFailed=${w.failed} smartAuto=${s.processed}/${s.failed}/${s.skipped}`
+      );
+    }
+  },
+  MONEY_TRANSFER_TICK_MS
+);
 
 // Graceful shutdown (IMPORTANT)
 process.on("SIGINT", async () => {

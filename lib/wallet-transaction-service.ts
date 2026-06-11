@@ -32,12 +32,15 @@ export async function createWalletTransaction(
   const status = params.status || 'PENDING'
 
   const meta = params.metadata as { transactionType?: string } | undefined
+  const RIDER_CLEARANCE_TX_TYPES = new Set(['EARNING_PAYOUT', 'DELIVERY_PAYMENT'])
   let clearsAtForRow: Date | null | undefined = params.clearsAt
   if (
     clearsAtForRow == null &&
+    params.clearsAt === undefined &&
     status === 'PENDING' &&
     (params.type === 'CREDIT' || params.type === 'BONUS') &&
-    meta?.transactionType === 'EARNING_PAYOUT'
+    meta?.transactionType &&
+    RIDER_CLEARANCE_TX_TYPES.has(meta.transactionType)
   ) {
     const { getRiderWalletClearanceDays, computeWalletClearsAt } = await import(
       '@/lib/rider-wallet-clearance-settings'
@@ -114,6 +117,11 @@ export async function completeWalletTransaction(transactionId: string): Promise<
 
   if (transaction.status === 'COMPLETED') {
     return // Already completed
+  }
+
+  /** Held rider credits must only settle via processRiderWalletClearance when clearsAt has passed. */
+  if (transaction.clearsAt && transaction.clearsAt.getTime() > Date.now()) {
+    return
   }
 
   let wallet = await prisma.wallet.findUnique({
@@ -196,6 +204,8 @@ export async function createOrderCompletionWalletTransactions(params: {
       description: params.description || `Delivery payment for order ${params.orderId}`,
       orderId: params.orderId,
       status: 'PENDING',
+      /** Checkout rows settle on delivery completion — no clearance hold. */
+      clearsAt: null,
       metadata: {
         courierBookingId: params.courierBookingId,
         transactionType: 'DELIVERY_PAYMENT',

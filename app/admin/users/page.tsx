@@ -62,6 +62,18 @@ export default function UserManagement() {
   const [showViewModal, setShowViewModal] = useState(false)
   const [selectedUserForModal, setSelectedUserForModal] = useState<AdminUser | null>(null)
   const { toast } = useToast()
+  const [systemCurrency, setSystemCurrency] = useState("NGN")
+
+  useEffect(() => {
+    fetch("/api/admin/settings")
+      .then((r) => r.json())
+      .then((d) =>
+        {
+          setSystemCurrency(d?.defaultCurrencyCode || "NGN")
+        }
+      )
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetchUsers()
@@ -259,6 +271,7 @@ export default function UserManagement() {
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">User Management</h1>
           <p className="text-slate-500 mt-1.5 text-sm font-medium">Manage all users across the Kilo Super App platform</p>
+        
         </div>
         <div className="flex items-center space-x-3">
           <Button variant="outline" className="flex items-center bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm rounded-xl h-10 font-semibold transition-all">
@@ -322,6 +335,7 @@ export default function UserManagement() {
                   <SelectItem value="FOOD">Food</SelectItem>
                   <SelectItem value="GROCERY">Grocery</SelectItem>
                   <SelectItem value="RIDING">Riding</SelectItem>
+                  <SelectItem value="PROPERTY">Booking</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -528,7 +542,7 @@ export default function UserManagement() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm">
                         <div className="text-slate-900 font-bold">{user.totalOrders} <span className="text-slate-500 font-medium text-xs">orders</span></div>
-                        <div className="text-slate-700 font-semibold mt-0.5">₦{user.totalSpent.toLocaleString()} <span className="text-slate-500 font-medium text-xs">spent</span></div>
+                        <div className="text-slate-700 font-semibold mt-0.5">{systemCurrency} {user.totalSpent.toLocaleString()} <span className="text-slate-500 font-medium text-xs">spent</span></div>
                         {user.rating > 0 && (
                           <div className="flex items-center mt-1.5">
                             <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 mr-1" />
@@ -554,7 +568,7 @@ export default function UserManagement() {
                               <DialogDescription className="text-slate-500 font-medium">Comprehensive information for {selectedUserForModal?.name}</DialogDescription>
                             </DialogHeader>
                             {selectedUserForModal && (
-                              <UserViewModal userId={selectedUserForModal.id} onClose={() => setShowViewModal(false)} />
+                              <UserViewModal userId={selectedUserForModal.id} onClose={() => setShowViewModal(false)} systemCurrency={systemCurrency} />
                             )}
                           </DialogContent>
                         </Dialog>
@@ -581,6 +595,7 @@ export default function UserManagement() {
                                   setShowEditModal(false)
                                 }}
                                 onClose={() => setShowEditModal(false)}
+                                systemCurrency={systemCurrency}
                               />
                             )}
                           </DialogContent>

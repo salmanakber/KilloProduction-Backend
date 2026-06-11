@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { socketIOServer } from "@/lib/socket-server"
@@ -26,6 +27,9 @@ export async function GET(
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const bookingId = params.id
 
@@ -254,6 +258,9 @@ export async function PUT(
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const bookingId = params.id
     const body = await request.json()

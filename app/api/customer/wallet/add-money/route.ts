@@ -81,7 +81,8 @@ export async function POST(request: NextRequest) {
         processingFee,
         currency,
         gateway,
-        walletId: wallet.id
+        walletId: wallet.id,
+        processingRate,
       }
     })
   } catch (error) {

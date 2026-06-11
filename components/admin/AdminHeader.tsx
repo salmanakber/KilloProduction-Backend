@@ -15,6 +15,8 @@ interface Notification {
   type: "INFO" | "WARNING" | "ERROR" | "SUCCESS"
   isRead: boolean
   createdAt: string
+  actionUrl?: string
+  data?: any
 }
 
 interface AdminHeaderProps {
@@ -94,6 +96,7 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
         const data = await response.json()
         console.log("data", data)
         setNotifications(data.notifications)
+        
       }
     } catch (error) {
       console.error("Failed to fetch notifications:", error)
@@ -250,7 +253,12 @@ export default function AdminHeader({ onMenuToggle, isMobileMenuOpen }: AdminHea
                         className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
                           !notification.isRead ? "bg-blue-50" : ""
                         }`}
-                        onClick={() => markAsRead(notification.id)}
+                        onClick={() => {
+                          markAsRead(notification.id)
+                          if (notification.actionUrl) {
+                            router.push(notification.actionUrl)
+                          }
+                        }}
                       >
                         <div className="flex items-start space-x-3">
                           <span className="text-lg">{getNotificationIcon(notification.type)}</span>

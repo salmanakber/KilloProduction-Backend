@@ -7,9 +7,14 @@ import { fetchRider } from "./services/riderService";
 import { NotificationBridge } from "./notification-bridge";
 import {
   buildRiderServiceFilter,
-  courierMatchesRider,
-  rideBookingMatchesRider,
 } from "@/lib/rider-request-eligibility";
+import {
+  extractRequestType,
+  extractRequestVehicleType,
+  isRequestListingExpired,
+  isScheduledRequestVisible,
+  shouldBroadcastRequestToRider,
+} from "@/lib/rider-available-requests-shared";
 import { getTripShareSnapshotByToken, tripShareRoom } from "@/lib/ride-trip-share";
 
 interface AuthenticatedSocket extends Socket {
@@ -46,14 +51,19 @@ class SocketIOServer {
     if (!server) {
       return;
     }
-    if (this.io) {
-      return;
-    }
 
-    // Create or reuse Socket.IO instance
+    const g = globalThis as typeof globalThis & {
+      __killoHttpServer?: any;
+      __killoSocketIOServer?: SocketIOServer;
+      __socketIOServer?: SocketIOServer;
+    };
+    g.__killoHttpServer = server;
+    g.__killoSocketIOServer = this;
+    g.__socketIOServer = this;
+
     if (server.io) {
       this.io = server.io as IOServer;
-    } else {
+    } else if (!this.io) {
       this.io = new IOServer(server, {
         path: "/api/socketio",
         cors: { origin: process.env.SOCKET_CORS_ORIGIN || "*" },
@@ -65,8 +75,10 @@ class SocketIOServer {
       server.io = this.io;
     }
 
-    // Prevent multiple attaches
-    if ((server as any).__socketIOServerInitialized) return;
+    if ((server as any).__socketIOServerInitialized) {
+      this.reconcileConnectionsFromIo();
+      return;
+    }
     (server as any).__socketIOServerInitialized = true;
 
     // Handshake authentication middleware
@@ -101,20 +113,18 @@ class SocketIOServer {
     // Connection
     this.io.on("connection", (socket: AuthenticatedSocket) => {
       this.totalConnections++;
-      this.clients.set(socket.id, socket); 
+      this.clients.set(socket.id, socket);
       if (socket.data?.userId) {
-        if (socket.data.role === "RIDER") {
-          // Keep riders presence room, but do NOT auto-join dispatch room.
-          // Dispatch room must be joined explicitly from frontend.
-          socket.join("riders:online");
-        }
-        // Ensure user is in userSockets map (in case handshake auth already added them)
-        if (!this.userSockets.has(socket.data.userId)) {
-          this.addUserSocket(socket.data.userId, socket);
-        }
-        this._sendInitialEvents(socket, socket.data.userId);
-        // Notify chat partners that user is online
-        this._notifyUserPresence(socket.data.userId, true);
+        this.joinAuthenticatedUserRooms(socket);
+        this.addUserSocket(socket.data.userId, socket);
+    
+        socket.emit("authenticated", {
+          success: true,
+          userId: socket.data.userId,
+          role: socket.data.role,
+        });
+        void this._sendInitialEvents(socket, socket.data.userId);
+        void this._notifyUserPresence(socket.data.userId, true);
       }
 
       // Fallback event-based authentication
@@ -133,17 +143,31 @@ class SocketIOServer {
           socket.data.role = user.role;
           socket.data.authToken = payload.token;
           this.clients.set(socket.id, socket)
-          this.addUserSocket(user.id, socket) // add user socket to the map
+          this.addUserSocket(user.id, socket)
+          this.joinAuthenticatedUserRooms(socket);
 
           ack?.({ ok: true });
-          socket.emit("authenticated", { userId: user.id, role: user.role });
-          this._sendInitialEvents(socket, user.id);
-          
-          // Notify chat partners that user is online
-          this._notifyUserPresence(user.id, true);
+          socket.emit("authenticated", { userId: user.id, role: user.role, success: true });
+          void this._sendInitialEvents(socket, user.id);
+          void this._notifyUserPresence(user.id, true);
         } catch (e: any) {
           ack?.({ ok: false, error: e.message });
           socket.emit("auth_error", { message: e.message });
+        }
+      });
+
+      socket.on("property_chat_subscribe", (payload: { conversationId?: string }) => {
+        const cid = typeof payload?.conversationId === "string" ? payload.conversationId : null;
+        if (cid && socket.connected && socket.data?.userId) {
+          socket.join(`prop_chat:${cid}`);
+          socket.emit("property_chat_subscribed", { conversationId: cid });
+        }
+      });
+
+      socket.on("property_chat_unsubscribe", (payload: { conversationId?: string }) => {
+        const cid = typeof payload?.conversationId === "string" ? payload.conversationId : null;
+        if (cid && socket.connected) {
+          socket.leave(`prop_chat:${cid}`);
         }
       });
 
@@ -190,6 +214,11 @@ class SocketIOServer {
           socket.leave(`rider_dispatch:${socket.data.userId}`);
           this.emitRiderStatusChange(riderUserId, false, socket);
         }
+      });
+
+      socket.on("join_app_presence", () => {
+        if (!socket.data?.userId) return;
+        this.joinAuthenticatedUserRooms(socket);
       });
 
       /** Family / friends: track trip with temporary share token (no login). */
@@ -352,7 +381,7 @@ class SocketIOServer {
       );
 
       socket.on("rider_location_update", async ({ bookingId, riderId, lat, lng, heading, timestamp }) => {
-        console.log("🔑 rider_location_update received:", { bookingId, riderId, lat, lng, heading, timestamp })
+        
         if (!socket.data?.userId) return;
         
         // Emit to mechanics (for auto-parts service)
@@ -360,7 +389,7 @@ class SocketIOServer {
           s.data?.role === 'MECHANIC' && s.id !== socket.id && s.connected
         );
         if (mechanicSockets.length > 0) {
-          console.log(`📍 Broadcasting rider location to ${mechanicSockets.length} connected mechanics`);
+
           mechanicSockets.forEach(s => {
             s.emit("rider_location_update", { bookingId, riderId, lat, lng, heading, timestamp })
           });
@@ -381,7 +410,7 @@ class SocketIOServer {
             if (booking?.customerId) {
               const customerSockets = this.getUserSockets(booking.customerId);
               if (customerSockets.length > 0) {
-                console.log(`📍 Broadcasting rider location to customer ${booking.customerId} for booking ${bookingId}`);
+                
                 customerSockets.forEach(s => {
                   s.emit("rider_location_update", { 
                     bookingId, 
@@ -417,14 +446,14 @@ class SocketIOServer {
       socket.on("live_tracking", async ({ lat, lng, userId }) => {
         if (!socket.data?.userId) return;
         
-        console.log(`📍 aaaa Live tracking update from rider ${socket.data.userId}:`, { lat, lng, userId });
+        
         
         // Broadcast to all connected users (pharmacies tracking this rider)
         // This is a simple broadcast - in production you might want to be more specific
         const allSockets = Array.from(this.clients.values()).filter(s => s.id !== socket.id);
         
         if (allSockets.length > 0) {
-          console.log(`📍 Broadcasting rider location to ${allSockets.length} connected users`);
+          
           allSockets.forEach(s => {
             s.emit("live_tracking_response", { 
               lat, 
@@ -434,7 +463,7 @@ class SocketIOServer {
             });
           });
         } else {
-          console.log(`📍 No other users connected to receive location updates`);
+          
         }
         
         if (userId) {
@@ -443,13 +472,8 @@ class SocketIOServer {
       });
 
       socket.on("booking_status_update", async ({ bookingId, bookingType, status, bookingNumber, isBookedByAnother, riderId, userId, latitude, longitude, timestamp }) => {
-        console.log(`📍 [BACKEND] booking_status_update received from socket ${socket.id}`, { bookingId, bookingType, status, riderId, userId, latitude, longitude });
-        console.log(`📍 [BACKEND] Socket authenticated?`, !!socket.data?.userId, `userId: ${socket.data?.userId}`);
-        console.log(`📍 [BACKEND] Total clients connected:`, this.clients.size);
-        console.log(`📍 [BACKEND] All client details:`, Array.from(this.clients.values()).map(s => ({ id: s.id, userId: s.data?.userId, connected: s.connected })));
         
         if (!socket.data?.userId) {
-          console.log(`⚠️ [BACKEND] Socket not authenticated, returning`);
           return;
         }
         
@@ -457,7 +481,6 @@ class SocketIOServer {
         // This is a simple broadcast - in production you might want to be more specific
         const allSockets = Array.from(this.clients.values()).filter(s => s.id !== socket.id);
         
-        console.log(`📍 [BACKEND] Sockets to broadcast to (excluding sender):`, allSockets.length);
         
         this.emitAdminBookingsMonitor("admin_booking_status_update", {
           bookingId,
@@ -471,9 +494,7 @@ class SocketIOServer {
         });
 
         if (allSockets.length > 0) {
-          console.log(`📍 [BACKEND] Broadcasting booking status to ${allSockets.length} connected users`);
           allSockets.forEach(s => {
-            console.log(`📍 [BACKEND] Broadcasting to socket ${s.id}, userId: ${s.data?.userId}`);
             s.emit("booking_status_update", { 
               bookingId, 
               bookingType, 
@@ -487,10 +508,7 @@ class SocketIOServer {
               timestamp: timestamp || new Date().toISOString()
             });
           });
-          console.log(`✅ [BACKEND] Broadcast completed successfully`);
         } else {
-          console.log(`⚠️ [BACKEND] No other users connected to receive booking status updates`);
-          console.log(`⚠️ [BACKEND] This means only the sender (rider) is connected. Pharmacy might not be connected.`);
         }
         
         if (userId) {
@@ -518,7 +536,6 @@ class SocketIOServer {
             return;
           }
 
-          console.log("📍 update_location received from rider:", socket.data.userId, { lat: data.lat, lng: data.lng });
 
           // Update rider location in database
           const result = await fetchRider(socket.data.userId, data.lat, data.lng);
@@ -532,7 +549,6 @@ class SocketIOServer {
           );
           
           if (customerSockets.length > 0) {
-            console.log(`📍 Broadcasting rider location to ${customerSockets.length} customers`);
             customerSockets.forEach(s => {
               s.emit("live_tracking_response", { 
                 lat: data.lat, 
@@ -561,7 +577,6 @@ class SocketIOServer {
       
 
       socket.on("handover_code_verified", async ({ serviceRequestId, orderId, handoverCode, message }) => {
-        console.log("🔑 handover_code_verified received:", { serviceRequestId, orderId, handoverCode, message })
         if (!socket.data?.userId) return
         
         // Emit to the mechanic
@@ -571,7 +586,6 @@ class SocketIOServer {
 
       // New ride request (from rider/client)
       socket.on("new_request", async (data) => { 
-        console.log("🚗 new_request received:", data)
         await this.broadcastCourierNewRequestToRiders(data)
       });
       // Chat typing status - supports both AutoPartsChat and Ride/Courier chat
@@ -667,11 +681,10 @@ class SocketIOServer {
 
       // Instant chat message (socket-first before DB save)
       // Supports both: AutoPartsChat and Ride/Courier chat
-      socket.on("chat_message", async ({ chatId, bookingId, message, messageType, tempImageUri, fileUrl, duration, fileName, fileSize }) => {
+      socket.on("chat_message", async ({ chatId, bookingId, message, messageType, tempImageUri, fileUrl, duration, fileName, fileSize, attachments }) => {
         
         if (!socket.data?.userId) return
-        console.log('🔍 chat_message received:', { chatId, bookingId, message, messageType, tempImageUri, fileUrl, duration, fileName, fileSize })
-        
+
         try {
           const chatIdToUse = bookingId || chatId
           if (!chatIdToUse) {
@@ -683,7 +696,56 @@ class SocketIOServer {
           let senderName = 'User'
           let senderRole = 'USER'
           let senderAvatar: string | null = null
-          let chatType: 'autoParts' | 'ride' = 'autoParts'
+          let chatType: 'autoParts' | 'ride' | 'property' = 'autoParts'
+
+          const propertyConversation = await prisma.conversation.findFirst({
+            where: { id: chatIdToUse, module: "PROPERTY" },
+            select: { id: true, customerId: true, vendorId: true },
+          })
+
+          if (propertyConversation) {
+            chatType = "property"
+            recipientId =
+              propertyConversation.customerId === socket.data.userId
+                ? propertyConversation.vendorId
+                : propertyConversation.customerId
+
+            const sender = await prisma.user.findUnique({
+              where: { id: socket.data.userId },
+              select: {
+                id: true,
+                name: true,
+                role: true,
+                avatar: true,
+                vendorProfile: { select: { businessName: true } },
+              },
+            })
+            senderName = sender?.vendorProfile?.businessName || sender?.name || "User"
+            senderRole = sender?.role || "USER"
+            senderAvatar = sender?.avatar || null
+
+            const chatPayload = {
+              id: `socket-${Date.now()}`,
+              conversationId: chatIdToUse,
+              chatId: chatIdToUse,
+              senderId: socket.data.userId,
+              senderName,
+              senderAvatar,
+              senderRole,
+              message,
+              messageType: messageType || "TEXT",
+              attachments,
+              timestamp: new Date().toISOString(),
+              module: "PROPERTY",
+            }
+
+            const recipientSockets = this.getUserSockets(recipientId!)
+            recipientSockets.forEach((s) => {
+              if (s.connected) s.emit("chat_message", chatPayload)
+            })
+            this.io?.to(`prop_chat:${chatIdToUse}`).emit("chat_message", chatPayload)
+            return
+          }
 
           // Try to find AutoPartsChat first
           const autoPartsChat = await prisma.autoPartsChat.findUnique({
@@ -812,8 +874,6 @@ class SocketIOServer {
           // Send to recipient's sockets only
           const recipientSockets = this.getUserSockets(recipientId)
           
-          console.log(`📤 Sending chat_message to recipient ${recipientId} (${recipientSockets.length} sockets)`)
-          
           recipientSockets.forEach(s => {
             s.emit("chat_message", {
               chatId: chatIdToUse,
@@ -891,7 +951,6 @@ class SocketIOServer {
         }
       })
       socket.on("bid_expired", async (data) => {
-        console.log("💰 bid_expired from rider:", data)
         
         // Broadcast to all riders (except the sender) about the new bid
         const allRiders = Array.from(this.clients.values()).filter(s => 
@@ -909,7 +968,6 @@ class SocketIOServer {
       })
 
       socket.on("prescription_approved_by_pharmacy", async (data) => {
-        console.log("💰 prescription_approved_by_pharmacy received from client:", data)
         try {
           let recipientUserId: string | null = null
 
@@ -937,7 +995,6 @@ class SocketIOServer {
           }
 
           const recipientSockets = this.getUserSockets(recipientUserId)
-          console.log(`📤 Broadcasting prescription_approved_by_pharmacy to customer ${recipientUserId} (${recipientSockets.length} sockets)`)
 
           recipientSockets.forEach((s) => {
             s.emit("prescription_approved_by_pharmacy", {
@@ -957,7 +1014,6 @@ class SocketIOServer {
       
 
       socket.on("bid_accepted", async (data) => {
-        console.log("💰 bid_accepted received from client:", data)
         
         // Validate that we have the required data
         if (!data.bookingId) {
@@ -1042,7 +1098,6 @@ class SocketIOServer {
       })
 
       socket.on("bid_rejected", async (data) => {
-        console.log("💰 bid_rejected from rider:", data)
         
         // Broadcast to all riders (except the sender) about the rejected bid
         const allRiders = Array.from(this.clients.values()).filter(s => 
@@ -1091,15 +1146,13 @@ class SocketIOServer {
       })
 
       socket.on("request_update", async (data) => {
-        console.log("🔄 request_update received:", data)
         
         // Broadcast to all riders about the booking update
         const allRiders = Array.from(this.clients.values()).filter(s => 
           s.data?.role === 'RIDER'
         )
         
-        console.log(`🔄 Broadcasting request_update to ${allRiders.length} riders`)
-        
+
         allRiders.forEach(riderSocket => {
           riderSocket.emit('request_update', {
             bookingId: data.bookingId,
@@ -1169,23 +1222,52 @@ class SocketIOServer {
 
   /** Send first events after auth */
   private async _sendInitialEvents(socket: AuthenticatedSocket, userId: string) {
-    socket.emit("authenticated", { success: true, userId });
     try {
       const unreadCount = await this.getUnreadCount(userId);
       socket.emit("notification_count", { count: unreadCount });
     } catch {}
   }
 
+  /** Join presence + per-user rooms; riders also join dispatch so requests can reach open apps. */
+  private joinAuthenticatedUserRooms(socket: AuthenticatedSocket) {
+    if (!socket.data?.userId) return;
+    socket.join(`user:${socket.data.userId}`);
+    socket.join("app:presence");
+    if (socket.data.role === "RIDER") {
+      socket.join("riders:online");
+      socket.join(`rider_dispatch:${socket.data.userId}`);
+    }
+  }
+
+  /** Recover io + user maps when App Router and Pages Router share different module instances. */
+  ensureRuntimeAttached() {
+    const g = globalThis as typeof globalThis & { __killoHttpServer?: any };
+    if (!this.io && g.__killoHttpServer?.io) {
+      this.io = g.__killoHttpServer.io as IOServer;
+    }
+    this.reconcileConnectionsFromIo();
+  }
+
+  private reconcileConnectionsFromIo() {
+    if (!this.io) return;
+    this.io.sockets.sockets.forEach((socket) => {
+      const authSocket = socket as AuthenticatedSocket;
+      if (!authSocket.connected) return;
+      this.clients.set(authSocket.id, authSocket);
+      const userId = authSocket.data?.userId;
+      if (userId) {
+        this.addUserSocket(userId, authSocket);
+      }
+    });
+  }
+
   private getUserSockets(userId: string): AuthenticatedSocket[] {
+    this.ensureRuntimeAttached();
     const sockets = this.userSockets.get(userId);
     if (!sockets) return [];
-  
-    // Filter out disconnected sockets
+
     const aliveSockets = Array.from(sockets).filter((s) => s.connected);
-  
-    // Replace the set with alive only (garbage collect dead ones)
     this.userSockets.set(userId, new Set(aliveSockets));
-  
     return aliveSockets;
   }
 
@@ -1246,27 +1328,23 @@ class SocketIOServer {
         return
       }
 
-      const radiusKm = 30
-      const rideTypeVehicleRaw =
-        (merged as any)?.rideType?.vehicleType ??
-        (merged as any)?.vehicleType ??
-        (merged as any)?.requestedVehicleType
-      const rideTypeVehicle =
-        typeof rideTypeVehicleRaw === "string" ? rideTypeVehicleRaw.toUpperCase() : null
+      const rideTypeVehicle = extractRequestVehicleType(merged)
+      if (!rideTypeVehicle) {
+        console.warn("❌ Missing rideType vehicle in new_request")
+        return
+      }
+      const requestType = extractRequestType(merged)
       const requestModuleRaw = (merged as any)?.module
-      const requestModule = typeof requestModuleRaw === "string" ? requestModuleRaw.toUpperCase() : null
-      const requestTypeRaw = (merged as any)?.type ?? (merged as any)?.requestType
-      const requestType = typeof requestTypeRaw === "string" ? requestTypeRaw.toLowerCase() : "courier"
-      const nearbyRiders = await this.findNearbyRiders(
-        pickupLat,
-        pickupLng,
-        radiusKm,
-        {
-          type: requestType,
-          module: requestModule,
-          rideTypeVehicle,
-        }
-      )
+      const requestModule =
+        typeof requestModuleRaw === "string" ? requestModuleRaw.toUpperCase() : null
+      const nearbyRiders = await this.findNearbyRiders(pickupLat, pickupLng, {
+        type: requestType,
+        module: requestModule,
+        rideTypeVehicle,
+        scheduledAt: (merged as any)?.scheduledAt ?? null,
+        expiresAt: (merged as any)?.expiresAt ?? null,
+        status: (merged as any)?.status ?? "REQUESTED",
+      })
 
       
 
@@ -1300,25 +1378,32 @@ class SocketIOServer {
     }
   }
 
-  // Find nearby riders within radius
+  /** Same eligibility rules as GET /api/rider/available-requests */
   private async findNearbyRiders(
     latitude: number,
     longitude: number,
-    radiusKm: number,
-    requestContext?: { type?: string | null; module?: string | null; rideTypeVehicle?: string | null }
+    requestContext: {
+      type: "ride" | "courier"
+      module?: string | null
+      rideTypeVehicle: string
+      scheduledAt?: Date | string | null
+      expiresAt?: Date | string | null
+      status?: string | null
+    }
   ) {
+    if (!requestContext.rideTypeVehicle) return []
+
     try {
-      // Find all available riders with their profiles
       const riders = await prisma.riderProfile.findMany({
         where: {
           isAvailable: true,
-          status: 'APPROVED',
+          status: "APPROVED",
           currentLocation: {
             not: null as any,
           },
           lastLocationUpdate: {
-            gte: new Date(Date.now() - 10 * 60 * 1000) // Location updated within last 10 minutes
-          }
+            gte: new Date(Date.now() - 10 * 60 * 1000),
+          },
         },
         include: {
           user: {
@@ -1326,20 +1411,43 @@ class SocketIOServer {
               id: true,
               name: true,
               phone: true,
-            }
-          }
+            },
+          },
         },
-        take: 200
+        take: 200,
       })
 
       const nearbyRiders: Array<{ userId: string; distance: number }> = []
 
       for (const rider of riders) {
         const location = rider.currentLocation as any
-        
-        if (!location || !location.latitude || !location.longitude) {
-          continue
-        }
+        if (!location?.latitude || !location?.longitude) continue
+
+        const riderMaxKm = Number(rider.maxDeliveryDistance || 0)
+        const effectiveRiderMaxKm = riderMaxKm > 0 ? riderMaxKm : 10
+        const riderFilter = buildRiderServiceFilter(
+          rider.serviceTypes,
+          rider.modules,
+          rider.vehicleType as any
+        )
+
+        const allowed = shouldBroadcastRequestToRider(
+          riderFilter,
+          location.latitude,
+          location.longitude,
+          effectiveRiderMaxKm,
+          {
+            pickupLatitude: latitude,
+            pickupLongitude: longitude,
+            type: requestContext.type,
+            module: requestContext.module,
+            rideTypeVehicle: requestContext.rideTypeVehicle,
+            scheduledAt: requestContext.scheduledAt,
+            expiresAt: requestContext.expiresAt,
+            status: requestContext.status,
+          }
+        )
+        if (!allowed) continue
 
         const distance = this.calculateDistance(
           latitude,
@@ -1347,44 +1455,12 @@ class SocketIOServer {
           location.latitude,
           location.longitude
         )
-
-        const riderMaxKm = Number(rider.maxDeliveryDistance || 0)
-        const effectiveRiderMaxKm = riderMaxKm > 0 ? riderMaxKm : 10
-        if (distance > radiusKm || distance > effectiveRiderMaxKm) {
-          continue
-        }
-
-        if (requestContext?.rideTypeVehicle) {
-          const riderFilter = buildRiderServiceFilter(
-            rider.serviceTypes,
-            rider.modules,
-            rider.vehicleType as any
-          )
-          const matches =
-            requestContext.type === "ride"
-              ? rideBookingMatchesRider(riderFilter, requestContext.rideTypeVehicle as any)
-              : courierMatchesRider(
-                  riderFilter,
-                  requestContext.module ?? null,
-                  requestContext.rideTypeVehicle as any
-                )
-          if (!matches) {
-            continue
-          }
-        }
-
-        if (distance <= radiusKm) {
-          nearbyRiders.push({
-            userId: rider.userId,
-            distance
-          })
-        }
+        nearbyRiders.push({ userId: rider.userId, distance })
       }
 
-      // Sort by distance (closest first)
       return nearbyRiders.sort((a, b) => a.distance - b.distance)
     } catch (error) {
-      console.error('Error finding nearby riders:', error)
+      console.error("Error finding nearby riders:", error)
       return []
     }
   }
@@ -1460,77 +1536,77 @@ class SocketIOServer {
   }
   
   async sendNewRideToUser(userId: string, ride: any) {
-    console.log("🚗 sendNewRideToUser called for userId:", userId);
-    console.log("🚗 Total clients:", this.clients.size);
-    console.log("🚗 User sockets map:", this.userSockets.size);
-    console.log("🚗 Sockets for user:", this.getUserSockets(userId)); 
-    
-    // Safety gate: do not emit mismatched rideType/module requests to this rider.
     try {
       const rider = await prisma.riderProfile.findUnique({
         where: { userId },
-        select: { vehicleType: true, serviceTypes: true, modules: true, maxDeliveryDistance: true, currentLocation: true },
+        select: {
+          vehicleType: true,
+          serviceTypes: true,
+          modules: true,
+          maxDeliveryDistance: true,
+          currentLocation: true,
+        },
       })
-      const rideTypeVehicleRaw = ride?.rideType?.vehicleType ?? ride?.vehicleType ?? ride?.requestedVehicleType
-      const rideTypeVehicle = typeof rideTypeVehicleRaw === "string" ? rideTypeVehicleRaw.toUpperCase() : null
-      const requestType = String(ride?.type || ride?.requestType || "courier").toLowerCase()
-      const requestModule = typeof ride?.module === "string" ? ride.module.toUpperCase() : null
+      if (!rider) return
 
-      if (!rider) {
-        return
-      }
-      if (rideTypeVehicle) {
-        const filter = buildRiderServiceFilter(rider.serviceTypes, rider.modules, rider.vehicleType as any)
-        const allowed =
-          requestType === "ride"
-            ? rideBookingMatchesRider(filter, rideTypeVehicle as any)
-            : courierMatchesRider(filter, requestModule, rideTypeVehicle as any)
-        if (!allowed) {
-          return
-        }
-      }
+      const rideTypeVehicle = extractRequestVehicleType(ride)
+      if (!rideTypeVehicle) return
 
+      const requestType = extractRequestType(ride)
+      const requestModule =
+        typeof ride?.module === "string" ? ride.module.toUpperCase() : null
+      const riderMaxKm =
+        Number(rider.maxDeliveryDistance || 0) > 0
+          ? Number(rider.maxDeliveryDistance)
+          : 10
       const rLoc = rider.currentLocation as any
-      const pLat = Number(ride?.pickupLatitude)
-      const pLng = Number(ride?.pickupLongitude)
-      if (
-        rLoc &&
-        Number.isFinite(pLat) &&
-        Number.isFinite(pLng) &&
-        Number.isFinite(Number(rLoc.latitude)) &&
-        Number.isFinite(Number(rLoc.longitude))
-      ) {
-        const d = this.calculateDistance(Number(rLoc.latitude), Number(rLoc.longitude), pLat, pLng)
-        const riderMaxKm = Number(rider.maxDeliveryDistance || 0) > 0 ? Number(rider.maxDeliveryDistance) : 10
-        if (d > riderMaxKm) {
-          return
+      const filter = buildRiderServiceFilter(
+        rider.serviceTypes,
+        rider.modules,
+        rider.vehicleType as any
+      )
+
+      const allowed = shouldBroadcastRequestToRider(
+        filter,
+        rLoc?.latitude,
+        rLoc?.longitude,
+        riderMaxKm,
+        {
+          pickupLatitude: Number(ride?.pickupLatitude),
+          pickupLongitude: Number(ride?.pickupLongitude),
+          type: requestType,
+          module: requestModule,
+          rideTypeVehicle,
+          scheduledAt: ride?.scheduledAt,
+          expiresAt: ride?.expiresAt,
+          status: ride?.status,
         }
-      }
+      )
+      if (!allowed) return
     } catch {
       return
     }
 
     const sockets = this.getUserSockets(userId);
     if (!sockets.length) {
-      console.warn(`⚠️ No active sockets for user eeeee ${userId}`);
-      console.log("🚗 All connected users:", this.listConnectedUsers());
+      const stats = this.getStats();
+      
       return;
     }
 
-    const dispatchRoom = `rider_dispatch:${userId}`
-    const roomMembers = this.io?.sockets.adapter.rooms.get(dispatchRoom)
-    if (!roomMembers || roomMembers.size === 0) {
-      console.warn(`⚠️ Rider ${userId} not in dispatch room; skipping new request emit`);
-      return;
+    const payload = { ...ride };
+    for (const riderSocket of sockets) {
+      riderSocket.emit("new_request", payload);
+      riderSocket.emit("new_requests", payload);
     }
 
-    this.io?.to(dispatchRoom).emit("new_request", ride)
-    this.io?.to(dispatchRoom).emit("new_requests", ride)
+    const dispatchRoom = `rider_dispatch:${userId}`;
+    this.io?.to(dispatchRoom).emit("new_request", payload);
+    this.io?.to(dispatchRoom).emit("new_requests", payload);
   }
 
   async sendNotificationToUser(userId: string, notification: any) {
-    console.log('🔔 sendNotificationToUser called for userId:', userId)
-    console.log('🔔 notification:', notification)
+    
     const sockets = this.getUserSockets(userId);
     if (!sockets.length) {
 
@@ -1540,10 +1616,11 @@ class SocketIOServer {
         s.data?.userId === userId && s.connected
       );
       if (fallbackSockets.length > 0) {
-        console.log(`🔄 Found ${fallbackSockets.length} fallback socket(s) for user ${userId}`);
+        
         const eventType = notification.type || 'notification'
         fallbackSockets.forEach((s) => {
-          console.log('🔔 Emitting event to fallback socket:', eventType, notification)
+          
+
           s.emit(eventType, notification);
           
         });
@@ -1553,22 +1630,12 @@ class SocketIOServer {
     }
     // Emit with the type from notification, or default to 'notification'
     const eventType = notification.type || 'notification'
-    console.log(`📤 Emitting ${eventType} to ${sockets.length} socket(s) for user ${userId}`)
-    console.log(`📦 Payload structure:`, {
-      type: notification.type,
-      hasChatId: !!notification.chatId,
-      hasFileUrl: !!notification.fileUrl,
-      hasMessage: !!notification.message,
-      messageType: notification.messageType || notification.message?.messageType,
-      fullPayload: JSON.stringify(notification, null, 2)
-    })
+    
     
     sockets.forEach((s) => {
       if (s.connected) {
         s.emit(eventType, notification);
-        console.log(`✅ Emitted ${eventType} to socket ${s.id} for user ${userId}`)
       } else {
-        console.warn(`⚠️ Socket ${s.id} is not connected, skipping emission`)
       }
     });
   }
@@ -1592,6 +1659,33 @@ class SocketIOServer {
     }
   }
 
+  /** Emit any socket event to all connected sessions for a user (additive helper). */
+  emitEventToUser(userId: string, event: string, payload: any) {
+    let sockets = this.getUserSockets(userId)
+    if (!sockets.length) {
+      sockets = Array.from(this.clients.values()).filter(
+        (s) => s.data?.userId === userId && s.connected
+      )
+    }
+    sockets.forEach((s) => {
+      if (s.connected) s.emit(event, payload)
+    })
+  }
+
+  async emitNotificationCountToUser(userId: string) {
+    try {
+      const count = await this.getUnreadCount(userId)
+      this.emitEventToUser(userId, "notification_count", { count })
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  /** Broadcast to everyone subscribed to a property conversation room. */
+  emitToPropertyChatRoom(conversationId: string, event: string, payload: any) {
+    this.io?.to(`prop_chat:${conversationId}`).emit(event, payload)
+  }
+
   private startClientsMonitoring() {
     if (this.clientsCheckInterval) return;
     this.clientsCheckInterval = setInterval(() => {
@@ -1599,20 +1693,17 @@ class SocketIOServer {
         .filter(([_, c]) => !c.connected)
         .map(([id]) => id);
       disconnected.forEach((id) => this.clients.delete(id));
-      if (disconnected.length)
-        console.log("🧹 Cleaned disconnected sockets:", disconnected);
+
     }, 30000);
   }
 
   /** Real-time part-request room: clients send `auto_parts_subscribe` with { requestId }. */
   emitAutoPartsRequestRoom(requestId: string, payload: Record<string, unknown>) {
     if (!this.io || !requestId) return;
-    console.log("emitAutoPartsRequestRoom", requestId, payload)
     this.io.to(`ap_req:${requestId}`).emit("auto_parts_update", { ...payload, requestId });
   }
   emitAutoPartsQuoteRoom(quoteId: string, payload: Record<string, unknown>) {
     if (!this.io || !quoteId) return;
-    console.log("emitAutoPartsQuoteRoom", quoteId, payload);
     const base = { ...payload, quoteId };
     /** Room listeners use `auto_parts_update`; detail screens also subscribe to `auto_parts_quote_update` (parity with per-user push). */
     this.io.to(`ap_quote:${quoteId}`).emit("auto_parts_update", base);
@@ -1620,14 +1711,15 @@ class SocketIOServer {
   }
   emitAutoPartsServiceRequestRoom(serviceRequestId: string, payload: Record<string, unknown>) {
     if (!this.io || !serviceRequestId) return;
-    console.log("emitAutoPartsServiceRequestRoom", serviceRequestId, payload)
     this.io.to(`ap_req:${serviceRequestId}`).emit("auto_parts_update", { ...payload, serviceRequestId });
   }
 
   getStats() {
+    this.ensureRuntimeAttached();
     return {
       totalConnections: this.totalConnections,
       authenticatedConnections: this.clients.size,
+      liveIoSockets: this.io?.sockets.sockets.size ?? 0,
       isRunning: this.io !== null,
       isInitialized: this.io !== null,
       userSocketsCount: this.userSockets.size,
@@ -1635,6 +1727,15 @@ class SocketIOServer {
   }
 
   listConnectedUsers() {
+    this.ensureRuntimeAttached();
+    if (this.io) {
+      return Array.from(this.io.sockets.sockets.values()).map((c) => ({
+        socketId: c.id,
+        userId: (c as AuthenticatedSocket).data?.userId,
+        role: (c as AuthenticatedSocket).data?.role,
+        connected: c.connected,
+      }));
+    }
     return Array.from(this.clients.values()).map((c) => ({
       socketId: c.id,
       userId: c.data?.userId,
@@ -1649,31 +1750,33 @@ class SocketIOServer {
   }
 }
 
-// Singleton
-let instance: SocketIOServer | null = null;
-export const socketIOServer = (() => {
-  if (!instance) {
-    instance = new SocketIOServer();
-
-    console.log('🔌 Created new SocketIOServer instance');
-  }
-  return instance;
-})();
-
-// Global socket server instance for API routes
+// Singleton — always use globalThis so App Router + Pages Router share one registry.
 declare global {
   var __socketIOServer: SocketIOServer | undefined;
+  var __killoSocketIOServer: SocketIOServer | undefined;
+  var __killoHttpServer: any;
 }
 
-// Ensure we have a global instance for API routes
-if (typeof global !== 'undefined' && !global.__socketIOServer) {
-  global.__socketIOServer = socketIOServer;
-}
-
-// Export a function to get the global instance
-export function getGlobalSocketServer(): SocketIOServer {
-  if (typeof global !== 'undefined' && global.__socketIOServer) {
-    return global.__socketIOServer;
+function createSocketServerInstance(): SocketIOServer {
+  const server = new SocketIOServer();
+  if (typeof globalThis !== "undefined") {
+    globalThis.__killoSocketIOServer = server;
+    globalThis.__socketIOServer = server;
   }
-  return socketIOServer;
+  
+  return server;
 }
+
+export function getGlobalSocketServer(): SocketIOServer {
+  if (typeof globalThis !== "undefined") {
+    if (!globalThis.__killoSocketIOServer) {
+      globalThis.__killoSocketIOServer = createSocketServerInstance();
+    }
+    globalThis.__killoSocketIOServer.ensureRuntimeAttached();
+    return globalThis.__killoSocketIOServer;
+  }
+  return createSocketServerInstance();
+}
+
+/** @deprecated Use getGlobalSocketServer() */
+export const socketIOServer = getGlobalSocketServer();

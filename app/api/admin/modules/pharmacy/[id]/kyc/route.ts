@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
+import {
+  applyPharmacyKycApproved,
+  applyPharmacyKycRejected,
+  applyUserKycApproved,
+  applyUserKycRejected,
+  createKycRejectionRecord,
+  ensureUserWalletAndProfile,
+} from "@/lib/kyc-admin-status-sync"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -45,47 +53,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     const newStatus = action === "approve" ? "APPROVED" : "REJECTED"
-    const isVerified = action === "approve" ? true : false
 
-    // Update pharmacy status
-    await prisma.pharmacy.update({
-      where: { id: params.id },
-      data: {
-        status: newStatus,
-        approvalDate: action === "approve" ? new Date() : null,
-        rejectedAt: action === "reject" ? new Date() : null,
-        rejectionReason: action === "reject" ? reason : null,
-        isVerified: isVerified,
-      },
-    })
+    if (action === "approve") {
+      await applyPharmacyKycApproved(params.id)
+    } else {
+      await applyPharmacyKycRejected(params.id, reason)
+    }
+
     // Update user status
     if (action === "approve") {
-      await prisma.user.update({
-        where: { id: pharmacy.userId },
-        data: {
-          isActive: true,
-          isVerified: true,
-          status: "ACTIVE",
-        },
-      })
-
-      // Ensure wallet + profiles exist for vendors
-      const defaultCurrency = await prisma.currency.findFirst({ where: { isDefault: true }, select: { code: true } })
-      const currencyCode = defaultCurrency?.code || process.env.DEFAULT_CURRENCY || "USD"
-      const ownerName = pharmacy.user?.name || pharmacy.pharmacyName || "Vendor"
-      const [firstName, ...rest] = ownerName.trim().split(/\s+/)
-      const lastName = rest.join(" ")
-
-      await prisma.wallet.upsert({
-        where: { userId: pharmacy.userId },
-        update: { currency: currencyCode },
-        create: { userId: pharmacy.userId, balance: 0, currency: currencyCode },
-      })
-      await prisma.userProfile.upsert({
-        where: { userId: pharmacy.userId },
-        update: { firstName: firstName || null, lastName: lastName || null },
-        create: { userId: pharmacy.userId, firstName: firstName || null, lastName: lastName || null },
-      })
+      await applyUserKycApproved(pharmacy.userId)
+      await ensureUserWalletAndProfile(
+        pharmacy.userId,
+        pharmacy.user?.name || pharmacy.pharmacyName || "Vendor"
+      )
       await prisma.vendorProfile.upsert({
         where: { userId: pharmacy.userId },
         update: {
@@ -112,19 +93,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           longitude: pharmacy.lon ?? null,
         },
       })
+    } else {
+      await applyUserKycRejected(pharmacy.userId)
     }
 
     // Save rejection reason if rejecting
     if (action === "reject") {
-      await prisma.kycRejection.create({
-        data: {
-          entityType: "PHARMACY",
-          entityId: params.id,
-          userId: pharmacy.userId,
-          rejectionReason: reason,
-          rejectedFields: rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
-          rejectedBy: session.id,
-        },
+      await createKycRejectionRecord({
+        entityType: "PHARMACY",
+        entityId: params.id,
+        userId: pharmacy.userId,
+        rejectionReason: reason,
+        rejectedBy: session.id,
+        rejectedFields:
+          rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
       })
     }
 

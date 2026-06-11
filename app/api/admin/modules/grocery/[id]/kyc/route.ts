@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
+import {
+  applyUserKycApproved,
+  applyUserKycRejected,
+  createKycRejectionRecord,
+  ensureUserWalletAndProfile,
+} from "@/lib/kyc-admin-status-sync"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -56,32 +62,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     // Update user status
     if (action === "approve") {
-      await prisma.user.update({
-        where: { id: groceryStore.userId },
-        data: {
-          isActive: true,
-          isVerified: true,
-          status: "ACTIVE",
-        },
-      })
-
-      // Ensure wallet + profiles exist for vendors
-      const defaultCurrency = await prisma.currency.findFirst({ where: { isDefault: true }, select: { code: true } })
-      const currencyCode = defaultCurrency?.code || process.env.DEFAULT_CURRENCY || "USD"
-      const ownerName = groceryStore.user?.name || groceryStore.storeName || "Vendor"
-      const [firstName, ...rest] = ownerName.trim().split(/\s+/)
-      const lastName = rest.join(" ")
-
-      await prisma.wallet.upsert({
-        where: { userId: groceryStore.userId },
-        update: { currency: currencyCode },
-        create: { userId: groceryStore.userId, balance: 0, currency: currencyCode },
-      })
-      await prisma.userProfile.upsert({
-        where: { userId: groceryStore.userId },
-        update: { firstName: firstName || null, lastName: lastName || null },
-        create: { userId: groceryStore.userId, firstName: firstName || null, lastName: lastName || null },
-      })
+      await applyUserKycApproved(groceryStore.userId)
+      await ensureUserWalletAndProfile(
+        groceryStore.userId,
+        groceryStore.user?.name || groceryStore.storeName || "Vendor"
+      )
       await prisma.vendorProfile.upsert({
         where: { userId: groceryStore.userId },
         update: {
@@ -112,19 +97,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           logo: groceryStore.storeFront || null,
         },
       })
+    } else {
+      await applyUserKycRejected(groceryStore.userId)
     }
 
     // Save rejection reason if rejecting
     if (action === "reject") {
-      await prisma.kycRejection.create({
-        data: {
-          entityType: "GROCERY",
-          entityId: params.id,
-          userId: groceryStore.userId,
-          rejectionReason: reason,
-          rejectedFields: rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
-          rejectedBy: session.id,
-        },
+      await createKycRejectionRecord({
+        entityType: "GROCERY",
+        entityId: params.id,
+        userId: groceryStore.userId,
+        rejectionReason: reason,
+        rejectedBy: session.id,
+        rejectedFields:
+          rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
       })
     }
 

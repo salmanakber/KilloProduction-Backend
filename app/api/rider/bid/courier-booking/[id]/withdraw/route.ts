@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 
 // PUT /api/rider/bid/courier-booking/[id]/withdraw - Withdraw a courier bid
 export async function PUT(
@@ -16,6 +17,9 @@ export async function PUT(
         { status: 401 }
       )
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     const bookingId = params.id
 

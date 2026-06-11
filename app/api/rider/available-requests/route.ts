@@ -1,105 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { getCustomerRating, getCustomerRideHistory } from "@/lib/customer-rider-context"
 import {
   buildRiderServiceFilter,
   courierMatchesRider,
   rideBookingMatchesRider,
 } from "@/lib/rider-request-eligibility"
-
-// Helper function to calculate distance between two points using Haversine formula
-import axios from "axios"
-
-const DEFAULT_BID_CAP_PERCENT = 20
-
-function getBidCapPercent(): number {
-  const raw = Number(process.env.RIDING_BID_CAP_PERCENT ?? DEFAULT_BID_CAP_PERCENT)
-  if (!Number.isFinite(raw) || raw < 0) return DEFAULT_BID_CAP_PERCENT
-  return raw
-}
-
-function calculateMaxBidCapAmount(estimatedFare: number): number {
-  const capPercent = getBidCapPercent()
-  const capped = estimatedFare * (1 + capPercent / 100)
-  return Math.round(capped * 100) / 100
-}
-
-/** Listing stays visible until broadcast ends or the last still-active PENDING bid expires (whichever is later). */
-function computeRequestListingExpiresMs(params: {
-  broadcastEndMs: number
-  bids: Array<{ status?: string | null; expiresAt?: Date | string | null }>
-  nowTs: number
-}): number {
-  const pending = params.bids.filter(
-    (b) => String(b?.status ?? "PENDING").toUpperCase() === "PENDING"
-  )
-  const activePending = pending.filter((b) => {
-    if (!b?.expiresAt) return false
-    const t = new Date(b.expiresAt as Date).getTime()
-    return Number.isFinite(t) && t > params.nowTs
-  })
-  if (activePending.length === 0) return params.broadcastEndMs
-  const maxBidMs = Math.max(
-    ...activePending.map((b) => new Date(b.expiresAt as Date).getTime())
-  )
-  return Math.max(params.broadcastEndMs, maxBidMs)
-}
-
-async function calculateDistance(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-): Promise<number> {
-  const R = 6371e3 // Earth's radius in kilometers
-  const φ1 = lat1 * Math.PI / 180
-  const φ2 = lat2 * Math.PI / 180
-  const Δφ = (lat2 - lat1) * Math.PI / 180
-  const Δλ = (lng2 - lng1) * Math.PI / 180
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  const distance = R * c // in kilometers
-
-  // ✅ If distance is within 5km, return directly
-  if (distance <= 5) {
-    return distance * 1000
-  }
-
-  // ✅ If distance is within 5km, return directly
-  if (distance <= 5000) {
-    return distance / 1000
-  }
-
-  // 🚀 Else call Google Directions API for accurate distance
-  try {
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY
-    const response = await axios.get(
-      `https://maps.googleapis.com/maps/api/directions/json?origin=${lat1},${lng1}&destination=${lat2},${lng2}&mode=driving&key=${apiKey}`
-    )
-
-    if (
-      response.data.routes &&
-      response.data.routes.length > 0 &&
-      response.data.routes[0].legs &&
-      response.data.routes[0].legs.length > 0
-    ) {
-      const meters = response.data.routes[0].legs[0].distance.value
-      return meters / 1000 // distance in kilometers
-    } else {
-      console.warn("⚠️ Google Directions returned no routes, fallback to haversine")
-      return distance / 1000
-    }
-  } catch (err) {
-    console.error("❌ Error fetching from Google Directions:", err)
-    return distance / 1000 // fallback to haversine
-  }
-}
+import {
+  RIDE_BROADCAST_TTL_MS,
+  NON_RIDE_BROADCAST_TTL_MS,
+  calculateMaxBidCapAmount,
+  computeRequestListingExpiresMs,
+  haversineKm,
+  isScheduledRequestVisible,
+} from "@/lib/rider-available-requests-shared"
 
 
 /**
@@ -114,6 +30,9 @@ export async function GET(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type')
@@ -229,10 +148,7 @@ export async function GET(request: NextRequest) {
     const courierFiltered = courierBookings.filter((b) =>
       courierMatchesRider(riderFilter, b.module, b.rideType.vehicleType)
     )
-    const courierVisible = courierFiltered.filter((b) => {
-      if (!b.scheduledAt) return true
-      return new Date(b.scheduledAt).getTime() <= Date.now()
-    })
+    const courierVisible = courierFiltered.filter((b) => isScheduledRequestVisible(b.scheduledAt))
 
     
     
@@ -278,18 +194,13 @@ export async function GET(request: NextRequest) {
     const rideFiltered = rideBookings.filter((b) =>
       rideBookingMatchesRider(riderFilter, b.rideType.vehicleType)
     )
-    const rideVisible = rideFiltered.filter((b) => {
-      if (!b.scheduledAt) return true
-      return new Date(b.scheduledAt).getTime() <= Date.now()
-    })
+    const rideVisible = rideFiltered.filter((b) => isScheduledRequestVisible(b.scheduledAt))
 
     const nowTs = Date.now()
-    const rideMaxAgeMs = 90 * 1000
-    const nonRideMaxAgeMs = 90 * 60 * 1000
 
     // Process courier bookings - NO distance calculations here
     const processedCourierBookings = courierVisible.map((booking) => {
-      const ttlMs = (booking.module || "RIDE") === "RIDE" ? rideMaxAgeMs : nonRideMaxAgeMs
+      const ttlMs = (booking.module || "RIDE") === "RIDE" ? RIDE_BROADCAST_TTL_MS : NON_RIDE_BROADCAST_TTL_MS
       const baseTs = booking.scheduledAt ? new Date(booking.scheduledAt).getTime() : new Date(booking.createdAt).getTime()
       const broadcastEndMs = baseTs + ttlMs
       const listingEndMs = computeRequestListingExpiresMs({
@@ -357,7 +268,7 @@ export async function GET(request: NextRequest) {
       const baseTs = booking.scheduledAt
         ? new Date(booking.scheduledAt).getTime()
         : new Date((booking as any).requestedAt || booking.createdAt).getTime()
-      const broadcastEndMs = baseTs + rideMaxAgeMs
+      const broadcastEndMs = baseTs + RIDE_BROADCAST_TTL_MS
       const listingEndMs = computeRequestListingExpiresMs({
         broadcastEndMs,
         bids: booking.rideBids || [],
@@ -406,28 +317,23 @@ export async function GET(request: NextRequest) {
     // Combine all requests
     const allRequests = [...processedCourierBookings, ...processedRideBookings]
 // Calculate distances for all requests first
-const withDistances = await Promise.all(
-  allRequests.map(async (request) => {
-    if (effectiveRiderLat === 0 && effectiveRiderLng === 0) {
-      return { ...request, isWithinRange: true }
-    }
+const withDistances = allRequests.map((request) => {
+  if (effectiveRiderLat === 0 && effectiveRiderLng === 0) {
+    return { ...request, isWithinRange: true }
+  }
 
+  const distanceToPickup = haversineKm(
+    effectiveRiderLat,
+    effectiveRiderLng,
+    request.pickupLatitude,
+    request.pickupLongitude
+  )
 
-    const distanceToPickup = await calculateDistance(
-      effectiveRiderLat,
-      effectiveRiderLng,
-      request.pickupLatitude,
-      request.pickupLongitude
-    )
-
-
-
-    return {
-      ...request,
-      isWithinRange: distanceToPickup <= maxDeliveryDistance,
-    }
-  })
-)
+  return {
+    ...request,
+    isWithinRange: distanceToPickup <= maxDeliveryDistance,
+  }
+})
 
 // Now filter based on calculated flag
 const filteredRequests = withDistances.filter(req => req.isWithinRange && !req.isExpiredByTime)

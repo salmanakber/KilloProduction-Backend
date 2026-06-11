@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import {
   LayoutDashboard, Users, ShoppingCart, DollarSign, Truck, Settings,
   MessageSquare, BarChart, Shield, Briefcase, Bell, FileText,
-  StoreIcon as BuildingStorefront, Car, Pill, Utensils, ShoppingBag,
+  StoreIcon as BuildingStorefront, Building2, Car, Pill, Utensils, ShoppingBag,
   Handshake, ClipboardCheck, ScrollText, Globe, HelpCircle, Tag, Wrench,
   ChevronDown, ChevronLeft, ChevronRight, LogOut, FolderTree, Dot, Circle,
   Key,
@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   Database,
   MapPinned,
+  Home,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { requiredFeatureForPath, resolveAdminFeatures, type AdminFeature } from "@/lib/admin-access"
@@ -328,6 +329,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       subItems: [
         { name: "All Payments", href: "/admin/payments", icon: DollarSign },
         { name: "Refunds", href: "/admin/payments/refunds", icon: DollarSign },
+        { name: "Payout bank accounts", href: "/admin/payments/bank-accounts", icon: Building2 },
       ]
     },
     {
@@ -348,6 +350,11 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
           ]
         },
         { name: "Grocery", href: "/admin/modules/grocery", icon: ShoppingBag, module: "GROCERY" },
+      
+        {name: "Booking Properties", href: "/admin/modules/property", icon: Home, subItems: [
+          { name: "All Booking", href: "/admin/modules/property", icon: Home, module: "PROPERTY" },
+          { name: "Configuration", href: "/admin/modules/property/configuration", icon: Settings, module: "PROPERTY" },
+        ]},
         { name: "Categories", href: "/admin/categories", icon: FolderTree },
       ],
     },
@@ -358,6 +365,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
       feature: "riders.manage" as AdminFeature,
       subItems: [
         { name: "Live bookings map", href: "/admin/modules/rider/bookings-monitor", icon: MapPinned },
+        { name: "Locked accounts", href: "/admin/modules/rider/locked-accounts", icon: Shield },
         { name: "Peak bonus analytics", href: "/admin/modules/rider/bonus-analytics", icon: Trophy },
         { name: "Bonus settings", href: "/admin/modules/rider/bonus-settings", icon: SlidersHorizontal },
         { name: "Ride Settings", href: "/admin/ride-types", icon: Settings },

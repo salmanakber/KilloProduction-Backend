@@ -5,6 +5,7 @@ import type { CommissionStatus, Module } from '@prisma/client'
 export interface CreateCommissionParams {
   module: Module
   orderId?: string
+  propertyBookingId?: string
   rideBookingId?: string
   courierBookingId?: string
   vendorId?: string
@@ -37,6 +38,8 @@ export async function calculateCommission(
     },
   })
 
+  
+
   if (!commissionSetting) {
     throw new Error(`Commission setting not found for module: ${module}, type: ${commissionType}`)
   }
@@ -44,13 +47,20 @@ export async function calculateCommission(
   // Calculate commission amount
   let commissionAmount = (orderAmount * commissionSetting.rate) / 100
 
-
-  // Apply min/max limits
-  if (commissionSetting.minAmount && commissionAmount < commissionSetting.minAmount) {
+  // Apply min/max limits only when rate > 0
+  if (
+    commissionSetting.rate > 0 &&
+    commissionSetting.minAmount != null &&
+    commissionAmount < commissionSetting.minAmount
+  ) {
     commissionAmount = commissionSetting.minAmount
   }
 
-  if (commissionSetting.maxAmount && commissionAmount > commissionSetting.maxAmount) {
+  if (
+    commissionSetting.rate > 0 &&
+    commissionSetting.maxAmount != null &&
+    commissionAmount > commissionSetting.maxAmount
+  ) {
     commissionAmount = commissionSetting.maxAmount
   }
 
@@ -61,7 +71,6 @@ export async function calculateCommission(
     maxAmount: commissionSetting.maxAmount,
   }
 }
-
 /**
  * Like calculateCommission but returns 0 when no active setting exists (e.g. optional VENDOR_COMMISSION).
  */
@@ -87,6 +96,7 @@ const CHECKOUT_PLATFORM_FEE_DEFAULTS: Partial<
   GROCERY: { rate: 8, min: 15, max: 800 },
   FOOD: { rate: 8, min: 15, max: 800 },
   AUTO_PARTS: { rate: 3 },
+  PROPERTY: { rate: 5, min: 50, max: 5000 },
 }
 
 /**
@@ -153,6 +163,7 @@ export async function createVendorCommission(params: CreateCommissionParams): Pr
     data: {
       vendorId: params.vendorId,
       orderId: params.orderId,
+      propertyBookingId: params.propertyBookingId,
       module: params.module,
       commissionType: params.commissionType,
       orderAmount: params.orderAmount,

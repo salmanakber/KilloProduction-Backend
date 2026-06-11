@@ -1,6 +1,6 @@
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import { TextractClient, DetectDocumentTextCommand } from '@aws-sdk/client-textract';
-import Tesseract from 'tesseract.js';
+import { runTesseractOcr } from '@/lib/tesseract-node';
 
 // Initialize Google Vision API only if credentials are available
 const visionClient = process.env.GOOGLE_APPLICATION_CREDENTIALS ? new ImageAnnotatorClient({
@@ -8,14 +8,19 @@ const visionClient = process.env.GOOGLE_APPLICATION_CREDENTIALS ? new ImageAnnot
   projectId: process.env.GOOGLE_PROJECT_ID,
 }) : null;
 
-// Initialize AWS Textract only if credentials are available
-const textractClient = process.env.AWS_ACCESS_KEY_ID ? new TextractClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-}) : null;
+// Only use Textract when explicitly enabled (avoids slow failures with invalid local keys)
+const textractClient =
+  process.env.AWS_TEXTRACT_ENABLED === 'true' &&
+  process.env.AWS_ACCESS_KEY_ID &&
+  process.env.AWS_SECRET_ACCESS_KEY
+    ? new TextractClient({
+        region: process.env.AWS_REGION || 'us-east-1',
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+        },
+      })
+    : null;
 
 export interface OCRResult {
   text: string;
@@ -32,6 +37,9 @@ export interface OCRResult {
  * Extract text from image using Google Vision API
  */
 export async function googleVisionOCR(imageBuffer: Buffer): Promise<OCRResult> {
+  if (!visionClient) {
+    throw new Error("Google Vision not configured")
+  }
   try {
     const [result] = await visionClient.textDetection({
       image: { content: imageBuffer },
@@ -71,6 +79,9 @@ export async function googleVisionOCR(imageBuffer: Buffer): Promise<OCRResult> {
  * Extract text from image using AWS Textract
  */
 export async function awsTextractOCR(imageBuffer: Buffer): Promise<OCRResult> {
+  if (!textractClient) {
+    throw new Error("AWS Textract not configured")
+  }
   try {
     const command = new DetectDocumentTextCommand({
       Document: {
@@ -124,59 +135,47 @@ export async function awsTextractOCR(imageBuffer: Buffer): Promise<OCRResult> {
 }
 
 /**
- * Extract text from image using Tesseract OCR
+ * Extract text from image using Tesseract.js (fallback — works without cloud credentials)
+ * @see https://github.com/naptha/tesseract.js
  */
 export async function tesseractOCR(imageBuffer: Buffer): Promise<OCRResult> {
   try {
-    const { data: { text, confidence } } = await Tesseract.recognize(
-      imageBuffer,
-      'eng',
-      {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            console.log(`Tesseract progress: ${Math.round(m.progress * 100)}%`);
-          }
-        }
-      }
-    );
-
-    if (!text || text.trim().length === 0) {
-      throw new Error('No text detected by Tesseract OCR');
+    const { text, confidence } = await runTesseractOcr(imageBuffer)
+    if (!text) {
+      throw new Error("No text detected by Tesseract OCR")
     }
-
     return {
-      text: text.trim(),
-      confidence: confidence / 100, // Convert to 0-1 scale
-      source: 'Tesseract OCR'
-    };
+      text,
+      confidence: confidence / 100,
+      source: "Tesseract OCR",
+    }
   } catch (error) {
-    console.error('Tesseract OCR failed:', error);
-    throw new Error('Tesseract OCR failed');
+    console.error("Tesseract OCR failed:", error)
+    throw new Error("Tesseract OCR failed")
   }
 }
 
 /**
- * Main function with failover strategy for OCR
+ * Main function with failover: Google Vision → AWS Textract → Tesseract.js
  */
 export async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
-  const apis = [
-    { name: 'Google Vision API', func: googleVisionOCR },
-    { name: 'AWS Textract', func: awsTextractOCR },
-    { name: 'Tesseract OCR', func: tesseractOCR }
-  ];
+  const apis: Array<{ name: string; func: (buf: Buffer) => Promise<OCRResult> }> = []
+  if (visionClient) apis.push({ name: "Google Vision API", func: googleVisionOCR })
+  if (textractClient) apis.push({ name: "AWS Textract", func: awsTextractOCR })
+  apis.push({ name: "Tesseract OCR", func: tesseractOCR })
 
   for (const api of apis) {
     try {
-      console.log(`Attempting ${api.name}...`);
-      const result = await api.func(imageBuffer);
-      if (result && result.text && result.text.trim().length > 0) {
-        console.log(`${api.name} succeeded:`, result.text.substring(0, 100) + '...');
-        return result;
+      console.log(`Attempting ${api.name}...`)
+      const result = await api.func(imageBuffer)
+      if (result?.text?.trim()) {
+        console.log(`${api.name} succeeded:`, result.text.substring(0, 120) + "...")
+        return result
       }
     } catch (error) {
-      console.error(`${api.name} failed:`, error);
+      console.error(`${api.name} failed:`, error)
     }
   }
 
-  throw new Error('All OCR services failed. Please try again with a clearer image.');
+  throw new Error("All OCR services failed. Please try again with a clearer image.")
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 
 // GET /api/rider/bids - Get all bids for the authenticated rider
 export async function GET(request: NextRequest) {
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(user)
+    if (riderLockResponse) return riderLockResponse
 
     // Get query parameters
     const { searchParams } = new URL(request.url)

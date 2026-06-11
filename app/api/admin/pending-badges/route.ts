@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
       wholesalerKyc,
       ordersPending,
       withdrawalsPending,
+      payoutBankAccountsPending,
       moneyWalletWithdrawalsPending,
       moneyTransferPayoutsPending,
       ticketsOpen,
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
       prisma.wholesaler.count({ where: { isVerified: false } }),
       prisma.order.count({ where: { status: "PENDING" } }),
       prisma.vendorWithdrawal.count({ where: { status: "PENDING" } }),
+      prisma.vendorBankAccount.count({ where: { isVerified: false } }),
       prisma.moneyWalletWithdrawal.count({
         where: { status: { in: ["PENDING", "SCHEDULED"] } },
       }),
@@ -85,6 +87,7 @@ export async function GET(request: NextRequest) {
       "/admin/users": usersPending,
       "/admin/orders": ordersPending,
       "/admin/payments": withdrawalsPending,
+      "/admin/payments/bank-accounts": payoutBankAccountsPending,
       "/admin/modules/vendor": vendorManagementTotal,
       "/admin/modules/auto-parts": autoPartsKyc,
       "/admin/modules/pharmacy": pharmacyKyc,

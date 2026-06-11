@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
+import { getRiderPayableCommissionSummary } from "@/lib/process-rider-payable-commission"
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,6 +11,9 @@ export async function GET(request: NextRequest) {
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const rider = await prisma.user.findUnique({
       where: { id: session.id },
@@ -556,6 +561,8 @@ export async function GET(request: NextRequest) {
       cancellationRate,
     }
 
+    const payableCommission = await getRiderPayableCommissionSummary(session.id)
+
     return NextResponse.json({
       rider: {
         ...rider,
@@ -579,6 +586,7 @@ export async function GET(request: NextRequest) {
         createdAt: r.createdAt.toISOString(),
         customer: r.target,
       })),
+      payableCommission,
     })
   } catch (error) {
     console.error("Error fetching rider dashboard:", error)

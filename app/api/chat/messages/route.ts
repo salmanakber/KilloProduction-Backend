@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { resolveChatUserId } from "@/lib/resolve-chat-user"
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const userId = await resolveChatUserId(request)
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -23,7 +22,7 @@ export async function GET(request: NextRequest) {
     const conversation = await prisma.conversation.findFirst({
       where: {
         id: conversationId,
-        OR: [{ customerId: session.user.id }, { vendorId: session.user.id }],
+        OR: [{ customerId: userId }, { vendorId: userId }],
       },
     })
 
@@ -50,7 +49,7 @@ export async function GET(request: NextRequest) {
     await prisma.message.updateMany({
       where: {
         conversationId,
-        senderId: { not: session.user.id },
+        senderId: { not: userId },
         isRead: false,
       },
       data: { isRead: true, readAt: new Date() },
@@ -73,8 +72,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const userId = await resolveChatUserId(request)
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -88,7 +87,7 @@ export async function POST(request: NextRequest) {
     const conversation = await prisma.conversation.findFirst({
       where: {
         id: conversationId,
-        OR: [{ customerId: session.user.id }, { vendorId: session.user.id }],
+        OR: [{ customerId: userId }, { vendorId: userId }],
       },
     })
 
@@ -99,7 +98,7 @@ export async function POST(request: NextRequest) {
     const message = await prisma.message.create({
       data: {
         conversationId,
-        senderId: session.user.id,
+        senderId: userId,
         content,
         messageType: messageType || "TEXT",
         attachments,

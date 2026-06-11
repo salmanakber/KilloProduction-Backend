@@ -141,10 +141,10 @@ export async function POST(request: NextRequest) {
     const platformFee = await checkoutPlatformFeeAmount("RIDING", finalFare)
     const payableTotal = Math.round((finalFare + platformFee) * 100) / 100
     const normalizedPaymentMethod = String(paymentMethod || "").toUpperCase()
-    if (!["CARD", "WALLET"].includes(normalizedPaymentMethod)) {
-      console.log("Only card or wallet payments are supported for this booking flow")
+    if (!["CARD", "WALLET", "PAY_ON_ARRIVAL"].includes(normalizedPaymentMethod)) {
+      console.log("Only card, wallet, or pay-on-arrival payments are supported for this booking flow")
       return NextResponse.json({
-        error: "Only card or wallet payments are supported for this booking flow",
+        error: "Only card, wallet, or pay-on-arrival payments are supported for this booking flow",
       }, { status: 400 })
     }
 
@@ -158,7 +158,6 @@ export async function POST(request: NextRequest) {
 
     // Handle payment validation for wallet and card payments when payload is provided.
     if ((normalizedPaymentMethod === 'WALLET' || normalizedPaymentMethod === 'CARD') && paymentData) {
-      // Validate payment amount matches final fare (after promo discount)
       const processingFee = Math.max(0, Number(paymentData.paymentProcessingFee || 0))
       const expectedPaymentTotal = Math.round((payableTotal + processingFee) * 100) / 100
       if (Math.abs(Number(paymentData.amount) - expectedPaymentTotal) > 0.01) {

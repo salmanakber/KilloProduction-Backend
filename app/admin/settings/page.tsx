@@ -106,6 +106,7 @@ interface SystemSettings {
       food: number
       grocery: number
       riding: number
+      booking: number
     }
     paymentMethods: string[] | Record<string, unknown>
     /** Populated by GET /api/admin/settings; do not send on PUT (server ignores). */
@@ -124,6 +125,7 @@ interface SystemSettings {
     food: { enabled: boolean; autoApproval: boolean; maxDeliveryTime: number; qualityChecks: boolean }
     grocery: { enabled: boolean; autoApproval: boolean; freshnessPeriod: number; bulkOrders: boolean }
     riding: { enabled: boolean; autoApproval: boolean; backgroundCheck: boolean; insuranceRequired: boolean }
+    booking: { enabled: boolean; autoApproval: boolean }
   }
   loyaltyPoints: {
     [key: string]: {
@@ -1312,7 +1314,7 @@ export default function SystemSettings() {
                       <div className={`p-5 border-b flex items-center justify-between transition-colors ${moduleSettings.enabled ? 'bg-green-50/50 border-green-100' : 'bg-gray-50/50 border-gray-100'}`}>
                          <h3 className="font-bold text-gray-900 capitalize text-lg flex items-center gap-2">
                            {moduleSettings.enabled ? <Check className="h-5 w-5 text-green-600" /> : <Database className="h-5 w-5 text-gray-400" />}
-                           {moduleName.replace(/([A-Z])/g, " $1")}
+                           {moduleName === "booking" ? "Booking" : moduleName.replace(/([A-Z])/g, " $1")}
                          </h3>
                          <ToggleSwitch label="" checked={moduleSettings.enabled} onChange={(c) => updateNestedSettings("modules", moduleName, "enabled", c)} />
                       </div>

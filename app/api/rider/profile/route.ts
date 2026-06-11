@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { cloudinary } from '@/lib/cloudinary'
 
 async function uploadRiderAvatar(imageBase64: string) {
@@ -20,6 +21,9 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     if (session.role !== 'RIDER') {
       return NextResponse.json({ error: 'Forbidden - Rider access only' }, { status: 403 })
@@ -198,6 +202,9 @@ export async function PUT(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     if (session.role !== 'RIDER') {
       return NextResponse.json({ error: 'Forbidden - Rider access only' }, { status: 403 })

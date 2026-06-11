@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
+import {
+  applyUserKycApproved,
+  applyUserKycRejected,
+  createKycRejectionRecord,
+  ensureUserWalletAndProfile,
+} from "@/lib/kyc-admin-status-sync"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -54,34 +60,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       },
     })
 
+    const ownerName = restaurant.user?.name || restaurant.name || "Vendor"
+
     // Update user status
     if (action === "approve") {
-      await prisma.user.update({
-        where: { id: restaurant.userId },
-        data: {
-          isActive: true,
-          isVerified: true,
-          status: "ACTIVE",
-        },
-      })
-
-      // Ensure wallet + profiles exist for vendors
-      const defaultCurrency = await prisma.currency.findFirst({ where: { isDefault: true }, select: { code: true } })
-      const currencyCode = defaultCurrency?.code || process.env.DEFAULT_CURRENCY || "USD"
-      const ownerName = restaurant.user?.name || restaurant.name || "Vendor"
-      const [firstName, ...rest] = ownerName.trim().split(/\s+/)
-      const lastName = rest.join(" ")
-
-      await prisma.wallet.upsert({
-        where: { userId: restaurant.userId },
-        update: { currency: currencyCode },
-        create: { userId: restaurant.userId, balance: 0, currency: currencyCode },
-      })
-      await prisma.userProfile.upsert({
-        where: { userId: restaurant.userId },
-        update: { firstName: firstName || null, lastName: lastName || null },
-        create: { userId: restaurant.userId, firstName: firstName || null, lastName: lastName || null },
-      })
+      await applyUserKycApproved(restaurant.userId)
+      await ensureUserWalletAndProfile(restaurant.userId, ownerName)
       await prisma.vendorProfile.upsert({
         where: { userId: restaurant.userId },
         update: {
@@ -112,19 +96,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           logo: restaurant.restaurantFront || null,
         },
       })
+    } else {
+      await applyUserKycRejected(restaurant.userId)
     }
 
     // Save rejection reason if rejecting
     if (action === "reject") {
-      await prisma.kycRejection.create({
-        data: {
-          entityType: "FOOD",
-          entityId: params.id,
-          userId: restaurant.userId,
-          rejectionReason: reason,
-          rejectedFields: rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
-          rejectedBy: session.id,
-        },
+      await createKycRejectionRecord({
+        entityType: "FOOD",
+        entityId: params.id,
+        userId: restaurant.userId,
+        rejectionReason: reason,
+        rejectedBy: session.id,
+        rejectedFields:
+          rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
       })
     }
 

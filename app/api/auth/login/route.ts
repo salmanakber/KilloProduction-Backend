@@ -4,7 +4,7 @@ import { sendOTP, generateOTP } from "@/lib/twilio"
 import { sendEmailFromTemplate } from "@/lib/email"
 import { generateToken } from "@/lib/auth"
 import bcrypt from "bcryptjs"
-import { getUserModules } from "@/lib/auth-user-modules"
+import { authUserModuleInclude, formatAuthUserPayload, getUserModules } from "@/lib/auth-user-modules"
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,18 +26,7 @@ export async function POST(request: NextRequest) {
           },
         ],
       },
-      include: {
-        userProfile: true,
-        userSettings: true,
-        wallet: true,
-        autoPartsStore: true,
-        pharmacy: true,
-        restaurant: true,
-        mechanicProfile: true,
-        groceryStore: true,
-        riderProfile: true,
-        wholesaler: true,
-      },
+      include: authUserModuleInclude,
     })
     
     if (!user) {
@@ -199,21 +188,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         token,
-        user: {
-          id: user.id,
-          phone: user.phone,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          isVerified: user.isVerified,
-          isActive: user.isActive,
-          status: user.status,
-          avatar: user.avatar,
-          profile: user.userProfile,
-          settings: user.userSettings,
-          wallet: user.wallet,
-          modules: getUserModules(user),
-        },
+        user: formatAuthUserPayload(user),
         requiresVerification: false,
       })
     }

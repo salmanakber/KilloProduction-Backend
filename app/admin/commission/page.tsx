@@ -24,7 +24,8 @@ import {
   AlertCircle,
   ArrowRight,
   TrendingDown,
-  Activity
+  Activity,
+  Hotel
 } from "lucide-react"
 import { formatCompact } from "../../../lib/moneyFormat"
 import { 
@@ -39,7 +40,7 @@ import {
 
 interface CommissionSetting {
   id: string
-  module: "AUTO_PARTS" | "PHARMACY" | "FOOD" | "GROCERY" | "RIDING" | "COURIER" | "WHOLESALER" | "CUSTOMER" | "WALLET"
+  module: "AUTO_PARTS" | "PHARMACY" | "FOOD" | "GROCERY" | "RIDING" | "COURIER" | "WHOLESALER" | "CUSTOMER" | "WALLET" | "PROPERTY"
   commissionType: "VENDOR_COMMISSION" | "RIDER_COMMISSION" | "PLATFORM_FEE" | "PAYMENT_PROCESSING" | "MECHANIC_COMMISSION" | "CUSTOMER_TAX" | "MECHANIC_TAX"
   rate: number
   minAmount?: number
@@ -80,6 +81,7 @@ const getModuleConfig = (module: string) => {
     case "PHARMACY": return { icon: <Pill className="h-4 w-4" />, color: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "Pharmacy" }
     case "FOOD": return { icon: <Utensils className="h-4 w-4" />, color: "bg-orange-100 text-orange-700 border-orange-200", label: "Food" }
     case "GROCERY": return { icon: <ShoppingBag className="h-4 w-4" />, color: "bg-purple-100 text-purple-700 border-purple-200", label: "Grocery" }
+    case "PROPERTY": return { icon: <Hotel className="h-4 w-4" />, color: "bg-teal-100 text-teal-700 border-teal-200", label: "Booking" }
     case "AUTO_PARTS": return { icon: <Wrench className="h-4 w-4" />, color: "bg-blue-100 text-blue-700 border-blue-200", label: "Auto Parts" }
     case "RIDING": return { icon: <Bike className="h-4 w-4" />, color: "bg-red-100 text-red-700 border-red-200", label: "Ride Hailing" }
     case "COURIER": return { icon: <Package className="h-4 w-4" />, color: "bg-indigo-100 text-indigo-700 border-indigo-200", label: "Courier" }
@@ -812,8 +814,8 @@ export default function CommissionManagement() {
                         onChange={(e) => setFormData({ ...formData, module: e.target.value as any })}
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#2E8B57] focus:ring-4 focus:ring-[#2E8B57]/10 outline-none text-sm bg-white font-semibold text-gray-800 appearance-none shadow-sm transition-all"
                       >
-                        {["PHARMACY", "FOOD", "GROCERY", "AUTO_PARTS", "RIDING", "COURIER", "WHOLESALER", "CUSTOMER", "WALLET"].map(m => (
-                          <option key={m} value={m}>{m.replace("_", " ")}</option>
+                        {["PHARMACY", "FOOD", "GROCERY", "AUTO_PARTS", "RIDING", "COURIER", "WHOLESALER", "PROPERTY", "CUSTOMER", "WALLET"].map(m => (
+                          <option key={m} value={m}>{m === "PROPERTY" ? "Booking" : m.replace("_", " ")}</option>
                         ))}
                       </select>
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">

@@ -1,8 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { getRiderWalletClearanceDays } from "@/lib/rider-wallet-clearance-settings"
 import { getRiderWithdrawableBalance } from "@/lib/rider-available-balance"
+import { buildRiderEarningsByChannel } from "@/lib/rider-earnings-reporting"
 import { roundMoney2 } from "@/lib/money-round"
 
 export async function GET(request: NextRequest) {
@@ -13,7 +15,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
+
     const clearanceDays = await getRiderWalletClearanceDays()
+
+    const today = new Date()
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
     const heldAgg = await prisma.walletTransaction.aggregate({
       where: {
@@ -39,9 +47,6 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const lifetimeNetEarnings = roundMoney2(
-      allEarnings.reduce((sum, e) => sum + e.netAmount, 0),
-    )
     const paidEarnings = roundMoney2(
       allEarnings
         .filter((e) => e.status === "PAID")
@@ -64,13 +69,22 @@ export async function GET(request: NextRequest) {
     const availableRaw = await getRiderWithdrawableBalance(session.id)
     const available = roundMoney2(availableRaw)
     const pendingClearance = roundMoney2(pendingClearanceRaw)
+    const earningsByChannel = await buildRiderEarningsByChannel(session.id)
+    const todayEarningsByChannel = await buildRiderEarningsByChannel(session.id, startOfDay)
 
     return NextResponse.json({
       /**
-       * Lifetime sum of net trip earnings (RiderEarning) — informational; can differ from wallet
-       * while credits are clearing or if ledger and earnings ever diverge.
+       * Completed-trip reporting total (online + cash). Not the same as withdrawable wallet.
        */
-      lifetimeNetEarnings,
+      lifetimeNetEarnings: earningsByChannel.totalReportingNet,
+      /** Completed-trip reporting split (cash is not withdrawable). */
+      earningsByChannel,
+      todayEarningsByChannel,
+      todayOnlineNet: todayEarningsByChannel.periodOnlineNet,
+      onlineNet: earningsByChannel.onlineNet,
+      cashCollectedNet: earningsByChannel.cashCollectedNet,
+      platformCommissionOwed: earningsByChannel.platformCommissionOwed,
+      totalReportingNet: earningsByChannel.totalReportingNet,
       /** Amount already credited to the wallet (cleared COMPLETED credits). Same as ledger wallet row. */
       clearedInWallet,
       /**

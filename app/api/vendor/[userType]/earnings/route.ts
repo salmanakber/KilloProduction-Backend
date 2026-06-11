@@ -22,7 +22,7 @@ export async function GET(
 
 
     // Validate user type
-    const validUserTypes = ['pharmacy', 'wholesaler', 'mechanic', 'vendor' , 'food', 'grocery', 'auto_parts']
+    const validUserTypes = ['pharmacy', 'wholesaler', 'mechanic', 'vendor' , 'food', 'grocery', 'auto_parts', 'property']
     if (!validUserTypes.includes(userType)) {
       return NextResponse.json({ error: "Invalid user type" }, { status: 400 })
     }
@@ -36,6 +36,7 @@ export async function GET(
       food: "FOOD",
       grocery: "GROCERY",
       auto_parts: "AUTO_PARTS",
+      property: "PROPERTY",
     }
     const module = moduleMap[userType] || "PHARMACY"
 
@@ -53,7 +54,7 @@ export async function GET(
       vendorProfile = await prisma.mechanicProfile.findUnique({
         where: { userId: session.id },
       })
-    } else if (userType === 'vendor') {
+    } else if (userType === 'vendor' || userType === 'property') {
       vendorProfile = await prisma.vendorProfile.findUnique({
         where: { userId: session.id },
       })
@@ -79,13 +80,16 @@ export async function GET(
     const today = new Date()
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0)
     const startOfWeek = new Date(today)
-    startOfWeek.setDate(today.getDate() - today.getDay())
+    startOfWeek.setDate(today.getDate() - 6)
     startOfWeek.setHours(0, 0, 0, 0)
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
     const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1)
     const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999)
 
     let periodStart: Date
+    let periodEnd = new Date(today)
+    periodEnd.setHours(23, 59, 59, 999)
+
     switch (period) {
       case '7d':
         periodStart = startOfWeek
@@ -93,12 +97,20 @@ export async function GET(
       case '30d':
         periodStart = startOfMonth
         break
+      case 'last_month':
+        periodStart = startOfLastMonth
+        periodEnd = endOfLastMonth
+        break
       case '90d':
         periodStart = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000)
         periodStart.setHours(0, 0, 0, 0)
         break
       case '1y':
         periodStart = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate())
+        break
+      case 'last_year':
+        periodStart = new Date(today.getFullYear() - 1, 0, 1)
+        periodEnd = new Date(today.getFullYear() - 1, 11, 31, 23, 59, 59, 999)
         break
       default:
         periodStart = startOfMonth
@@ -320,7 +332,10 @@ export async function GET(
     const monthEarnings = calculateTotal(monthTransactions)
     const lastMonthEarnings = calculateTotal(lastMonthTransactions)
     const periodTotal = calculateTotal(
-      verifiedTransactions.filter((wt) => new Date(wt.createdAt) >= periodStart)
+      verifiedTransactions.filter((wt) => {
+        const created = new Date(wt.createdAt)
+        return created >= periodStart && created <= periodEnd
+      })
     )
 
     // Verify wallet balance matches sum of COMPLETED transactions
@@ -336,9 +351,10 @@ export async function GET(
 
     // Get order count from verified orders
     const totalOrders = orders.length
-    const periodOrdersCount = orders.filter(
-      (order) => new Date(order.createdAt) >= periodStart
-    ).length
+    const periodOrdersCount = orders.filter((order) => {
+      const created = new Date(order.createdAt)
+      return created >= periodStart && created <= periodEnd
+    }).length
     const totalRevenue = orders.reduce((sum, order) => sum + (order.total || 0), 0)
     const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
 
@@ -439,12 +455,14 @@ export async function GET(
     }
 
     // Chart data (daily settled net + daily pending credits for the period)
-    const periodTransactions = verifiedTransactions.filter(
-      (wt) => new Date(wt.createdAt) >= periodStart
-    )
-    const periodPendingTx = verifiedPendingTransactions.filter(
-      (wt) => new Date(wt.createdAt) >= periodStart
-    )
+    const periodTransactions = verifiedTransactions.filter((wt) => {
+      const created = new Date(wt.createdAt)
+      return created >= periodStart && created <= periodEnd
+    })
+    const periodPendingTx = verifiedPendingTransactions.filter((wt) => {
+      const created = new Date(wt.createdAt)
+      return created >= periodStart && created <= periodEnd
+    })
     const dailyEarningsMap = new Map<string, number>()
     periodTransactions.forEach((wt) => {
       const dateKey = new Date(wt.createdAt).toISOString().split('T')[0] // YYYY-MM-DD
@@ -460,7 +478,7 @@ export async function GET(
     const chartDataPoints: number[] = []
     const chartPendingPoints: number[] = []
     let currentDate = new Date(periodStart)
-    const chartEnd = new Date(today)
+    const chartEnd = new Date(periodEnd)
     chartEnd.setHours(23, 59, 59, 999)
     while (currentDate <= chartEnd) {
       const dateKey = currentDate.toISOString().split('T')[0]
@@ -574,7 +592,7 @@ export async function GET(
           { data: chartDataPoints, color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, strokeWidth: 2 },
           { data: chartPendingPoints, color: (opacity = 1) => `rgba(245, 158, 11, ${opacity})`, strokeWidth: 2 },
         ],
-        legend: ["Net settled (period)", "Pending credits (period)"],
+        legend: ['Settled earnings', 'Pending clearance'],
       },
       promotionalAttribution,
     })

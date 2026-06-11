@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
+import {
+  BankAccountResolveError,
+  requireVerifiedBankAccount,
+} from "@/lib/resolve-bank-account"
 
 export async function PUT(
   request: NextRequest,
@@ -12,6 +17,9 @@ export async function PUT(
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const bankAccountId = params.id
     const body = await request.json()
@@ -63,18 +71,51 @@ export async function PUT(
       }
     }
 
+    const updatedAccountNumber = body.accountNumber?.trim() || existingAccount.accountNumber
+    const updatedBankCode = String(
+      body.routingNumber || body.bankCode || existingAccount.bankCode || existingAccount.routingNumber || ""
+    ).trim()
+
+    let verifiedName = existingAccount.accountName
+    const bankDetailsChanged =
+      updatedAccountNumber !== existingAccount.accountNumber ||
+      updatedBankCode !== String(existingAccount.bankCode || existingAccount.routingNumber || "").trim()
+
+    if (bankDetailsChanged) {
+      if (!updatedBankCode) {
+        return NextResponse.json({ error: "Bank code is required" }, { status: 400 })
+      }
+      try {
+        const verified = await requireVerifiedBankAccount({
+          accountNumber: updatedAccountNumber,
+          bankCode: updatedBankCode,
+          userId: session.id,
+        })
+        verifiedName = verified.accountName
+      } catch (err) {
+        if (err instanceof BankAccountResolveError) {
+          return NextResponse.json({ error: err.message }, { status: err.status })
+        }
+        throw err
+      }
+    }
+
     const updatedAccount = await prisma.vendorBankAccount.update({
       where: { id: bankAccountId },
       data: {
         bankName: body.bankName?.trim() || existingAccount.bankName,
-        accountNumber: body.accountNumber?.trim() || existingAccount.accountNumber,
-        accountName: body.accountName?.trim() || existingAccount.accountName,
-        routingNumber: body.routingNumber?.trim() || existingAccount.routingNumber,
+        accountNumber: updatedAccountNumber,
+        accountName: verifiedName,
+        bankCode: updatedBankCode || existingAccount.bankCode,
+        routingNumber: updatedBankCode || existingAccount.routingNumber,
         swiftCode: body.swiftCode?.trim() || existingAccount.swiftCode,
         branchCode: body.branchCode?.trim() || existingAccount.branchCode,
         accountType: body.accountType || existingAccount.accountType,
         currency: body.currency || existingAccount.currency,
         isPrimary: body.isPrimary !== undefined ? body.isPrimary : existingAccount.isPrimary,
+        ...(bankDetailsChanged
+          ? { isVerified: true, verificationStatus: "VERIFIED" as const, verifiedAt: new Date() }
+          : {}),
       },
     })
 
@@ -98,6 +139,9 @@ export async function DELETE(
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const bankAccountId = params.id
 

@@ -3,6 +3,14 @@ import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmailFromTemplate } from "@/lib/email"
+import {
+  applyAutoPartsStoreKycApproved,
+  applyAutoPartsStoreKycRejected,
+  applyUserKycApproved,
+  applyUserKycRejected,
+  createKycRejectionRecord,
+  ensureUserWalletAndProfile,
+} from "@/lib/kyc-admin-status-sync"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -44,44 +52,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Auto parts store not found" }, { status: 404 })
     }
 
-    const isVerified = action === "approve" ? true : false
-
-    // Update auto parts store status
-    await prisma.autoPartsStore.update({
-      where: { id: params.id },
-      data: {
-        isVerified: isVerified,
-      },
-    })
+    if (action === "approve") {
+      await applyAutoPartsStoreKycApproved(params.id)
+    } else {
+      await applyAutoPartsStoreKycRejected(params.id)
+    }
 
     // Update user status
     if (action === "approve") {
-      await prisma.user.update({
-        where: { id: autoPartsStore.userId },
-        data: {
-          isActive: true,
-          isVerified: true,
-          status: "ACTIVE",
-        },
-      })
-
-      // Ensure wallet + profiles exist for vendors
-      const defaultCurrency = await prisma.currency.findFirst({ where: { isDefault: true }, select: { code: true } })
-      const currencyCode = defaultCurrency?.code || process.env.DEFAULT_CURRENCY || "USD"
-      const ownerName = autoPartsStore.user?.name || autoPartsStore.storeName || "Vendor"
-      const [firstName, ...rest] = ownerName.trim().split(/\s+/)
-      const lastName = rest.join(" ")
-
-      await prisma.wallet.upsert({
-        where: { userId: autoPartsStore.userId },
-        update: { currency: currencyCode },
-        create: { userId: autoPartsStore.userId, balance: 0, currency: currencyCode },
-      })
-      await prisma.userProfile.upsert({
-        where: { userId: autoPartsStore.userId },
-        update: { firstName: firstName || null, lastName: lastName || null },
-        create: { userId: autoPartsStore.userId, firstName: firstName || null, lastName: lastName || null },
-      })
+      await applyUserKycApproved(autoPartsStore.userId)
+      await ensureUserWalletAndProfile(
+        autoPartsStore.userId,
+        autoPartsStore.user?.name || autoPartsStore.storeName || "Vendor"
+      )
       await prisma.vendorProfile.upsert({
         where: { userId: autoPartsStore.userId },
         update: {
@@ -114,19 +97,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           logo: autoPartsStore.storeFront || null,
         },
       })
+    } else {
+      await applyUserKycRejected(autoPartsStore.userId)
     }
 
     // Save rejection reason if rejecting
     if (action === "reject") {
-      await prisma.kycRejection.create({
-        data: {
-          entityType: "AUTO_PARTS",
-          entityId: params.id,
-          userId: autoPartsStore.userId,
-          rejectionReason: reason,
-          rejectedFields: rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
-          rejectedBy: session.id,
-        },
+      await createKycRejectionRecord({
+        entityType: "AUTO_PARTS",
+        entityId: params.id,
+        userId: autoPartsStore.userId,
+        rejectionReason: reason,
+        rejectedBy: session.id,
+        rejectedFields:
+          rejectedFields && Array.isArray(rejectedFields) ? rejectedFields : undefined,
       })
     }
 

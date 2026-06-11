@@ -6,6 +6,7 @@ import {
   getPasswordPolicyFromSettings,
   validatePasswordAgainstPolicy,
 } from "@/lib/password-policy"
+import { authUserModuleInclude, getUserModules } from "@/lib/auth-user-modules"
 
 export async function POST(request: NextRequest) {
   try {
@@ -143,6 +144,22 @@ export async function POST(request: NextRequest) {
           },
         }
       }
+
+      const wantsProperty =
+        modules.includes("property") ||
+        modules.includes("PROPERTY") ||
+        modules.includes("property-host")
+      if (wantsProperty) {
+        userData.vendorProfile = {
+          create: {
+            businessName: `${name}'s Properties`,
+            businessType: "Property Host",
+            address: "To be updated",
+            city: "To be updated",
+            state: "To be updated",
+          },
+        }
+      }
     }
 
     if (role === "RIDER") {
@@ -161,16 +178,7 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.create({
       data: userData,
-      include: {
-        userProfile: true,
-        userSettings: true,
-        wallet: true,
-        autoPartsStore: true,
-        pharmacy: true,
-        restaurant: true,
-        groceryStore: true,
-        riderProfile: true,
-      },
+      include: authUserModuleInclude,
     })
 
     // Store OTP temporarily (in production, use Redis)
@@ -193,14 +201,4 @@ export async function POST(request: NextRequest) {
     console.error("Registration error:", error)
     return NextResponse.json({ error: "Registration failed" }, { status: 500 })
   }
-}
-
-function getUserModules(user: any): string[] {
-  const modules = []
-  if (user.autoPartsStore) modules.push("AUTO_PARTS")
-  if (user.pharmacy) modules.push("PHARMACY")
-  if (user.restaurant) modules.push("FOOD")
-  if (user.groceryStore) modules.push("GROCERY")
-  if (user.riderProfile) modules.push("RIDING")
-  return modules
 }

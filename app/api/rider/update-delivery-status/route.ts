@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLockedAsync } from '@/lib/rider-app-access'
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,6 +9,9 @@ export async function POST(request: NextRequest) {
     if (!session?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = await rejectIfRiderCommissionLockedAsync(session)
+    if (riderLockResponse) return riderLockResponse
 
     const { orderId, status, location, notes } = await request.json()
 

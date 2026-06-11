@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { createRiderEarning } from "@/lib/rider-earnings-helper"
 import { socketIOServer } from "@/lib/socket-server"
 
@@ -14,6 +15,9 @@ export async function PUT(
     if (session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const { id } = params
     const body = await request.json()
@@ -220,6 +224,32 @@ export async function PUT(
         requestId: id,
         reason: "RIDER_ASSIGNED",
       })
+    }
+
+    try {
+      await socketIOServer.sendNotificationToUser(rideBooking.customerId, {
+        type: 'booking_status_update',
+        bookingId: id,
+        bookingType: 'ride',
+        status: 'ACCEPTED',
+        newStatus: 'ACCEPTED',
+        bookingNumber: updatedBooking.bookingNumber,
+        distance: updatedBooking.distance,
+        estimatedTime: updatedBooking.estimatedTime,
+        finalFare: updatedBooking.finalFare ?? updatedBooking.estimatedFare,
+        estimatedFare: updatedBooking.estimatedFare,
+        riderId: riderId,
+        rider: {
+          id: riderId,
+          name: rider.user?.name,
+          phone: rider.user?.phone,
+          avatar: rider.user?.avatar,
+          vehicleType: rider.vehicleType,
+          licensePlate: rider.licensePlate,
+        },
+      })
+    } catch (wsError) {
+      console.error('Failed to send ride accept websocket to customer:', wsError)
     }
 
     return NextResponse.json({

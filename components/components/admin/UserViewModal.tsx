@@ -24,9 +24,10 @@ import type { User } from "../../../app/type/index"
 interface UserViewModalProps {
   userId: string
   onClose: () => void
+  systemCurrency: string
 }
 
-export function UserViewModal({ userId, onClose }: UserViewModalProps) {
+export function UserViewModal({ userId, onClose, systemCurrency }: UserViewModalProps) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -308,7 +309,7 @@ export function UserViewModal({ userId, onClose }: UserViewModalProps) {
                 <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 col-span-2 flex justify-between items-center">
                   <div>
                     <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Total Earnings</p>
-                    <p className="text-2xl font-black text-emerald-700">₦{user.riderProfile.totalEarnings.toLocaleString()}</p>
+                    <p className="text-2xl font-black text-emerald-700">{systemCurrency} {user.riderProfile.totalEarnings.toLocaleString()}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Rides</p>
@@ -343,7 +344,7 @@ export function UserViewModal({ userId, onClose }: UserViewModalProps) {
                         <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800">{order.id.substring(0, 8)}...</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-500 capitalize">{order.module.replace("_", " ").toLowerCase()}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800">₦{order?.totalAmount?.toLocaleString()}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800">{systemCurrency} {order?.totalAmount?.toLocaleString()}</td>
                           <td className="px-6 py-4 whitespace-nowrap"><Badge variant="outline" className="bg-slate-50 text-slate-600 font-bold">{order.status}</Badge></td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-500">{new Date(order.createdAt).toLocaleDateString()}</td>
                         </tr>

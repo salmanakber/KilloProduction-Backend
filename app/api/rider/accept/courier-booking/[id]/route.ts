@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { authenticateRequest } from "@/lib/auth"
+import { authenticateRequest } from '@/lib/auth'
+import { rejectIfRiderCommissionLocked } from '@/lib/rider-app-access'
 import { socketIOServer } from "@/lib/socket-server"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { createRiderEarning } from "@/lib/rider-earnings-helper"
@@ -15,6 +16,9 @@ export async function PUT(
     if (!session || session.role !== "RIDER") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const riderLockResponse = rejectIfRiderCommissionLocked(session)
+    if (riderLockResponse) return riderLockResponse
 
     const { id } = params
     const riderId = session.id
@@ -384,6 +388,36 @@ export async function PUT(
       })
     } catch (notifyError) {
       console.error('Failed to send rider notification:', notifyError)
+    }
+
+    try {
+      const customerUserId = isSupplierOrder && supplierOrder?.pharmacy?.userId
+        ? supplierOrder.pharmacy.userId
+        : courierBooking.customerId
+      await socketIOServer.sendNotificationToUser(customerUserId, {
+        type: 'booking_status_update',
+        bookingId: id,
+        bookingType: 'courier',
+        status: updatedBooking.status,
+        newStatus: updatedBooking.status,
+        bookingNumber: updatedBooking.bookingNumber,
+        distance: updatedBooking.distance,
+        estimatedTime: updatedBooking.estimatedTime,
+        finalFare: updatedBooking.fare,
+        fare: updatedBooking.fare,
+        estimatedFare: updatedBooking.fare,
+        riderId: riderId,
+        rider: {
+          id: riderId,
+          name: rider.user?.name,
+          phone: rider.user?.phone,
+          avatar: rider.user?.avatar,
+          vehicleType: rider.vehicleType,
+          licensePlate: rider.licensePlate,
+        },
+      })
+    } catch (wsError) {
+      console.error('Failed to send courier accept websocket to customer:', wsError)
     }
 
     return NextResponse.json({

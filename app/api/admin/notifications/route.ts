@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
       type: toUiNotificationType(n.type),
       isRead: n.isRead,
       createdAt: n.createdAt.toISOString(),
+      actionUrl: n.actionUrl,
+      data: n.data,
     }))
 
     return NextResponse.json({ notifications, unreadCount })

@@ -435,7 +435,7 @@ export async function buildReportData(filters: ReportFilters) {
     bucket.riderCommission += toNumber(row.riderCommission)
     moduleAccumulator.set(key, bucket)
   }
-  const moduleMetrics = Array.from(moduleAccumulator.entries()).map(([module, m]) => {
+  let moduleMetrics = Array.from(moduleAccumulator.entries()).map(([module, m]) => {
     const commissionIntake = m.platformCommission + m.vendorCommission + m.riderCommission
     return {
       module,
@@ -449,6 +449,45 @@ export async function buildReportData(filters: ReportFilters) {
       netProfitOrLoss: commissionIntake - m.totalDiscount,
     }
   })
+
+  if (filters.module === "ALL" || filters.module === "PROPERTY") {
+    const propertyWhere = {
+      createdAt: { gte: filters.startDate, lte: filters.endDate },
+      paymentStatus: "PAID" as const,
+    }
+    const [propertyCount, propertyAgg] = await Promise.all([
+      prisma.propertyBooking.count({ where: propertyWhere }),
+      prisma.propertyBooking.aggregate({
+        where: propertyWhere,
+        _sum: {
+          totalAmount: true,
+          platformFee: true,
+          subtotal: true,
+          cleaningFee: true,
+          securityDeposit: true,
+        },
+      }),
+    ])
+    const propertyGross =
+      toNumber(propertyAgg._sum.totalAmount) - toNumber(propertyAgg._sum.securityDeposit)
+    const propertyPlatform = toNumber(propertyAgg._sum.platformFee)
+    const propertyMetric = {
+      module: "PROPERTY",
+      orders: propertyCount,
+      grossSales: propertyGross,
+      totalDiscount: 0,
+      platformCommission: propertyPlatform,
+      vendorCommission: 0,
+      riderCommission: 0,
+      systemIntake: propertyPlatform,
+      netProfitOrLoss: propertyPlatform,
+    }
+    if (filters.module === "PROPERTY") {
+      moduleMetrics = [propertyMetric]
+    } else {
+      moduleMetrics = [...moduleMetrics.filter((m) => m.module !== "PROPERTY"), propertyMetric]
+    }
+  }
 
   const autoparts = await prisma.$transaction([
     prisma.order.aggregate({

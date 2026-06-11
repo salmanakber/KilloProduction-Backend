@@ -330,13 +330,21 @@ export async function POST(
       bidId: bidId,
       bookingId: booking.id,
       bookingType: bookingType,
+      status: 'RIDER_ASSIGNED',
+      newStatus: 'RIDER_ASSIGNED',
+      bookingNumber: booking.bookingNumber,
+      distance: booking.distance,
+      estimatedTime: booking.estimatedTime,
+      finalFare: bid.bidAmount,
+      fare: bid.bidAmount,
+      bidAmount: bid.bidAmount,
       rider: {
         id: bid.rider.id,
         name: bid.rider.name,
         phone: bid.rider.phone,
         avatar: bid.rider.avatar
       },
-      finalFare: bid.bidAmount
+      riderId: bid.rider.id,
     });
 
     // Notify all riders that this request is no longer available

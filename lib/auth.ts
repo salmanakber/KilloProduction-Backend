@@ -111,8 +111,29 @@ export async function authenticateRequest(request?: NextRequest) {
       userProfile: true,
       userSettings: true,
       wallet: true,
+      ...(payload.role === "RIDER"
+        ? {
+            riderProfile: {
+              select: { isCommissionLocked: true, commissionLockReason: true },
+            },
+          }
+        : {}),
     },
   })
+
+  if (user && request && user.role === "RIDER") {
+    try {
+      const pathname = new URL(request.url).pathname
+      if (pathname.startsWith("/api/rider/")) {
+        const profile = user.riderProfile as { isCommissionLocked?: boolean } | null | undefined
+        if (profile?.isCommissionLocked) {
+          ;(user as { __riderCommissionLocked?: boolean }).__riderCommissionLocked = true
+        }
+      }
+    } catch {
+      /* ignore malformed request url */
+    }
+  }
 
   return user
 }
