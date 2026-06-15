@@ -1,28 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  assertAdminConfirmation,
+  assertPayoutAdminConfirmation,
   logMoneyTransferAdminAction,
   MONEY_TRANSFER_PAYOUT_ENTITY,
   MoneyAdminAuthError,
   requireMoneyTransferAdmin,
 } from "@/lib/money-transfer-admin"
-
-// Get Money Transfer Paystack config (separate from marketplace)
-async function getMoneyTransferPaystackConfig() {
-  const config = await prisma.moneyTransferConfig.findFirst()
-  
-  if (config?.paystackSecretKey) {
-    return config.paystackSecretKey
-  }
-  
-  // Fallback to environment variable if config not set
-  if (process.env.MONEY_TRANSFER_PAYSTACK_SECRET_KEY) {
-    return process.env.MONEY_TRANSFER_PAYSTACK_SECRET_KEY
-  }
-  
-  throw new Error("Money Transfer Paystack configuration not found")
-}
+import { processTransferPayoutViaPaystack } from "@/lib/money-transfer-payout-admin"
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,118 +36,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    assertAdminConfirmation(confirmToken, payout.transfer.reference)
+    assertPayoutAdminConfirmation(confirmToken, payout.id)
     if (!reason?.trim()) {
       return NextResponse.json({ error: "reason is required" }, { status: 400 })
     }
 
-    // Only retry failed payouts
-    if (payout.status !== "FAILED") {
+    if (!["PENDING", "FAILED"].includes(payout.status)) {
       return NextResponse.json(
         { error: `Cannot retry payout with status: ${payout.status}` },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    const paystackSecretKey = await getMoneyTransferPaystackConfig()
-
-    // Ensure recipient exists
-    let recipientCode = payout.paystackRecipientCode
-
-    if (!recipientCode) {
-      // Create recipient
-      const recipientResponse = await fetch("https://api.paystack.co/transferrecipient", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${paystackSecretKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          type: "nuban",
-          name: payout.accountName,
-          account_number: payout.accountNumber,
-          bank_code: payout.bankCode,
-          currency: "NGN",
-        }),
-      })
-
-      const recipientData = await recipientResponse.json()
-
-      if (!recipientData.status) {
-        throw new Error(recipientData.message || "Failed to create Paystack recipient")
-      }
-
-      recipientCode = recipientData.data.recipient_code
-
-      await prisma.moneyTransferPayout.update({
-        where: { id: payout.id },
-        data: {
-          paystackRecipientCode: recipientCode,
-        },
-      })
-    }
-
-    // Initiate Paystack transfer
-    const transferResponse = await fetch("https://api.paystack.co/transfer", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${paystackSecretKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        source: "balance",
-        amount: payout.amount, // Already in kobo
-        recipient: recipientCode,
-        reference: `MT_RETRY_${payout.transfer.reference}_${Date.now()}`,
-        reason: `Money transfer withdrawal retry: ${payout.transfer.reference}`,
-      }),
-    })
-
-    const transferData = await transferResponse.json()
-
-    if (!transferData.status) {
-      // Update payout with failure
-      await prisma.moneyTransferPayout.update({
-        where: { id: payout.id },
-        data: {
-          status: "FAILED",
-          failureReason: transferData.message || "Paystack transfer failed",
-          paystackResponse: transferData,
-          failedAt: new Date(),
-          retryCount: payout.retryCount + 1,
-          lastRetryAt: new Date(),
-        },
-      })
-
-      return NextResponse.json(
-        { error: transferData.message || "Failed to retry payout" },
-        { status: 500 }
-      )
-    }
-
-    // Update payout with success
-    await prisma.moneyTransferPayout.update({
-      where: { id: payout.id },
-      data: {
-        status: "PROCESSING",
-        paystackTransferCode: transferData.data.transfer_code,
-        paystackReference: transferData.data.reference,
-        paystackResponse: transferData,
-        processedAt: new Date(),
-        retryCount: payout.retryCount + 1,
-        lastRetryAt: new Date(),
-        failureReason: null,
-        failedAt: null,
-      },
-    })
-
-    // Update transfer status
-    await prisma.moneyTransfer.update({
-      where: { id: payout.transferId },
-      data: {
-        status: "PROCESSING",
-      },
-    })
+    const processResult = await processTransferPayoutViaPaystack(payout.id)
 
     await logMoneyTransferAdminAction({
       performedBy: user.id,
@@ -172,7 +58,7 @@ export async function POST(request: NextRequest) {
       details: {
         transferReference: payout.transfer.reference,
         reason,
-        paystackReference: transferData.data.reference,
+        paystackReference: processResult.paystackReference,
       },
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
@@ -183,8 +69,8 @@ export async function POST(request: NextRequest) {
       payout: {
         id: payout.id,
         status: "PROCESSING",
-        paystackReference: transferData.data.reference,
-        retryCount: payout.retryCount + 1,
+        paystackReference: processResult.paystackReference,
+        retryCount: processResult.retryCount,
       },
     })
   } catch (error: unknown) {

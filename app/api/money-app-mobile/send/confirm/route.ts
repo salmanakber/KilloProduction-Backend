@@ -70,19 +70,25 @@ export async function POST(request: NextRequest) {
     })
 
     try {
-      await settleMoneyTransferAfterPayment(
+      const settlement = await settleMoneyTransferAfterPayment(
         transfer.id,
         gatewayName === "STRIPE" ? paymentIntentId || transfer.stripePaymentIntentId || undefined : undefined,
       )
-    } catch (e: any) {
+      return NextResponse.json({
+        success: true,
+        paid: true,
+        transferId: transfer.id,
+        payoutQueued: Boolean((settlement as { payoutQueued?: boolean }).payoutQueued),
+        payoutMessage: (settlement as { reason?: string }).reason,
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Settlement failed"
       console.error("Paystack confirm settlement error:", e)
       return NextResponse.json(
-        { success: false, paid: true, transferId: transfer.id, error: e?.message || "Settlement failed" },
+        { success: false, paid: true, transferId: transfer.id, error: msg },
         { status: 500 },
       )
     }
-
-    return NextResponse.json({ success: true, paid: true, transferId: transfer.id })
   } catch (error: any) {
     console.error("Error confirming money transfer payment:", error)
     return NextResponse.json({ error: error.message || "Failed to confirm transfer payment" }, { status: 500 })

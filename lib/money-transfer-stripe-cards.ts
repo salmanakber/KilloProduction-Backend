@@ -210,3 +210,96 @@ export async function chargeMoneyTransferWithSavedCard(args: {
 
   return intent
 }
+
+export async function chargeMoneyWalletTopUpWithSavedCard(args: {
+  userId: string
+  walletTransactionId: string
+  reference: string
+  paymentMethodId: string
+  amount: number
+  currency: string
+}) {
+  const stripe = await getMoneyStripe()
+  const customerId = await getOrCreateMoneyStripeCustomer(args.userId)
+  const saved = await prisma.paymentMethod.findFirst({
+    where: {
+      id: args.paymentMethodId,
+      userId: args.userId,
+      gateway: MONEY_GATEWAY,
+      isActive: true,
+    },
+  })
+  if (!saved?.gatewayPaymentMethodId) {
+    throw new Error("Saved card not found")
+  }
+
+  const intent = await stripe.paymentIntents.create({
+    amount: Math.round(args.amount * 100),
+    currency: args.currency.toLowerCase(),
+    customer: customerId,
+    payment_method: saved.gatewayPaymentMethodId,
+    off_session: true,
+    confirm: true,
+    metadata: {
+      type: "WALLET_TOPUP",
+      walletTransactionId: args.walletTransactionId,
+      reference: args.reference,
+      savedCard: "true",
+      savedPaymentMethodId: args.paymentMethodId,
+    },
+  })
+
+  if (intent.status === "requires_action" && intent.client_secret) {
+    return {
+      paymentIntentId: intent.id,
+      clientSecret: intent.client_secret,
+      requiresAction: true as const,
+    }
+  }
+
+  if (intent.status !== "succeeded") {
+    throw new Error(`Payment failed: ${intent.status}`)
+  }
+
+  return {
+    paymentIntentId: intent.id,
+    succeeded: true as const,
+  }
+}
+
+export async function createMoneyWalletTopUpPaymentIntent(args: {
+  userId: string
+  walletTransactionId: string
+  reference: string
+  amount: number
+  currency: string
+  saveCard?: boolean
+}) {
+  const stripe = await getMoneyStripe()
+  const customerId = await getOrCreateMoneyStripeCustomer(args.userId)
+
+  const intent = await stripe.paymentIntents.create({
+    amount: Math.round(args.amount * 100),
+    currency: args.currency.toLowerCase(),
+    customer: customerId,
+    description: `Kilo wallet top-up ${args.reference}`,
+    payment_method_types: ["card"],
+    ...(args.saveCard ? { setup_future_usage: "off_session" as const } : {}),
+    metadata: {
+      type: "WALLET_TOPUP",
+      userId: args.userId,
+      walletTransactionId: args.walletTransactionId,
+      reference: args.reference,
+      saveCard: args.saveCard ? "true" : "false",
+    },
+  })
+
+  if (!intent.client_secret) {
+    throw new Error("Could not start card payment")
+  }
+
+  return {
+    paymentIntentId: intent.id,
+    clientSecret: intent.client_secret,
+  }
+}

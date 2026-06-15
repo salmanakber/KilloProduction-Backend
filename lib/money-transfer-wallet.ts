@@ -1,6 +1,6 @@
 import { MoneyTransferSettlementMode, Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { assertPlausibleConversion } from "@/lib/money-fx-rate"
+import { assertPlausibleConversion, getMoneyTransferFxRate } from "@/lib/money-fx-rate"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { sendEmail, sendEmailFromTemplate } from "@/lib/email"
 
@@ -373,5 +373,128 @@ export async function debitMoneyTransferWalletForWithdrawal(args: {
     })
 
     return { wallet, walletTx, newBalance }
+  })
+}
+
+type WalletDebitPlan = {
+  walletId: string
+  currency: string
+  debitAmount: number
+  equivalentInTarget: number
+}
+
+/**
+ * Debit across all active wallets, converting foreign balances into the target currency.
+ * Same-currency wallets are used first; FX uses admin margin rates at debit time.
+ */
+export async function debitMoneyTransferWalletComposite(args: {
+  userId: string
+  amountNeeded: number
+  targetCurrency: string
+  transferId: string
+  description: string
+  referencePrefix: string
+}) {
+  const targetCurrency = normalizeCurrency(args.targetCurrency)
+  let remaining = roundMoneyAmount(args.amountNeeded)
+  if (remaining <= 0) throw new Error("Invalid debit amount")
+
+  const wallets = (await listMoneyTransferWallets(args.userId)).filter((w) => w.balance > 0)
+  if (!wallets.length) {
+    throw new Error(`Insufficient wallet balance. Need ${targetCurrency} ${remaining.toFixed(2)}`)
+  }
+
+  const plans: WalletDebitPlan[] = []
+  const entries: Array<{ wallet: (typeof wallets)[0]; valueInTarget: number; rate: number }> = []
+  let totalAvailable = 0
+
+  for (const wallet of wallets) {
+    const curr = normalizeCurrency(wallet.currency)
+    if (curr === targetCurrency) {
+      entries.push({ wallet, valueInTarget: wallet.balance, rate: 1 })
+      totalAvailable += wallet.balance
+    } else {
+      const rate = await getMoneyTransferFxRate(curr, targetCurrency)
+      if (!rate || rate <= 0) continue
+      const valueInTarget = roundMoneyAmount(wallet.balance * rate)
+      entries.push({ wallet, valueInTarget, rate })
+      totalAvailable += valueInTarget
+    }
+  }
+
+  if (totalAvailable + 0.01 < remaining) {
+    throw new Error(
+      `Insufficient wallet balance. Need ${targetCurrency} ${remaining.toFixed(2)} (available ~${totalAvailable.toFixed(2)})`,
+    )
+  }
+
+  entries.sort((a, b) => {
+    const aSame = normalizeCurrency(a.wallet.currency) === targetCurrency ? 0 : 1
+    const bSame = normalizeCurrency(b.wallet.currency) === targetCurrency ? 0 : 1
+    if (aSame !== bSame) return aSame - bSame
+    return b.valueInTarget - a.valueInTarget
+  })
+
+  for (const entry of entries) {
+    if (remaining <= 0.001) break
+    const curr = normalizeCurrency(entry.wallet.currency)
+    let debitAmount: number
+    let equivalentInTarget: number
+
+    if (curr === targetCurrency) {
+      debitAmount = Math.min(entry.wallet.balance, remaining)
+      equivalentInTarget = debitAmount
+    } else {
+      const neededInSource = remaining / entry.rate
+      debitAmount = roundMoneyAmount(Math.min(entry.wallet.balance, neededInSource))
+      equivalentInTarget = roundMoneyAmount(debitAmount * entry.rate)
+    }
+
+    if (debitAmount <= 0) continue
+
+    plans.push({
+      walletId: entry.wallet.id,
+      currency: curr,
+      debitAmount,
+      equivalentInTarget,
+    })
+    remaining = roundMoneyAmount(Math.max(0, remaining - equivalentInTarget))
+  }
+
+  if (remaining > 0.05) {
+    throw new Error(`Could not cover debit in ${targetCurrency}. Short by ${remaining.toFixed(2)}`)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    for (const plan of plans) {
+      const wallet = await tx.moneyTransferWallet.findUnique({ where: { id: plan.walletId } })
+      if (!wallet || wallet.balance < plan.debitAmount) {
+        throw new Error(`Insufficient ${plan.currency} balance during composite debit`)
+      }
+      const newBalance = roundMoneyAmount(wallet.balance - plan.debitAmount)
+      await tx.moneyTransferWallet.update({
+        where: { id: wallet.id },
+        data: { balance: newBalance },
+      })
+      await tx.moneyTransferWalletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          userId: args.userId,
+          type: "DEBIT",
+          amount: plan.debitAmount,
+          balanceAfter: newBalance,
+          currency: plan.currency,
+          description: args.description,
+          reference: `${args.referencePrefix}_${plan.currency}_${args.transferId.slice(0, 8)}`,
+          transferId: args.transferId,
+          metadata: {
+            paymentSource: "WALLET",
+            compositeDebit: true,
+            targetCurrency,
+            equivalentInTarget: plan.equivalentInTarget,
+          } as Prisma.InputJsonValue,
+        },
+      })
+    }
   })
 }

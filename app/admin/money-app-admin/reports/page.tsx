@@ -12,7 +12,10 @@ import {
   ShieldAlert,
   Calendar,
   Layers,
-  Globe
+  Globe,
+  Wallet,
+  Building2,
+  ArrowDownToLine,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -36,10 +39,19 @@ type Report = {
     failedCount: number
     refundCount: number
     openCases: number
+    payoutCount: number
+    payoutVolumeNgn: number
+    walletTopUpCount: number
+    walletTopUpVolume: number
   }
   byStatus: Array<{ status: string; count: number }>
   bySendCurrency: Array<{ currency: string; count: number; volume: number }>
-  bySettlementMode: Array<{ mode: string; count: number }>
+  byReceiveCurrency: Array<{ currency: string; count: number; volume: number }>
+  bySettlementMode: Array<{ mode: string; count: number; volume: number }>
+  payouts: Array<{ status: string; count: number; volumeNgn: number }>
+  walletCredits: Array<{ currency: string; count: number; volume: number }>
+  walletDebits: Array<{ currency: string; count: number; volume: number }>
+  walletFundedTransfers: number
 }
 
 export default function MoneyTransferReportsPage() {
@@ -76,7 +88,7 @@ export default function MoneyTransferReportsPage() {
             <span className="text-xs font-black uppercase tracking-widest">Financial Intelligence</span>
           </div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Executive Summary</h1>
-          <p className="text-slate-500 font-medium">Network volume, revenue performance, and risk metrics.</p>
+          <p className="text-slate-500 font-medium">Transfers, wallet flows, payouts, and revenue by currency.</p>
         </div>
         
         <div className="flex items-center gap-3 relative z-10">
@@ -154,28 +166,53 @@ export default function MoneyTransferReportsPage() {
             </Card>
           </div>
 
-          {/* SECONDARY METRICS */}
+          {/* WALLET & PAYOUT METRICS */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <Metric 
+              label="Bank Payouts" 
+              value={String(s.payoutCount)} 
+              icon={<Building2 className="h-4 w-4" />}
+              variant="default" 
+              sub={`₦${s.payoutVolumeNgn.toLocaleString(undefined, { maximumFractionDigits: 0 })} sent`}
+            />
+            <Metric 
+              label="Wallet Top-ups" 
+              value={String(s.walletTopUpCount)} 
+              icon={<ArrowDownToLine className="h-4 w-4" />}
+              variant="default" 
+              sub={`Vol ${s.walletTopUpVolume.toFixed(0)}`}
+            />
+            <Metric 
+              label="Wallet-funded Sends" 
+              value={String(report?.walletFundedTransfers ?? 0)} 
+              icon={<Wallet className="h-4 w-4" />}
+              variant="default" 
+              sub="Paid from balance"
+            />
             <Metric 
               label="Pending Issues" 
               value={String(s.openCases)} 
               icon={<ShieldAlert className="h-4 w-4" />}
               variant={s.openCases > 0 ? "warn" : "default"} 
-              sub="Action required"
+              sub="Open cases"
             />
+          </div>
+
+          {/* SECONDARY METRICS */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <Metric 
               label="System Failures" 
               value={String(s.failedCount)} 
               icon={<AlertCircle className="h-4 w-4" />}
               variant={s.failedCount > 5 ? "danger" : "default"} 
-              sub="Non-terminal"
+              sub="Failed transfers"
             />
             <Metric 
-              label="Refund Total" 
+              label="Refunds" 
               value={String(s.refundCount)} 
               icon={<RefreshCcw className="h-4 w-4" />}
               variant="default" 
-              sub="Value reversed"
+              sub="Reversed"
             />
             <Metric 
               label="Report Period" 
@@ -183,6 +220,13 @@ export default function MoneyTransferReportsPage() {
               icon={<Calendar className="h-4 w-4" />}
               variant="default" 
               sub="Active days"
+            />
+            <Metric 
+              label="Receive currencies" 
+              value={String(report?.byReceiveCurrency?.length ?? 0)} 
+              icon={<Globe className="h-4 w-4" />}
+              variant="default" 
+              sub="Distinct pairs"
             />
           </div>
 
@@ -199,7 +243,7 @@ export default function MoneyTransferReportsPage() {
               }))} 
             />
             <TableCard
-              title="Currency Distribution"
+              title="Send Currency"
               icon={<Globe className="h-4 w-4" />}
               total={s.transferCount}
               rows={(report?.bySendCurrency ?? []).map((r) => ({
@@ -209,12 +253,58 @@ export default function MoneyTransferReportsPage() {
               }))}
             />
             <TableCard
+              title="Receive Currency"
+              icon={<Globe className="h-4 w-4" />}
+              total={s.transferCount}
+              rows={(report?.byReceiveCurrency ?? []).map((r) => ({
+                label: r.currency,
+                value: `Vol ${r.volume.toFixed(0)}`,
+                count: r.count
+              }))}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            <TableCard
               title="Settlement Mode"
               icon={<TrendingUp className="h-4 w-4" />}
               total={s.transferCount}
               rows={(report?.bySettlementMode ?? []).map((r) => ({
                 label: r.mode,
-                value: String(r.count),
+                value: `Vol ${r.volume.toFixed(0)}`,
+                count: r.count
+              }))}
+            />
+            <TableCard
+              title="Paystack Payouts"
+              icon={<Building2 className="h-4 w-4" />}
+              total={s.payoutCount || 1}
+              rows={(report?.payouts ?? []).map((r) => ({
+                label: r.status,
+                value: `₦${r.volumeNgn.toFixed(0)}`,
+                count: r.count
+              }))}
+            />
+            <TableCard
+              title="Wallet Credits"
+              icon={<Wallet className="h-4 w-4" />}
+              total={(report?.walletCredits ?? []).reduce((n, r) => n + r.count, 0) || 1}
+              rows={(report?.walletCredits ?? []).map((r) => ({
+                label: r.currency,
+                value: `Vol ${r.volume.toFixed(0)}`,
+                count: r.count
+              }))}
+            />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <TableCard
+              title="Wallet Debits & Withdrawals"
+              icon={<ArrowUpRight className="h-4 w-4" />}
+              total={(report?.walletDebits ?? []).reduce((n, r) => n + r.count, 0) || 1}
+              rows={(report?.walletDebits ?? []).map((r) => ({
+                label: r.currency,
+                value: `Vol ${r.volume.toFixed(0)}`,
                 count: r.count
               }))}
             />
@@ -263,10 +353,9 @@ function TableCard({ title, icon, rows, total }: { title: string; icon: React.Re
       <CardContent className="p-0">
         <div className="divide-y divide-slate-50">
           {rows.map((row) => {
-            const percentage = (row.count / total) * 100;
+            const percentage = total > 0 ? (row.count / total) * 100 : 0;
             return (
               <div key={row.label} className="relative group">
-                {/* Visual Background Progress Bar */}
                 <div 
                   className="absolute inset-y-0 left-0 bg-teal-500/5 transition-all duration-1000" 
                   style={{ width: `${percentage}%` }}

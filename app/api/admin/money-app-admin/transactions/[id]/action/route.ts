@@ -10,6 +10,12 @@ import {
 } from "@/lib/money-transfer-admin"
 import { processMoneyTransferAdminRefund } from "@/lib/money-transfer-admin-refund"
 import { creditMoneyTransferWalletFromTransfer } from "@/lib/money-transfer-wallet"
+import {
+  loadTransferNotifyContext,
+  notifyMoneyTransferCancelled,
+  notifyMoneyTransferCompleted,
+  notifyMoneyTransferFailed,
+} from "@/lib/money-transfer-notifications"
 
 function transferLookupWhere(slug: string) {
   const q = slug.trim()
@@ -63,7 +69,7 @@ export async function POST(
     })
 
     if (destructive) {
-      assertAdminConfirmation(confirmToken, transfer.reference)
+      assertAdminConfirmation(confirmToken, transfer.reference, [transfer.id])
     }
 
     if (!reason?.trim() && destructive) {
@@ -89,6 +95,8 @@ export async function POST(
             } as Prisma.InputJsonValue,
           },
         })
+        const cancelCtx = await loadTransferNotifyContext(transfer.id)
+        if (cancelCtx) await notifyMoneyTransferCancelled(cancelCtx, reason?.trim())
         break
       }
       case "MARK_FAILED": {
@@ -102,6 +110,8 @@ export async function POST(
             } as Prisma.InputJsonValue,
           },
         })
+        const failCtx = await loadTransferNotifyContext(transfer.id)
+        if (failCtx) await notifyMoneyTransferFailed(failCtx, reason?.trim())
         break
       }
       case "MARK_COMPLETED": {
@@ -115,6 +125,8 @@ export async function POST(
             } as Prisma.InputJsonValue,
           },
         })
+        const completeCtx = await loadTransferNotifyContext(transfer.id)
+        if (completeCtx) await notifyMoneyTransferCompleted(completeCtx)
         break
       }
       case "FORCE_WALLET_CREDIT": {

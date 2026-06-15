@@ -171,7 +171,11 @@ export function buildStatementPdfBuffer(
 
       const isSent = t.senderId === user.id
       const other = isSent ? t.receiver : t.sender
-      const who = other?.name || other?.email || other?.phone || "Unknown Party"
+      const walletActivity = Boolean((t as { walletActivity?: boolean }).walletActivity)
+      const walletDescription = (t as { walletDescription?: string }).walletDescription
+      const who = walletActivity
+        ? walletDescription || "Wallet activity"
+        : other?.name || other?.email || other?.phone || "Unknown Party"
       
       const d = new Date(t.createdAt)
       const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })
@@ -194,7 +198,14 @@ export function buildStatementPdfBuffer(
 
       // Party / Type
       doc.fillColor(BRAND_DARK).text(String(who).slice(0, 25), colParty, y)
-      doc.fillColor(TEXT_MUTED).fontSize(7).text(isSent ? "Outgoing Transfer" : "Incoming Transfer", colParty, y + 10)
+      const activityLabel = walletActivity
+        ? walletDescription?.toLowerCase().includes("vtpass")
+          ? "Bill payment (VTpass)"
+          : "Wallet activity"
+        : isSent
+          ? "Outgoing Transfer"
+          : "Incoming Transfer"
+      doc.fillColor(TEXT_MUTED).fontSize(7).text(activityLabel, colParty, y + 10)
 
       // Status
       let stColor = COLOR_PENDING

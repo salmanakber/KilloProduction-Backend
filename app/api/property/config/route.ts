@@ -19,6 +19,7 @@ export async function GET(_request: NextRequest) {
       categories: config.categories.filter((c) => c.isActive !== false),
       destinations: config.destinations.filter((d) => d.isActive !== false),
       folders: config.folders.filter((f) => f.isActive !== false),
+      heroSlides: config.heroSlides.filter((s) => s.isActive !== false && s.image),
       compliance: config.compliance,
       guestCompliance: getGuestComplianceRequirements(config.compliance),
       updatedAt: config.updatedAt,

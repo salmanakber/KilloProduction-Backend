@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
         sandbox: config.sandbox,
         isEnabled: config.isEnabled,
         hasApiKey: Boolean(config.apiKey),
+        hasPublicKey: Boolean(config.publicKey),
         hasSecretKey: Boolean(config.secretKey),
         airtimeCommissionPct: config.airtimeCommissionPct,
         dataCommissionPct: config.dataCommissionPct,
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const data: Record<string, unknown> = {}
     if (body.apiKey) data.apiKey = body.apiKey
+    if (body.publicKey) data.publicKey = body.publicKey
     if (body.secretKey) data.secretKey = body.secretKey
     if (body.sandbox !== undefined) data.sandbox = Boolean(body.sandbox)
     if (body.isEnabled !== undefined) data.isEnabled = Boolean(body.isEnabled)

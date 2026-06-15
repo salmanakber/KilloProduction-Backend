@@ -51,29 +51,110 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     })
 
-    const summary = {
-      totalSent: transfers.filter((t) => t.senderId === user.id).reduce((sum, t) => sum + t.amount, 0),
-      totalReceived: transfers.filter((t) => t.receiverId === user.id).reduce((sum, t) => sum + t.amount, 0),
-      totalTransactions: transfers.length,
+    const walletWhere: {
+      userId: string
+      createdAt?: { gte?: Date; lte?: Date }
+      type?: { in: ("DEBIT" | "WITHDRAWAL" | "CREDIT")[] }
+    } = { userId: user.id }
+
+    if (filter === "sent") {
+      walletWhere.type = { in: ["DEBIT", "WITHDRAWAL"] }
+    } else if (filter === "received") {
+      walletWhere.type = { in: ["CREDIT"] }
     }
 
-    const rows = transfers.map((t) => {
-      const isSent = t.senderId === user.id
-      const other = isSent ? t.receiver : t.sender
+    if (startDate || endDate) {
+      walletWhere.createdAt = {}
+      if (startDate) walletWhere.createdAt.gte = new Date(startDate)
+      if (endDate) walletWhere.createdAt.lte = new Date(endDate)
+    }
+
+    const walletTransactions = await prisma.moneyTransferWalletTransaction.findMany({
+      where: walletWhere,
+      orderBy: { createdAt: "desc" },
+    })
+
+    const walletStatementRows = walletTransactions.map((w) => {
+      const isDebit = w.type === "DEBIT" || w.type === "WITHDRAWAL"
       return {
-        id: t.id,
-        reference: t.reference,
+        id: `wallet-${w.id}`,
+        reference: w.reference || w.id,
+        createdAt: w.createdAt,
+        amount: w.amount,
+        currency: w.currency,
+        status: "COMPLETED",
+        senderId: isDebit ? user.id : "wallet-system",
+        receiverId: isDebit ? "wallet-system" : user.id,
+        sender: isDebit
+          ? { id: user.id, name: user.name, email: user.email, phone: user.phone }
+          : { id: "wallet-system", name: w.description, email: null, phone: null },
+        receiver: isDebit
+          ? { id: "wallet-system", name: w.description, email: null, phone: null }
+          : { id: user.id, name: user.name, email: user.email, phone: user.phone },
+        walletActivity: true,
+        walletDescription: w.description,
+      }
+    })
+
+    const transferSent = transfers
+      .filter((t) => t.senderId === user.id)
+      .reduce((sum, t) => sum + t.amount, 0)
+    const transferReceived = transfers
+      .filter((t) => t.receiverId === user.id)
+      .reduce((sum, t) => sum + t.amount, 0)
+    const walletSent = walletTransactions
+      .filter((w) => w.type === "DEBIT" || w.type === "WITHDRAWAL")
+      .reduce((sum, w) => sum + w.amount, 0)
+    const walletReceived = walletTransactions
+      .filter((w) => w.type === "CREDIT")
+      .reduce((sum, w) => sum + w.amount, 0)
+
+    const summary = {
+      totalSent: transferSent + walletSent,
+      totalReceived: transferReceived + walletReceived,
+      totalTransactions: transfers.length + walletTransactions.length,
+    }
+
+    const statementRows = [...transfers, ...walletStatementRows].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    )
+
+    const rows = statementRows.map((t) => {
+      const isWallet = Boolean((t as { walletActivity?: boolean }).walletActivity)
+      if (isWallet) {
+        const w = t as typeof walletStatementRows[number]
+        const isSent = w.senderId === user.id
+        return {
+          id: w.id,
+          reference: w.reference,
+          type: isSent ? ("sent" as const) : ("received" as const),
+          amount: w.amount,
+          currency: w.currency,
+          status: w.status,
+          createdAt: w.createdAt,
+          otherUser: { name: w.walletDescription || "Wallet activity" },
+          activityKind: "wallet" as const,
+          description: w.walletDescription,
+        }
+      }
+      const tr = t as typeof transfers[number]
+      const isSent = tr.senderId === user.id
+      const other = isSent ? tr.receiver : tr.sender
+      return {
+        id: tr.id,
+        reference: tr.reference,
         type: isSent ? ("sent" as const) : ("received" as const),
-        amount: t.amount,
-        currency: t.currency,
-        status: t.status,
-        createdAt: t.createdAt,
+        amount: tr.amount,
+        currency: tr.currency,
+        status: tr.status,
+        createdAt: tr.createdAt,
         otherUser: other,
+        activityKind: "transfer" as const,
       }
     })
 
     const company = await getCompanyInfoForStatementPdf()
-    const pdfBuffer = await buildStatementPdfBuffer(user, transfers, filter, summary, {
+    const pdfBuffer = await buildStatementPdfBuffer(user, statementRows, filter, summary, {
       periodLabel,
       company,
     })

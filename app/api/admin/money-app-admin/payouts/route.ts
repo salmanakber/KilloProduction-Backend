@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { MoneyAdminAuthError, requireMoneyTransferAdmin } from "@/lib/money-transfer-admin"
+import { MoneyAdminAuthError, requireMoneyTransferAdmin, payoutAdminConfirmToken } from "@/lib/money-transfer-admin"
 
 export async function GET(request: NextRequest) {
   try {
@@ -67,12 +67,20 @@ export async function GET(request: NextRequest) {
     ])
 
     const mapped = [
-      ...transferPayouts.map((payout) => ({
+      ...transferPayouts.map((payout) => {
+        const transferMeta = (payout.transfer.metadata as Record<string, unknown>) || {}
+        const payoutQueued = Boolean(transferMeta.payoutQueued)
+        const needsManualProcessing =
+          payout.status === "PENDING" ||
+          (payout.status === "FAILED" && payout.retryCount === 0) ||
+          payoutQueued
+        return {
         id: payout.id,
         kind: "TRANSFER_PAYOUT" as const,
         transfer: {
           id: payout.transfer.id,
           reference: payout.transfer.reference,
+          status: payout.transfer.status,
           sender: {
             id: payout.transfer.sender.id,
             name:
@@ -92,6 +100,7 @@ export async function GET(request: NextRequest) {
         amount: payout.amount / 100,
         currency: payout.currency,
         status: payout.status,
+        rawStatus: payout.status,
         bankName: payout.bankName,
         accountNumber: payout.accountNumber,
         accountName: payout.accountName,
@@ -100,12 +109,15 @@ export async function GET(request: NextRequest) {
         paystackReference: payout.paystackReference,
         failureReason: payout.failureReason,
         retryCount: payout.retryCount,
+        payoutQueued,
+        confirmToken: payoutAdminConfirmToken(payout.id),
+        needsManualProcessing,
         scheduledProcessAt: null,
         createdAt: payout.createdAt,
         processedAt: payout.processedAt,
         completedAt: payout.completedAt,
         failedAt: payout.failedAt,
-      })),
+      }}),
       ...walletWithdrawals.map((w) => ({
         id: w.id,
         kind: "WALLET_WITHDRAWAL" as const,

@@ -172,6 +172,9 @@ model User {
   moneyTransferTrustedDevices   MoneyTransferTrustedDevice[]
   moneyTransferRiskLogs         MoneyTransferRiskLog[]
   moneyTransferStepUps          MoneyTransferStepUp[]
+  moneyTransferProfile          MoneyTransferProfile?
+  moneySavedRecipients          MoneySavedRecipient[]      @relation("MoneySavedRecipients")
+  moneySavedAsRecipient         MoneySavedRecipient[]      @relation("MoneySavedAsRecipient")
   vtpassTransactions            VtpassTransaction[]
   userActivities          UserActivity[]            @relation("UserActivities")
   specialOfferVendors     SpecialOfferVendor[]
@@ -3420,6 +3423,7 @@ model PropertyModuleConfig {
   destinations Json     @default("[]")
   compliance   Json     @default("[]")
   folders      Json     @default("[]")
+  heroSlides   Json     @default("[]")
   updatedAt    DateTime @updatedAt
 
   @@map("property_module_config")
@@ -4835,6 +4839,7 @@ enum VtpassTransactionStatus {
 model VtpassConfig {
   id                     String   @id @default("default")
   apiKey                 String?
+  publicKey              String?
   secretKey              String?
   sandbox                Boolean  @default(true)
   isEnabled              Boolean  @default(false)
@@ -5300,6 +5305,47 @@ model MoneyTransferRiskLog {
   @@index([userId])
   @@index([createdAt])
   @@map("money_transfer_risk_logs")
+}
+
+enum MoneySavedRecipientDestination {
+  WALLET
+  BANK
+}
+
+/// Per-user money app identity: Kilo number, transfer PIN, self-imposed limits.
+model MoneyTransferProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  kiloNumber      String    @unique
+  transferPinHash String?
+  pinSetAt        DateTime?
+  dailyLimit      Float?
+  monthlyLimit    Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([kiloNumber])
+  @@map("money_transfer_profiles")
+}
+
+model MoneySavedRecipient {
+  id              String                         @id @default(cuid())
+  ownerId         String
+  receiverId      String
+  nickname        String?
+  destinationType MoneySavedRecipientDestination
+  bankAccountId   String?
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+
+  owner    User @relation("MoneySavedRecipients", fields: [ownerId], references: [id], onDelete: Cascade)
+  receiver User @relation("MoneySavedAsRecipient", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@index([receiverId])
+  @@map("money_saved_recipients")
 }
 
 // AI Configuration Models

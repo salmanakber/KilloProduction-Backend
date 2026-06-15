@@ -28,6 +28,7 @@ export async function PUT(request: NextRequest) {
       destinations: body.destinations,
       compliance: body.compliance,
       folders: body.folders,
+      heroSlides: body.heroSlides,
     })
     return NextResponse.json({ success: true, ...saved })
   } catch (error) {

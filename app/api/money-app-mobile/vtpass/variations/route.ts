@@ -12,7 +12,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "serviceId required" }, { status: 400 })
     }
 
-    const variations = await fetchVtpassVariations(serviceId)
+    const operatorId = request.nextUrl.searchParams.get("operatorId") || undefined
+    const productTypeId = request.nextUrl.searchParams.get("productTypeId") || undefined
+
+    const variations = await fetchVtpassVariations(serviceId, {
+      operatorId,
+      productTypeId,
+    })
     return NextResponse.json({ success: true, variations })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Failed to load plans"

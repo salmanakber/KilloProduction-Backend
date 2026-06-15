@@ -46,6 +46,7 @@ interface Payout {
   transfer: {
     id: string
     reference: string
+    status?: string
     sender: { id: string; name: string }
     receiver: { id: string; name: string }
   } | null
@@ -61,6 +62,9 @@ interface Payout {
   paystackReference: string | null
   failureReason: string | null
   retryCount: number
+  payoutQueued?: boolean
+  needsManualProcessing?: boolean
+  confirmToken?: string
   createdAt: string
   processedAt: string | null
   completedAt: string | null
@@ -177,12 +181,15 @@ export default function MoneyTransferPayouts() {
     }
   }
 
-  const handleRetryPayout = async (payoutId: string, transferReference: string) => {
+  const payoutConfirm = (payoutId: string) => `CONFIRM:PO-${payoutId.slice(0, 8)}`
+
+  const handleRetryPayout = async (payoutId: string) => {
+    const token = payoutConfirm(payoutId)
     const reason = window.prompt("Reason for payout retry (required):")
     if (!reason?.trim()) return
-    const confirmToken = window.prompt(`Type exactly to confirm:\nCONFIRM:${transferReference}`)
-    if (confirmToken !== `CONFIRM:${transferReference}`) {
-      toast({ title: "Confirmation failed", variant: "destructive" })
+    const typed = window.prompt(`Type exactly to confirm:\n${token}`)
+    if (typed?.trim() !== token) {
+      toast({ title: "Confirmation failed", description: `Expected: ${token}`, variant: "destructive" })
       return
     }
     try {
@@ -190,7 +197,7 @@ export default function MoneyTransferPayouts() {
       const response = await fetch("/api/admin/money-app-admin/retry-payout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payoutId, reason: reason.trim(), confirmToken }),
+        body: JSON.stringify({ payoutId, reason: reason.trim(), confirmToken: token }),
       })
       const data = await response.json()
       if (data.success) {
@@ -203,6 +210,43 @@ export default function MoneyTransferPayouts() {
       setRetrying(null)
     }
   }
+
+  const handleTransferPayoutAction = async (
+    payoutId: string,
+    action: "process" | "mark_completed" | "mark_failed",
+    label: string,
+  ) => {
+    const token = payoutConfirm(payoutId)
+    const reason = window.prompt(`Reason for ${label} (required):`)
+    if (!reason?.trim()) return
+    const typed = window.prompt(`Type exactly to confirm:\n${token}`)
+    if (typed?.trim() !== token) {
+      toast({ title: "Confirmation failed", description: `Expected: ${token}`, variant: "destructive" })
+      return
+    }
+    try {
+      setRetrying(payoutId)
+      const res = await fetch(`/api/admin/money-app-admin/payouts/${payoutId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason: reason.trim(), confirmToken: token }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        toast({ title: "Success", description: `${label} applied` })
+        fetchPayouts()
+        fetchTreasury()
+      } else throw new Error(data.error)
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" })
+    } finally {
+      setRetrying(null)
+    }
+  }
+
+  const pendingManualCount = payouts.filter(
+    (p) => p.kind === "TRANSFER_PAYOUT" && p.needsManualProcessing && p.status !== "SUCCESS",
+  ).length
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, string> = {
@@ -227,7 +271,7 @@ export default function MoneyTransferPayouts() {
           <div className="space-y-1">
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Payout & Withdrawal Hub</h1>
             <p className="text-slate-500 font-medium max-w-2xl">
-              Unified ledger for multi-currency payouts. NGN bank rails managed via Paystack with automated liquidity checks.
+              Unified ledger for multi-currency payouts. NGN bank rails via Paystack — with manual processing when API payouts fail or are queued.
             </p>
             <div className="flex gap-4 pt-3">
               <Link href="/admin/money-app-admin/config" className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1">
@@ -255,6 +299,21 @@ export default function MoneyTransferPayouts() {
       </div>
 
       {/* SMART ALERT */}
+      {pendingManualCount > 0 && (
+        <Alert className="border-amber-200 bg-amber-50 rounded-2xl shadow-sm border-l-4 border-l-amber-500">
+          <AlertCircle className="h-5 w-5 text-amber-600" />
+          <div className="ml-2">
+            <AlertTitle className="text-amber-900 font-black uppercase text-xs tracking-wider">
+              {pendingManualCount} payout(s) need manual action
+            </AlertTitle>
+            <AlertDescription className="text-amber-800 text-sm mt-1 font-medium">
+              Payment was collected but Paystack could not auto-send to the bank (e.g. starter account limits).
+              Use <strong>Send via Paystack</strong> after upgrading, or <strong>Mark completed (manual)</strong> if you paid the recipient outside the API.
+            </AlertDescription>
+          </div>
+        </Alert>
+      )}
+
       {treasury?.withdrawalSmart?.showWarning && (
         <Alert className="border-amber-200 bg-amber-50 rounded-2xl shadow-sm border-l-4 border-l-amber-500">
           <AlertCircle className="h-5 w-5 text-amber-600" />
@@ -433,6 +492,11 @@ export default function MoneyTransferPayouts() {
                       <Badge variant="outline" className={`font-bold border text-[10px] px-2 py-0 h-5 ${getStatusBadge(payout.status)}`}>
                         {payout.status}
                       </Badge>
+                      {payout.payoutQueued && payout.status === "PENDING" && (
+                        <Badge variant="outline" className="font-bold border text-[10px] px-2 py-0 h-5 bg-violet-50 text-violet-700 border-violet-200">
+                          QUEUED
+                        </Badge>
+                      )}
                       {payout.failureReason && (
                         <div className="bg-rose-50 border border-rose-100 p-2 rounded-lg max-w-[180px]">
                            <p className="text-[10px] font-bold text-rose-700 leading-tight italic">"{payout.failureReason}"</p>
@@ -446,16 +510,69 @@ export default function MoneyTransferPayouts() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right pr-6">
+                    <div className="flex flex-col items-end gap-1.5">
                     {payout.kind === "WALLET_WITHDRAWAL" && (payout.rawStatus === "PENDING" || payout.rawStatus === "FAILED") && (
                       <Button size="sm" onClick={() => handleApproveWallet(payout.id)} disabled={retrying === payout.id} className="bg-teal-600 hover:bg-teal-700 font-bold h-8 rounded-lg shadow-sm">
                         {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Approve WD"}
                       </Button>
                     )}
-                    {payout.kind === "TRANSFER_PAYOUT" && payout.status === "FAILED" && payout.transfer && (
-                      <Button variant="outline" size="sm" onClick={() => handleRetryPayout(payout.id, payout.transfer!.reference)} disabled={retrying === payout.id} className="border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 font-bold h-8 rounded-lg shadow-sm">
-                        {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><RefreshCw className="h-3 w-3 mr-1.5" /> Retry</>}
+                    {payout.kind === "TRANSFER_PAYOUT" && payout.transfer && payout.status === "PENDING" && (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => handleTransferPayoutAction(payout.id, "process", "Paystack send")}
+                          disabled={retrying === payout.id}
+                          className="bg-teal-600 hover:bg-teal-700 font-bold h-8 rounded-lg shadow-sm w-full"
+                        >
+                          {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Send via Paystack"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTransferPayoutAction(payout.id, "mark_completed", "manual completion")}
+                          disabled={retrying === payout.id}
+                          className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 font-bold h-8 rounded-lg w-full"
+                        >
+                          Mark completed (manual)
+                        </Button>
+                      </>
+                    )}
+                    {payout.kind === "TRANSFER_PAYOUT" && payout.transfer && payout.status === "PROCESSING" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTransferPayoutAction(payout.id, "mark_completed", "manual completion")}
+                        disabled={retrying === payout.id}
+                        className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 font-bold h-8 rounded-lg"
+                      >
+                        Mark completed (manual)
                       </Button>
                     )}
+                    {payout.kind === "TRANSFER_PAYOUT" && payout.status === "FAILED" && payout.transfer && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => handleRetryPayout(payout.id)} disabled={retrying === payout.id} className="border-slate-200 text-slate-600 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200 font-bold h-8 rounded-lg shadow-sm w-full">
+                          {retrying === payout.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <><RefreshCw className="h-3 w-3 mr-1.5" /> Retry Paystack</>}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTransferPayoutAction(payout.id, "mark_completed", "manual completion")}
+                          disabled={retrying === payout.id}
+                          className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 font-bold h-8 rounded-lg w-full"
+                        >
+                          Mark completed (manual)
+                        </Button>
+                      </>
+                    )}
+                    {payout.kind === "TRANSFER_PAYOUT" && payout.transfer && (
+                      <Link
+                        href={`/admin/money-app-admin/transactions/${payout.transfer.id}`}
+                        className="text-[10px] font-bold text-teal-600 hover:text-teal-700"
+                      >
+                        View transfer →
+                      </Link>
+                    )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

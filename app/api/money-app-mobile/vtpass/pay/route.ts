@@ -19,9 +19,15 @@ export async function POST(request: NextRequest) {
     const amount = Number(body.amount)
     const phone = body.phone ? String(body.phone).trim() : undefined
     const variationCode = body.variationCode as string | undefined
+    const extraFields = body.extraFields as Record<string, string> | undefined
 
     if (!serviceType || !serviceId || !billersCode || !Number.isFinite(amount)) {
       return NextResponse.json({ error: "Invalid payment details" }, { status: 400 })
+    }
+
+    const allowedTypes = ["airtime", "data", "electricity", "cable", "education", "insurance"] as const
+    if (!allowedTypes.includes(serviceType)) {
+      return NextResponse.json({ error: "Invalid service type" }, { status: 400 })
     }
 
     const result = await purchaseVtpassService({
@@ -34,6 +40,7 @@ export async function POST(request: NextRequest) {
       amount,
       phone,
       variationCode,
+      extraFields,
     })
 
     return NextResponse.json({
@@ -52,6 +59,8 @@ export async function POST(request: NextRequest) {
       )
     }
     const message = e instanceof Error ? e.message : "Payment failed"
+    console.error("Payment failed", message)
+    console.error("Payment failed", e)
     return NextResponse.json({ error: message }, { status: 400 })
   }
 }

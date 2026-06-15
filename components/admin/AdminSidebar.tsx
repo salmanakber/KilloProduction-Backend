@@ -18,6 +18,7 @@ import {
   Database,
   MapPinned,
   Home,
+  Flag,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { requiredFeatureForPath, resolveAdminFeatures, type AdminFeature } from "@/lib/admin-access"
@@ -428,6 +429,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         { name: "Support Cases", href: "/admin/money-app-admin/cases", icon: ClipboardCheck },
         { name: "Payouts", href: "/admin/money-app-admin/payouts", icon: Handshake },
         { name: "Reports", href: "/admin/money-app-admin/reports", icon: BarChart },
+        { name: "Security red flags", href: "/admin/money-app-admin/security", icon: Flag },
         { name: "Security Log", href: "/admin/money-app-admin/audit", icon: Shield },
         { name: "Edit records", href: "/admin/money-app-admin/records", icon: Database },
         { name: "Configuration", href: "/admin/money-app-admin/config", icon: Settings },

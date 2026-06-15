@@ -48,6 +48,7 @@ import {
   Heart,
   TrendingUp,
   FolderOpen,
+  Images,
 } from "lucide-react"
 
 interface BookingCategory {
@@ -107,6 +108,13 @@ interface CollectionFolderRow {
   id: string
   label: string
   icon: string
+  isActive: boolean
+}
+
+interface HeroSlideRow {
+  id: string
+  image: string
+  label: string
   isActive: boolean
 }
 
@@ -269,7 +277,7 @@ function RenderMaterialIcon({ name, className = "h-5 w-5" }: { name: string; cla
 }
 
 export default function BookingConfiguration() {
-  const [activeTab, setActiveTab] = useState<"categories" | "destinations" | "folders" | "compliance">("categories")
+  const [activeTab, setActiveTab] = useState<"categories" | "destinations" | "folders" | "compliance" | "hero">("categories")
   const [configLoading, setConfigLoading] = useState(true)
   const [configSaving, setConfigSaving] = useState(false)
   
@@ -278,6 +286,8 @@ export default function BookingConfiguration() {
   const [destinations, setDestinations] = useState<TravelDestination[]>([])
   const [complianceChecks, setComplianceChecks] = useState<ComplianceCheck[]>([])
   const [collectionFolders, setCollectionFolders] = useState<CollectionFolderRow[]>([])
+  const [heroSlides, setHeroSlides] = useState<HeroSlideRow[]>([])
+  const [heroUploadId, setHeroUploadId] = useState<string | null>(null)
 
   // Modal Control States
   const [showCategoryModal, setShowCategoryModal] = useState(false)
@@ -327,7 +337,7 @@ export default function BookingConfiguration() {
     isActive: true,
   })
 
-  const [uploadingImage, setUploadingImage] = useState<null | "category" | "destination">(null)
+  const [uploadingImage, setUploadingImage] = useState<null | "category" | "destination" | "hero">(null)
   const [iconSearchTerm, setIconSearchTerm] = useState("")
 
   // Filter icons based on search
@@ -340,8 +350,13 @@ export default function BookingConfiguration() {
   }, [iconSearchTerm])
 
   // Image Upload handler
-  const uploadConfigImage = async (file: File, target: "category" | "destination") => {
+  const uploadConfigImage = async (
+    file: File,
+    target: "category" | "destination" | "hero",
+    heroSlideId?: string,
+  ) => {
     setUploadingImage(target)
+    if (target === "hero" && heroSlideId) setHeroUploadId(heroSlideId)
     try {
       const fd = new FormData()
       fd.append("file", file)
@@ -351,13 +366,20 @@ export default function BookingConfiguration() {
       if (!res.ok || !data.url) throw new Error(data.error || "Upload failed")
       if (target === "category") {
         setCategoryForm((prev) => ({ ...prev, image: data.url }))
-      } else {
+      } else if (target === "destination") {
         setDestinationForm((prev) => ({ ...prev, image: data.url }))
+      } else if (target === "hero" && heroSlideId) {
+        const next = heroSlides.map((s) =>
+          s.id === heroSlideId ? { ...s, image: data.url } : s,
+        )
+        setHeroSlides(next)
+        void persistConfig(categories, destinations, complianceChecks, collectionFolders, next)
       }
     } catch (e) {
       console.error(e)
     } finally {
       setUploadingImage(null)
+      setHeroUploadId(null)
     }
   }
 
@@ -412,6 +434,14 @@ export default function BookingConfiguration() {
       isActive: f.isActive,
     })), [])
 
+  const mapHeroSlidesToApi = useCallback((rows: HeroSlideRow[]) =>
+    rows.map((s) => ({
+      id: s.id,
+      image: s.image || null,
+      label: s.label || null,
+      isActive: s.isActive,
+    })), [])
+
   const mapComplianceToApi = useCallback((rows: ComplianceCheck[]) =>
     rows.map((c) => ({
       id: c.id,
@@ -441,7 +471,8 @@ export default function BookingConfiguration() {
     nextCategories: BookingCategory[],
     nextDestinations: TravelDestination[],
     nextCompliance: ComplianceCheck[],
-    nextFolders?: CollectionFolderRow[]
+    nextFolders?: CollectionFolderRow[],
+    nextHeroSlides?: HeroSlideRow[],
   ) => {
     setConfigSaving(true)
     try {
@@ -454,6 +485,7 @@ export default function BookingConfiguration() {
           destinations: mapDestinationsToApi(nextDestinations),
           compliance: mapComplianceToApi(nextCompliance),
           folders: mapFoldersToApi(nextFolders ?? collectionFolders),
+          heroSlides: mapHeroSlidesToApi(nextHeroSlides ?? heroSlides),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -545,6 +577,24 @@ export default function BookingConfiguration() {
           setComplianceChecks([
             { id: "cc-1", documentName: "Tourism / Hospitality Permit License", isRequired: true, userType: "HOST", requiresUpload: true, description: "Official local authority license authorizing short-stay commercial lodging operations." },
             { id: "cc-2", documentName: "National Identity Verification", isRequired: true, userType: "GUEST", requiresUpload: true, allowCamera: true, description: "NIN slip, International Passport, or Voter's Card required to verify account registration." }
+          ])
+        }
+
+        if (Array.isArray(data.heroSlides) && data.heroSlides.length > 0) {
+          setHeroSlides(
+            data.heroSlides.map((s: any, index: number) => ({
+              id: s.id || `hero-${index + 1}`,
+              image: s.image || "",
+              label: s.label || `Slide ${index + 1}`,
+              isActive: s.isActive !== false,
+            })),
+          )
+        } else {
+          setHeroSlides([
+            { id: "hero-1", image: "https://images.unsplash.com/photo-1542314831-c6a4d14d83f1?w=1400&q=90", label: "Luxury resort", isActive: true },
+            { id: "hero-2", image: "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=1400&q=90", label: "Beach villa", isActive: true },
+            { id: "hero-3", image: "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=1400&q=90", label: "Pool suite", isActive: true },
+            { id: "hero-4", image: "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1400&q=90", label: "Ocean view", isActive: true },
           ])
         }
       } catch (err) {
@@ -939,6 +989,23 @@ export default function BookingConfiguration() {
             </button>
 
             <button
+              onClick={() => setActiveTab("hero")}
+              className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold rounded-xl transition-all ${
+                activeTab === "hero"
+                  ? "bg-emerald-500 text-white shadow-sm"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <Images className="h-5 w-5" />
+                <span>Home Hero Slider</span>
+              </div>
+              <span className={`px-2 py-0.5 text-xs font-bold rounded-md ${activeTab === 'hero' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                {heroSlides.filter((s) => s.isActive).length}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("compliance")}
               className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold rounded-xl transition-all ${
                 activeTab === "compliance"
@@ -1252,6 +1319,148 @@ export default function BookingConfiguration() {
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: HOME HERO SLIDER */}
+              {activeTab === "hero" && (
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                      <div>
+                        <h2 className="text-xl font-bold text-slate-900">Property Home Hero Slider</h2>
+                        <p className="text-slate-500 text-sm mt-0.5">
+                          Images shown in the booking home screen carousel. Upload via Cloudinary or paste a URL.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newSlide: HeroSlideRow = {
+                            id: `hero-${Date.now()}`,
+                            image: "",
+                            label: `Slide ${heroSlides.length + 1}`,
+                            isActive: true,
+                          }
+                          const next = [...heroSlides, newSlide]
+                          setHeroSlides(next)
+                          void persistConfig(categories, destinations, complianceChecks, collectionFolders, next)
+                        }}
+                        className={`flex items-center px-4 py-2.5 rounded-xl text-sm font-semibold ${gradientBtnClass}`}
+                      >
+                        <Plus className="h-4 w-4 mr-1.5" /> Add Slide
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                      {heroSlides.map((slide, index) => (
+                        <div
+                          key={slide.id}
+                          className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50 flex flex-col"
+                        >
+                          <div className="h-36 bg-slate-200 relative">
+                            {slide.image ? (
+                              <img src={slide.image} alt={slide.label} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">
+                                No image yet
+                              </div>
+                            )}
+                            <span className="absolute top-2 left-2 text-[10px] font-bold bg-slate-900/60 text-white px-2 py-0.5 rounded-full">
+                              #{index + 1}
+                            </span>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <input
+                              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm"
+                              value={slide.label}
+                              onChange={(e) => {
+                                const next = heroSlides.map((s) =>
+                                  s.id === slide.id ? { ...s, label: e.target.value } : s,
+                                )
+                                setHeroSlides(next)
+                              }}
+                              placeholder="Slide label (optional)"
+                            />
+                            <input
+                              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono"
+                              value={slide.image}
+                              onChange={(e) => {
+                                const next = heroSlides.map((s) =>
+                                  s.id === slide.id ? { ...s, image: e.target.value } : s,
+                                )
+                                setHeroSlides(next)
+                              }}
+                              placeholder="Image URL"
+                            />
+                            <div className="flex gap-2">
+                              <label
+                                className={`flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold cursor-pointer hover:bg-slate-50 flex items-center justify-center gap-1 ${
+                                  uploadingImage === "hero" && heroUploadId === slide.id
+                                    ? "opacity-50 pointer-events-none"
+                                    : ""
+                                }`}
+                              >
+                                {uploadingImage === "hero" && heroUploadId === slide.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <UploadCloud className="h-3.5 w-3.5" />
+                                )}
+                                Upload
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={uploadingImage === "hero"}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0]
+                                    if (f) void uploadConfigImage(f, "hero", slide.id)
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = heroSlides.map((s) =>
+                                    s.id === slide.id ? { ...s, isActive: !s.isActive } : s,
+                                  )
+                                  setHeroSlides(next)
+                                  void persistConfig(categories, destinations, complianceChecks, collectionFolders, next)
+                                }}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold border ${
+                                  slide.isActive
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : "bg-slate-100 text-slate-500 border-slate-200"
+                                }`}
+                              >
+                                {slide.isActive ? "Active" : "Hidden"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = heroSlides.filter((s) => s.id !== slide.id)
+                                  setHeroSlides(next)
+                                  void persistConfig(categories, destinations, complianceChecks, collectionFolders, next)
+                                }}
+                                className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-100"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void persistConfig(categories, destinations, complianceChecks, collectionFolders, heroSlides)
+                              }
+                              className="w-full py-2 rounded-xl text-xs font-bold bg-slate-900 text-white"
+                            >
+                              Save slide changes
+                            </button>
                           </div>
                         </div>
                       ))}

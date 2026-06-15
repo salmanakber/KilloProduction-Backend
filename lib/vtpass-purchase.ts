@@ -5,6 +5,7 @@ import {
   executeVtpassPayment,
   generateVtpassRequestId,
   getVtpassConfig,
+  normalizeVtpassPhone,
   type VtpassServiceType,
 } from "@/lib/vtpass"
 import { enforceMoneyTransferSecurity } from "@/lib/money-transfer-risk"
@@ -21,6 +22,7 @@ export async function purchaseVtpassService(args: {
   phone?: string
   variationCode?: string
   scheduleId?: string
+  extraFields?: Record<string, string>
 }) {
   if (args.request) {
     await enforceMoneyTransferSecurity({
@@ -41,13 +43,19 @@ export async function purchaseVtpassService(args: {
   const amount = Math.round(args.amount * 100) / 100
   if (amount < 50) throw new Error("Minimum amount is ₦50")
 
+  const billersCode =
+    args.serviceType === "airtime" || args.serviceType === "data"
+      ? normalizeVtpassPhone(args.billersCode)
+      : args.billersCode.trim()
+  const phone = args.phone ? normalizeVtpassPhone(args.phone) : undefined
+
   const commission = computeVtpassCommission(amount, args.serviceType, config)
   const customerPaid = Math.round((amount + commission) * 100) / 100
 
   const wallet = await getOrCreateMoneyTransferWallet(args.userId, "NGN")
   if (wallet.balance < customerPaid) {
     throw new Error(
-      `Insufficient wallet balance. Need ₦${customerPaid.toFixed(2)}, available ₦${wallet.balance.toFixed(2)}`,
+      `Insufficient NGN wallet balance. Need ₦${customerPaid.toFixed(2)}, available ₦${wallet.balance.toFixed(2)}`,
     )
   }
 
@@ -60,8 +68,8 @@ export async function purchaseVtpassService(args: {
       serviceType: args.serviceType,
       serviceId: args.serviceId,
       variationCode: args.variationCode,
-      billersCode: args.billersCode,
-      phone: args.phone,
+      billersCode,
+      phone: phone || (args.serviceType === "airtime" ? billersCode : args.phone),
       amount,
       commission,
       customerPaid,
@@ -103,15 +111,18 @@ export async function purchaseVtpassService(args: {
     data: { walletTxId: walletTx.id },
   })
 
+  let refunded = false
+
   try {
     const result = await executeVtpassPayment({
       serviceId: args.serviceId,
       serviceType: args.serviceType,
-      billersCode: args.billersCode,
+      billersCode,
       amount,
-      phone: args.phone,
+      phone: phone || billersCode,
       variationCode: args.variationCode,
       requestId,
+      extraFields: args.extraFields,
     })
 
     const status = result.delivered ? "DELIVERED" : "FAILED"
@@ -128,22 +139,51 @@ export async function purchaseVtpassService(args: {
 
     if (!result.delivered) {
       await refundVtpassWallet(args.userId, wallet.id, customerPaid, requestId, tx.id)
+      refunded = true
       throw new Error(result.message || "Payment failed. Wallet refunded.")
+    }
+
+    const updatedWallet = await getOrCreateMoneyTransferWallet(args.userId, "NGN")
+
+    try {
+      const { NotificationBridge } = await import("@/lib/notification-bridge")
+      const label = args.serviceType.replace(/_/g, " ")
+      await NotificationBridge.sendNotification({
+        userId: args.userId,
+        title: "Bill payment successful",
+        message: `Your ${label} payment (${args.serviceId}) of ₦${customerPaid.toFixed(2)} was delivered.`,
+        type: "SYSTEM",
+        module: "MONEY_TRANSFER",
+        data: {
+          actionType: "navigate",
+          screen: "AccountStatement",
+          params: [],
+          vtpassTransactionId: tx.id,
+          serviceType: args.serviceType,
+          serviceId: args.serviceId,
+          amount: customerPaid,
+        },
+        actionUrl: "/money-app/statement",
+      })
+    } catch (notifyErr) {
+      console.error("Vtpass success notification failed:", notifyErr)
     }
 
     return {
       transaction: await prisma.vtpassTransaction.findUnique({ where: { id: tx.id } }),
-      walletBalance: wallet.balance - customerPaid,
+      walletBalance: updatedWallet.balance,
     }
   } catch (e) {
-    await prisma.vtpassTransaction.update({
-      where: { id: tx.id },
-      data: {
-        status: "FAILED",
-        failureReason: e instanceof Error ? e.message : "VTpass error",
-      },
-    })
-    await refundVtpassWallet(args.userId, wallet.id, customerPaid, requestId, tx.id)
+    if (!refunded) {
+      await prisma.vtpassTransaction.updateMany({
+        where: { id: tx.id, status: "PROCESSING" },
+        data: {
+          status: "FAILED",
+          failureReason: e instanceof Error ? e.message : "VTpass error",
+        },
+      })
+      await refundVtpassWallet(args.userId, wallet.id, customerPaid, requestId, tx.id)
+    }
     throw e
   }
 }
@@ -155,6 +195,12 @@ async function refundVtpassWallet(
   reference: string,
   vtpassId: string,
 ) {
+  const refundRef = `${reference}-refund`
+  const existing = await prisma.moneyTransferWalletTransaction.findUnique({
+    where: { reference: refundRef },
+  })
+  if (existing) return
+
   await prisma.$transaction(async (db) => {
     const w = await db.moneyTransferWallet.update({
       where: { id: walletId },
@@ -169,9 +215,14 @@ async function refundVtpassWallet(
         balanceAfter: w.balance,
         currency: "NGN",
         description: `Refund VTpass ${reference}`,
-        reference: `${reference}-refund`,
+        reference: refundRef,
         metadata: { vtpassTransactionId: vtpassId, refund: true },
       },
     })
+  })
+
+  await prisma.vtpassTransaction.updateMany({
+    where: { id: vtpassId, status: { in: ["PROCESSING", "FAILED"] } },
+    data: { status: "REVERSED" },
   })
 }

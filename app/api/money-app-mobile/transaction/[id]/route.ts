@@ -97,6 +97,11 @@ export async function GET(
           avatar: otherUser.avatar,
         },
         payout: transfer.payout,
+        settlementMode: transfer.settlementMode,
+        receiverBankName: transfer.receiverBankName,
+        receiverAccountLast4: transfer.receiverAccountNumber
+          ? transfer.receiverAccountNumber.slice(-4)
+          : null,
         metadata: transfer.metadata,
         receiptImageUrl: transfer.receiptImageUrl,
         createdAt: transfer.createdAt,

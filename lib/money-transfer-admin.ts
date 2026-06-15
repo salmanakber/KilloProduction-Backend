@@ -80,9 +80,33 @@ export function generateMoneyCaseTicketNumber(): string {
 export function assertAdminConfirmation(
   provided: string | undefined | null,
   expectedReference: string,
+  alternates?: string[],
 ) {
-  const expected = `CONFIRM:${expectedReference}`
-  if (!provided || String(provided).trim() !== expected) {
+  const normalized = String(provided ?? "").trim()
+  const candidates = [
+    `CONFIRM:${expectedReference}`,
+    ...(alternates ?? []).map((a) => `CONFIRM:${a}`),
+  ]
+  if (!normalized || !candidates.includes(normalized)) {
+    throw new MoneyAdminAuthError(
+      `Confirmation required. Pass confirmToken: "${candidates[0]}"`,
+      400,
+    )
+  }
+}
+
+/** Short payout confirmation token shown in admin UI (avoids long reference mismatches). */
+export function payoutAdminConfirmToken(payoutId: string) {
+  return `CONFIRM:PO-${payoutId.slice(0, 8)}`
+}
+
+export function assertPayoutAdminConfirmation(
+  provided: string | undefined | null,
+  payoutId: string,
+) {
+  const expected = payoutAdminConfirmToken(payoutId)
+  const normalized = String(provided ?? "").trim()
+  if (normalized !== expected) {
     throw new MoneyAdminAuthError(
       `Confirmation required. Pass confirmToken: "${expected}"`,
       400,

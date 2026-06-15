@@ -33,7 +33,16 @@ export default function MoneyTransferDetailPage() {
   const [auditLogs, setAuditLogs] = useState<any[]>([])
   const [reason, setReason] = useState("")
   const [confirmToken, setConfirmToken] = useState("")
+  const [payoutReason, setPayoutReason] = useState("")
+  const [payoutConfirmToken, setPayoutConfirmToken] = useState("")
   const [acting, setActing] = useState(false)
+
+  const transferConfirmCandidates = (ref: string, transferId: string) => [
+    `CONFIRM:${ref}`,
+    `CONFIRM:${transferId}`,
+  ]
+
+  const payoutConfirmFor = (payoutId: string) => `CONFIRM:PO-${payoutId.slice(0, 8)}`
 
   const load = async () => {
     setLoading(true)
@@ -53,17 +62,60 @@ export default function MoneyTransferDetailPage() {
     if (id) load()
   }, [id])
 
+  const runPayoutAction = async (action: "process" | "mark_completed" | "mark_failed") => {
+    if (!transfer?.payout?.id) return
+    if (!payoutReason.trim()) {
+      toast({ title: "Reason required", variant: "destructive" })
+      return
+    }
+    const expected = payoutConfirmFor(transfer.payout.id)
+    if (payoutConfirmToken.trim() !== expected) {
+      toast({
+        title: "Confirmation mismatch",
+        description: `Type exactly: ${expected}`,
+        variant: "destructive",
+      })
+      return
+    }
+    setActing(true)
+    try {
+      const res = await fetch(`/api/admin/money-app-admin/payouts/${transfer.payout.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason: payoutReason.trim(), confirmToken: expected }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: "Payout updated", description: `Payout action ${action} applied.` })
+      setPayoutConfirmToken("")
+      setPayoutReason("")
+      load()
+    } catch (e: unknown) {
+      toast({
+        title: "Payout action failed",
+        description: e instanceof Error ? e.message : "Error",
+        variant: "destructive",
+      })
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const payoutNeedsManual =
+    transfer?.payout &&
+    ["PENDING", "PROCESSING", "FAILED"].includes(transfer.payout.status)
+
   const runAction = async (action: string, superOnly = false) => {
     if (!transfer) return
     if (!reason.trim()) {
       toast({ title: "Reason required", description: "Please state why you are performing this action.", variant: "destructive" })
       return
     }
-    const expected = `CONFIRM:${transfer.reference}`
-    if (confirmToken.trim() !== expected) {
+    const candidates = transferConfirmCandidates(transfer.reference, transfer.id)
+    if (!candidates.includes(confirmToken.trim())) {
       toast({
         title: "Confirmation mismatch",
-        description: `Type the exact token to authorize.`,
+        description: `Type CONFIRM:${transfer.reference} or CONFIRM:${transfer.id}`,
         variant: "destructive",
       })
       return
@@ -73,7 +125,7 @@ export default function MoneyTransferDetailPage() {
       const res = await fetch(`/api/admin/money-app-admin/transactions/${encodeURIComponent(id)}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason, confirmToken: expected }),
+        body: JSON.stringify({ action, reason, confirmToken: confirmToken.trim() }),
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
@@ -239,7 +291,7 @@ export default function MoneyTransferDetailPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-amber-800 uppercase ml-1">Confirmation Token</label>
                   <Input
-                    placeholder={`Type CONFIRM:${transfer.reference}`}
+                    placeholder={`CONFIRM:${transfer.reference} or CONFIRM:${transfer.id}`}
                     value={confirmToken}
                     onChange={(e) => setConfirmToken(e.target.value)}
                     className="bg-white border-amber-200 font-mono text-xs focus:ring-amber-500"
@@ -278,6 +330,88 @@ export default function MoneyTransferDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {payoutNeedsManual && (
+            <Card className="border-violet-200 bg-violet-50/30 shadow-sm">
+              <CardHeader className="border-b border-violet-100 bg-violet-50 py-4">
+                <CardTitle className="text-base font-bold text-violet-900 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Bank payout — manual management
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <p className="text-sm text-violet-800 font-medium">
+                  Sender payment was received. Payout status:{" "}
+                  <Badge variant="secondary" className="font-bold uppercase text-[10px]">
+                    {transfer.payout.status}
+                  </Badge>
+                  {transfer.metadata?.payoutQueued && (
+                    <span className="ml-2 text-xs text-violet-600 font-bold">(queued — API could not auto-send)</span>
+                  )}
+                </p>
+                {transfer.payout.failureReason && (
+                  <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg p-3 font-medium italic">
+                    {transfer.payout.failureReason}
+                  </p>
+                )}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-violet-800 uppercase ml-1">Payout action reason</label>
+                    <Input
+                      placeholder="Why are you updating this payout?"
+                      value={payoutReason}
+                      onChange={(e) => setPayoutReason(e.target.value)}
+                      className="bg-white border-violet-200 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-violet-800 uppercase ml-1">Payout confirmation</label>
+                    <Input
+                      placeholder={payoutConfirmFor(transfer.payout.id)}
+                      value={payoutConfirmToken}
+                      onChange={(e) => setPayoutConfirmToken(e.target.value)}
+                      className="bg-white border-violet-200 font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-violet-600 font-bold ml-1">
+                      Type exactly: {payoutConfirmFor(transfer.payout.id)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {transfer.payout.status === "PENDING" && (
+                    <Button
+                      disabled={acting}
+                      className="bg-teal-600 hover:bg-teal-700 font-bold"
+                      onClick={() => runPayoutAction("process")}
+                    >
+                      Send via Paystack
+                    </Button>
+                  )}
+                  {(transfer.payout.status === "PENDING" ||
+                    transfer.payout.status === "PROCESSING" ||
+                    transfer.payout.status === "FAILED") && (
+                    <Button
+                      disabled={acting}
+                      variant="outline"
+                      className="bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 font-bold"
+                      onClick={() => runPayoutAction("mark_completed")}
+                    >
+                      Mark payout completed (manual)
+                    </Button>
+                  )}
+                  {transfer.payout.status !== "SUCCESS" && (
+                    <Button
+                      disabled={acting}
+                      variant="outline"
+                      className="bg-white border-rose-200 text-rose-700 hover:bg-rose-50 font-bold"
+                      onClick={() => runPayoutAction("mark_failed")}
+                    >
+                      Mark payout failed
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Technical Metadata */}
           <Card className="border-slate-200 shadow-sm">

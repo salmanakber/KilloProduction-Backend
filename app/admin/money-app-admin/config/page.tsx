@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 // Icons
-import { Loader2, Save, Eye, EyeOff, Settings, CheckCircle2, Link as LinkIcon, Lock, Globe, Percent } from "lucide-react"
+import { Loader2, Save, Eye, EyeOff, Settings, CheckCircle2, Link as LinkIcon, Lock, Globe, Percent, Info } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface Config {
@@ -28,6 +28,7 @@ interface Config {
   paystackPublicKey?: string | null
   hasExchangeRateApiKey?: boolean
   hasStripeConfig: boolean
+  hasStripeWebhookSecret?: boolean
   hasPaystackConfig: boolean
   autoPayoutEnabled?: boolean
   autoPayoutDelayMinutes?: number
@@ -43,7 +44,12 @@ export default function MoneyTransferConfig() {
   const [saving, setSaving] = useState(false)
   const [showStripeKeys, setShowStripeKeys] = useState(false)
   const [showPaystackKeys, setShowPaystackKeys] = useState(false)
+  const [apiOrigin, setApiOrigin] = useState("")
   const { toast } = useToast()
+
+  const stripeWebhookUrl = apiOrigin
+    ? `${apiOrigin}/api/money-app-mobile/stripe/webhook`
+    : "/api/money-app-mobile/stripe/webhook"
 
   // Form state
   const [formData, setFormData] = useState({
@@ -72,6 +78,9 @@ export default function MoneyTransferConfig() {
 
   useEffect(() => {
     fetchConfig()
+    if (typeof window !== "undefined") {
+      setApiOrigin(window.location.origin)
+    }
   }, [])
 
   const num = (v: unknown, fallback: number) => {
@@ -542,6 +551,9 @@ export default function MoneyTransferConfig() {
                 <Label htmlFor="stripeWebhook" className="text-sm font-bold text-slate-700 flex items-center gap-2">
                   <LinkIcon className="h-4 w-4 text-slate-400" />
                   Webhook Secret
+                  {config?.hasStripeWebhookSecret && (
+                    <span className="text-xs font-semibold text-emerald-600">(saved)</span>
+                  )}
                 </Label>
                 <Input
                   id="stripeWebhook"
@@ -553,6 +565,55 @@ export default function MoneyTransferConfig() {
                   placeholder="whsec_..."
                   className="h-12 rounded-xl border-slate-200 focus-visible:ring-teal-500 font-mono text-sm"
                 />
+                <p className="text-xs text-slate-500">
+                  Paste the signing secret from Stripe after you create the endpoint below. Leave blank to keep the current secret.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-teal-600 shrink-0 mt-0.5" />
+                  <div className="space-y-3 text-sm text-slate-600">
+                    <div>
+                      <p className="font-bold text-slate-900">Stripe webhook setup (required for card payments)</p>
+                      <p className="mt-1">
+                        Register one endpoint in{" "}
+                        <a
+                          href="https://dashboard.stripe.com/webhooks"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-teal-600 font-semibold hover:underline"
+                        >
+                          Stripe Dashboard → Developers → Webhooks
+                        </a>
+                        . Use your public API host — not localhost unless you use Stripe CLI forwarding.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Endpoint URL</p>
+                      <code className="block text-xs font-mono bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 break-all">
+                        POST {stripeWebhookUrl}
+                      </code>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Events to subscribe</p>
+                      <ul className="list-disc list-inside space-y-1 text-slate-600">
+                        <li>
+                          <span className="font-mono text-xs bg-white px-1.5 py-0.5 rounded border border-slate-200">payment_intent.succeeded</span>
+                          {" "}— marks the transfer paid and triggers settlement / payout
+                        </li>
+                        <li>
+                          <span className="font-mono text-xs bg-white px-1.5 py-0.5 rounded border border-slate-200">payment_intent.payment_failed</span>
+                          {" "}— marks the transfer failed when card payment fails
+                        </li>
+                      </ul>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      After saving the endpoint, copy the <strong>Signing secret</strong> (<span className="font-mono">whsec_…</span>) into the field above.
+                      NGN Paystack checkout does not use this webhook — it confirms via the app&apos;s verify API instead.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -617,6 +678,44 @@ export default function MoneyTransferConfig() {
                   placeholder="pk_test_..."
                   className="h-12 rounded-xl border-slate-200 focus-visible:ring-teal-500 font-mono text-sm"
                 />
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-teal-600 shrink-0 mt-0.5" />
+                  <div className="space-y-3 text-sm text-slate-600">
+                    <div>
+                      <p className="font-bold text-slate-900">Paystack — no dashboard webhook required</p>
+                      <p className="mt-1">
+                        Money transfer NGN checkout is confirmed server-side when the mobile app calls{" "}
+                        <span className="font-mono text-xs bg-white px-1.5 py-0.5 rounded border border-slate-200">/api/money-app-mobile/send/confirm</span>
+                        , which verifies the payment with Paystack&apos;s{" "}
+                        <span className="font-mono text-xs">transaction/verify</span> API using your secret key.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">What the secret key is used for</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Initialize Paystack checkout for send-money (NGN)</li>
+                        <li>Verify customer payments after checkout</li>
+                        <li>Create and verify NGN bank payouts / wallet withdrawals</li>
+                        <li>Treasury balance checks in admin</li>
+                      </ul>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      You only need the <strong>Secret key</strong> and <strong>Public key</strong> from{" "}
+                      <a
+                        href="https://dashboard.paystack.com/#/settings/developer"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal-600 font-semibold hover:underline"
+                      >
+                        Paystack → Settings → API Keys
+                      </a>
+                      . Use test keys with test mode and live keys with live mode.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

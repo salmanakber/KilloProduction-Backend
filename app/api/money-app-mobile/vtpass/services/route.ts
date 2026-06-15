@@ -4,7 +4,9 @@ import {
   VTPASS_AIRTIME_SERVICES,
   VTPASS_CABLE_SERVICES,
   VTPASS_DATA_SERVICES,
+  VTPASS_EDUCATION_SERVICES,
   VTPASS_ELECTRICITY_SERVICES,
+  VTPASS_INSURANCE_SERVICES,
   getVtpassConfig,
 } from "@/lib/vtpass"
 
@@ -23,7 +25,11 @@ export async function GET(request: NextRequest) {
           ? VTPASS_ELECTRICITY_SERVICES
           : type === "cable"
             ? VTPASS_CABLE_SERVICES
-            : VTPASS_AIRTIME_SERVICES
+            : type === "education"
+              ? VTPASS_EDUCATION_SERVICES
+              : type === "insurance"
+                ? VTPASS_INSURANCE_SERVICES
+                : VTPASS_AIRTIME_SERVICES
 
     return NextResponse.json({
       success: true,

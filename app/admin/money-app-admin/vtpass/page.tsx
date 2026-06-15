@@ -27,12 +27,18 @@ export default function VtpassAdminPage() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     apiKey: "",
+    publicKey: "",
     secretKey: "",
     sandbox: true,
     isEnabled: false,
     airtimeCommissionPct: 2,
     dataCommissionPct: 2,
     billsCommissionPct: 3,
+  })
+  const [hasKeys, setHasKeys] = useState({
+    apiKey: false,
+    publicKey: false,
+    secretKey: false,
   })
 
   const load = async () => {
@@ -49,6 +55,11 @@ export default function VtpassAdminPage() {
           dataCommissionPct: json.config.dataCommissionPct,
           billsCommissionPct: json.config.billsCommissionPct,
         }))
+        setHasKeys({
+          apiKey: json.config.hasApiKey,
+          publicKey: json.config.hasPublicKey,
+          secretKey: json.config.hasSecretKey,
+        })
       }
     } finally {
       setLoading(false)
@@ -68,7 +79,7 @@ export default function VtpassAdminPage() {
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
       toast({ title: "Configuration Saved", description: "VTpass integration settings updated successfully." })
-      setForm((f) => ({ ...f, apiKey: "", secretKey: "" }))
+      setForm((f) => ({ ...f, apiKey: "", publicKey: "", secretKey: "" }))
       load()
     } catch (e: any) {
       toast({ title: "Failed to Save", description: e.message, variant: "destructive" })
@@ -157,9 +168,11 @@ export default function VtpassAdminPage() {
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">API Credentials</h3>
             </div>
             
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-500 ml-1">VTPASS PUBLIC KEY</Label>
+                <Label className="text-xs font-bold text-slate-500 ml-1">
+                  VTPASS API KEY {hasKeys.apiKey && <span className="text-emerald-600">(saved)</span>}
+                </Label>
                 <Input
                   value={form.apiKey}
                   onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
@@ -168,12 +181,25 @@ export default function VtpassAdminPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-bold text-slate-500 ml-1">VTPASS SECRET KEY</Label>
+                <Label className="text-xs font-bold text-slate-500 ml-1">
+                  VTPASS PUBLIC KEY {hasKeys.publicKey && <span className="text-emerald-600">(saved)</span>}
+                </Label>
+                <Input
+                  value={form.publicKey}
+                  onChange={(e) => setForm({ ...form, publicKey: e.target.value })}
+                  placeholder="PK_xxxxxxxxxxxxxxxx"
+                  className="rounded-xl border-slate-200 h-11 font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-bold text-slate-500 ml-1">
+                  VTPASS SECRET KEY {hasKeys.secretKey && <span className="text-emerald-600">(saved)</span>}
+                </Label>
                 <Input
                   type="password"
                   value={form.secretKey}
                   onChange={(e) => setForm({ ...form, secretKey: e.target.value })}
-                  placeholder="••••••••••••••••••••••••"
+                  placeholder="SK_xxxxxxxxxxxxxxxx"
                   className="rounded-xl border-slate-200 h-11 font-mono text-sm"
                 />
               </div>
@@ -181,8 +207,9 @@ export default function VtpassAdminPage() {
             <div className="flex gap-2 p-3 bg-teal-50 rounded-xl border border-teal-100">
               <ShieldAlert className="h-4 w-4 text-teal-600 shrink-0 mt-0.5" />
               <p className="text-[10px] text-teal-800 leading-tight">
-                Keys are masked for security. Leave blank when saving to maintain current production keys. 
-                Commission is added automatically to customer wallet debits.
+                VTpass requires all three keys: API key (for auth), public key (GET requests like balance),
+                and secret key (POST payments). Generate them from your VTpass sandbox or live profile.
+                Keys are masked for security — leave blank when saving to keep existing values.
               </p>
             </div>
           </div>

@@ -97,6 +97,11 @@ export async function GET(request: NextRequest) {
         createdAt: transfer.createdAt,
         completedAt: transfer.completedAt,
         payoutStatus: transfer.payout?.status,
+        settlementMode: transfer.settlementMode,
+        receiverBankName: transfer.receiverBankName,
+        receiverAccountLast4: transfer.receiverAccountNumber
+          ? transfer.receiverAccountNumber.slice(-4)
+          : null,
       }
     })
 

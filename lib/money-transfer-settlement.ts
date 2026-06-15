@@ -2,7 +2,10 @@ import { MoneyTransferSettlementMode } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { creditMoneyTransferWalletFromTransfer, getMoneyTransferSettlementMode } from "@/lib/money-transfer-wallet"
 import { getMoneyTransferFxRate } from "@/lib/money-fx-rate"
-import { NotificationBridge } from "@/lib/notification-bridge"
+import {
+  notifyMoneyBankPayoutProcessing,
+  notifyMoneyTransferCompleted,
+} from "@/lib/money-transfer-notifications"
 
 export type PaystackBankAccount = {
   bankName: string
@@ -10,6 +13,51 @@ export type PaystackBankAccount = {
   accountHolderName: string
   routingNumber?: string | null
   swiftCode?: string | null
+}
+
+function isPaystackTransferRestricted(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes("starter") ||
+    m.includes("third party") ||
+    m.includes("third-party") ||
+    m.includes("cannot initiate") ||
+    m.includes("transfer is not allowed")
+  )
+}
+
+async function queuePaystackPayoutForManualProcessing(args: {
+  payoutId: string
+  transferId: string
+  transferMetadata: unknown
+  reason: string
+  paystackResponse?: unknown
+  bankAccount: PaystackBankAccount
+}) {
+  await prisma.moneyTransferPayout.update({
+    where: { id: args.payoutId },
+    data: {
+      status: "PENDING",
+      failureReason: args.reason,
+      paystackResponse: (args.paystackResponse ?? { queued: true, reason: args.reason }) as object,
+    },
+  })
+
+  await prisma.moneyTransfer.update({
+    where: { id: args.transferId },
+    data: {
+      status: "PROCESSING",
+      receiverBankName: args.bankAccount.bankName,
+      receiverAccountNumber: args.bankAccount.accountNumber,
+      receiverAccountName: args.bankAccount.accountHolderName,
+      receiverBankCode: args.bankAccount.routingNumber || args.bankAccount.swiftCode || "",
+      metadata: {
+        ...(args.transferMetadata as object),
+        payoutQueued: true,
+        payoutPendingReason: args.reason,
+      },
+    },
+  })
 }
 
 async function getMoneyTransferPaystackSecretKey(): Promise<string> {
@@ -43,7 +91,7 @@ export async function initiatePaystackPayoutForTransfer(
   bankAccount: PaystackBankAccount,
   ngnAmount: number,
   stripePaymentIntentId?: string,
-): Promise<string> {
+): Promise<{ reference?: string; queued: boolean; reason?: string }> {
   const paystackSecretKey = await getMoneyTransferPaystackSecretKey()
 
   const payout = await prisma.moneyTransferPayout.create({
@@ -76,7 +124,19 @@ export async function initiatePaystackPayoutForTransfer(
 
   const recipientData = await recipientResponse.json()
   if (!recipientData.status) {
-    throw new Error(recipientData.message || "Failed to create Paystack recipient")
+    const msg = recipientData.message || "Failed to create Paystack recipient"
+    if (isPaystackTransferRestricted(msg)) {
+      await queuePaystackPayoutForManualProcessing({
+        payoutId: payout.id,
+        transferId: transfer.id,
+        transferMetadata: transfer.metadata,
+        reason: msg,
+        paystackResponse: recipientData,
+        bankAccount,
+      })
+      return { queued: true, reason: msg }
+    }
+    throw new Error(msg)
   }
 
   const recipientCode = recipientData.data.recipient_code
@@ -102,16 +162,28 @@ export async function initiatePaystackPayoutForTransfer(
 
   const transferData = await transferResponse.json()
   if (!transferData.status) {
+    const msg = transferData.message || "Paystack transfer failed"
+    if (isPaystackTransferRestricted(msg)) {
+      await queuePaystackPayoutForManualProcessing({
+        payoutId: payout.id,
+        transferId: transfer.id,
+        transferMetadata: transfer.metadata,
+        reason: msg,
+        paystackResponse: transferData,
+        bankAccount,
+      })
+      return { queued: true, reason: msg }
+    }
     await prisma.moneyTransferPayout.update({
       where: { id: payout.id },
       data: {
         status: "FAILED",
-        failureReason: transferData.message || "Paystack transfer failed",
+        failureReason: msg,
         paystackResponse: transferData,
         failedAt: new Date(),
       },
     })
-    throw new Error(transferData.message || "Paystack transfer failed")
+    throw new Error(msg)
   }
 
   const paystackRef = transferData.data?.reference as string | undefined
@@ -152,7 +224,7 @@ export async function initiatePaystackPayoutForTransfer(
     },
   })
 
-  return transferData.data.reference
+  return { reference: transferData.data.reference, queued: false }
 }
 
 async function resolveNgnAmount(transfer: {
@@ -240,24 +312,34 @@ export async function settleMoneyTransferAfterPayment(transferId: string, paymen
   if (settlementMode === MoneyTransferSettlementMode.WALLET) {
     await creditMoneyTransferWalletFromTransfer(transfer.id)
 
-    await NotificationBridge.sendNotification({
-      userId: transfer.senderId,
-      title: "Money Sent",
-      message: `Your transfer of ${transfer.currency} ${transfer.amount} was delivered to ${transfer.receiver.name || transfer.receiver.email || "the recipient"}'s Kilo wallet.`,
-      type: "SYSTEM",
-      module: "MONEY_TRANSFER",
-      data: {
-        actionType: "navigate",
-        screen: "TransactionStatus",
-        params: [{ name: "transactionId", value: transfer.id }],
+    await notifyMoneyTransferCompleted(
+      {
+        transferId: transfer.id,
+        amount: transfer.amount,
+        currency: transfer.currency,
+        receiveAmount: transfer.receiveAmount,
+        receiveCurrency: transfer.receiveCurrency,
+        sender: transfer.sender,
+        receiver: transfer.receiver,
       },
-      actionUrl: `/money-app/transactions/${transfer.id}`,
-    })
+      "Credited to Kilo wallet.",
+    )
 
     return { mode: settlementMode, walletCredited: true }
   }
 
-  if (!transfer.receiver.bankAccounts?.length) {
+  const storedBank =
+    transfer.receiverAccountNumber && transfer.receiverBankName
+      ? {
+          bankName: transfer.receiverBankName,
+          accountNumber: transfer.receiverAccountNumber,
+          accountHolderName: transfer.receiverAccountName || "",
+          routingNumber: transfer.receiverBankCode,
+          swiftCode: transfer.receiverBankCode,
+        }
+      : null
+
+  if (!storedBank && !transfer.receiver.bankAccounts?.length) {
     await prisma.moneyTransfer.update({
       where: { id: transfer.id },
       data: {
@@ -272,8 +354,14 @@ export async function settleMoneyTransferAfterPayment(transferId: string, paymen
     throw new Error("Receiver bank account required for direct bank settlement")
   }
 
-  const bankAccount = transfer.receiver.bankAccounts[0]
-  await initiatePaystackPayoutForTransfer(
+  const bankAccount = storedBank ?? {
+    bankName: transfer.receiver.bankAccounts[0].bankName,
+    accountNumber: transfer.receiver.bankAccounts[0].accountNumber,
+    accountHolderName: transfer.receiver.bankAccounts[0].accountHolderName,
+    routingNumber: transfer.receiver.bankAccounts[0].routingNumber,
+    swiftCode: transfer.receiver.bankAccounts[0].swiftCode,
+  }
+  const payoutResult = await initiatePaystackPayoutForTransfer(
     transfer,
     {
       bankName: bankAccount.bankName,
@@ -286,33 +374,41 @@ export async function settleMoneyTransferAfterPayment(transferId: string, paymen
     paymentIntentId,
   )
 
-  await NotificationBridge.sendNotification({
-    userId: transfer.receiverId,
-    title: "Money Received",
-    message: `You received ${transfer.currency} ${transfer.amount} (₦${ngnAmount.toFixed(2)}). Funds are being sent to your bank account.`,
-    type: "SYSTEM",
-    module: "MONEY_TRANSFER",
-    data: {
-      actionType: "navigate",
-      screen: "TransactionStatus",
-      params: [{ name: "transactionId", value: transfer.id }],
-    },
-    actionUrl: `/money-app/transactions/${transfer.id}`,
-  })
+  if (payoutResult.queued) {
+    await notifyMoneyBankPayoutProcessing(
+      {
+        transferId: transfer.id,
+        amount: transfer.amount,
+        currency: transfer.currency,
+        receiveAmount: transfer.receiveAmount,
+        receiveCurrency: transfer.receiveCurrency,
+        sender: transfer.sender,
+        receiver: transfer.receiver,
+      },
+      ngnAmount,
+      bankAccount.bankName,
+    )
 
-  await NotificationBridge.sendNotification({
-    userId: transfer.senderId,
-    title: "Money Sent",
-    message: `Your transfer of ${transfer.currency} ${transfer.amount} is being processed to the recipient's bank.`,
-    type: "SYSTEM",
-    module: "MONEY_TRANSFER",
-    data: {
-      actionType: "navigate",
-      screen: "TransactionStatus",
-      params: [{ name: "transactionId", value: transfer.id }],
+    return {
+      mode: settlementMode,
+      payoutQueued: true,
+      reason: payoutResult.reason,
+    }
+  }
+
+  await notifyMoneyBankPayoutProcessing(
+    {
+      transferId: transfer.id,
+      amount: transfer.amount,
+      currency: transfer.currency,
+      receiveAmount: transfer.receiveAmount,
+      receiveCurrency: transfer.receiveCurrency,
+      sender: transfer.sender,
+      receiver: transfer.receiver,
     },
-    actionUrl: `/money-app/transactions/${transfer.id}`,
-  })
+    ngnAmount,
+    bankAccount.bankName,
+  )
 
   return { mode: settlementMode, paystackInitiated: true }
 }

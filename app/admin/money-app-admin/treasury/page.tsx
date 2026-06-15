@@ -43,6 +43,7 @@ type TreasuryData = {
     configured: boolean
     balance: number | null
     currency: string
+    sandbox?: boolean
     error?: string
   } | null
   balanceHistory?: TreasurySnapshotPoint[]
@@ -235,12 +236,15 @@ export default function MoneyTransferTreasuryPage() {
             <ProviderCard
               gradient="from-[#0f766e] to-[#1A2433]"
               title="Paystack integration balance"
-              error={data?.paystackError}
+              error={data?.paystackError ?? (data?.paystack ? null : "Paystack secret key not configured")}
               trend={paystackTrend}
               topUpHref={topUp.paystack}
               topUpLabel="Top up Paystack"
             >
-              {(data?.paystack?.balances ?? []).map((b) => (
+              {(data?.paystack?.balances ?? []).length === 0 && !data?.paystackError ? (
+                <p className="text-teal-100/80 text-sm">No Paystack balance data returned.</p>
+              ) : (
+                (data?.paystack?.balances ?? []).map((b) => (
                 <div
                   key={b.currency}
                   className="flex justify-between items-end border-b border-white/10 pb-2"
@@ -250,7 +254,8 @@ export default function MoneyTransferTreasuryPage() {
                     {b.balanceMajor.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 </div>
-              ))}
+                ))
+              )}
               <p className="text-xs text-teal-100/60 mt-4">
                 Fetched:{" "}
                 {data?.paystack?.fetchedAt
@@ -281,7 +286,10 @@ export default function MoneyTransferTreasuryPage() {
               topUpHref={topUp.stripe}
               topUpLabel="Top up Stripe"
             >
-              {(data?.stripe?.balances ?? []).map((b) => (
+              {(data?.stripe?.balances ?? []).length === 0 && !data?.stripe?.error ? (
+                <p className="text-indigo-100/80 text-sm">No Stripe balance data returned.</p>
+              ) : (
+                (data?.stripe?.balances ?? []).map((b) => (
                 <div
                   key={b.currency}
                   className="flex justify-between items-end border-b border-white/10 pb-2"
@@ -299,7 +307,8 @@ export default function MoneyTransferTreasuryPage() {
                     )}
                   </div>
                 </div>
-              ))}
+                ))
+              )}
               <p className="text-xs text-indigo-100/60 mt-4">
                 Fetched:{" "}
                 {data?.stripe?.fetchedAt
@@ -324,13 +333,20 @@ export default function MoneyTransferTreasuryPage() {
             title="VTpass wallet (bills & airtime)"
             error={
               !data?.vtpass?.configured
-                ? "Configure VTpass API keys in admin settings."
+                ? "Configure VTpass API key, public key, and secret key in admin settings."
                 : data.vtpass.error
             }
             trend={vtpassTrend}
             topUpHref={topUp.vtpass}
             topUpLabel="Top up VTpass"
             fullWidth
+            envBadge={
+              data?.vtpass?.configured
+                ? data.vtpass.sandbox
+                  ? "Sandbox"
+                  : "Live"
+                : undefined
+            }
           >
             <p className="text-4xl font-black">
               ₦{(data?.vtpass?.balance ?? 0).toLocaleString(undefined, {
@@ -435,6 +451,7 @@ function ProviderCard({
   topUpLabel,
   children,
   fullWidth,
+  envBadge,
 }: {
   gradient: string
   title: string
@@ -444,6 +461,7 @@ function ProviderCard({
   topUpLabel: string
   children: React.ReactNode
   fullWidth?: boolean
+  envBadge?: string
 }) {
   return (
     <div
@@ -455,6 +473,11 @@ function ProviderCard({
         <div className="flex items-center gap-3">
           <Wallet className="h-6 w-6 text-white/80" />
           <h2 className="text-lg font-bold">{title}</h2>
+          {envBadge ? (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/15 border border-white/20">
+              {envBadge}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <TrendBadge pct={trend} />

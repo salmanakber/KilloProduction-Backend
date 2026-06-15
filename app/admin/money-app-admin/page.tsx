@@ -142,6 +142,7 @@ export default function MoneyTransferDashboard() {
           <p className="text-sm">Open cases: <strong>{stats?.openCases ?? 0}</strong></p>
           <a href="/admin/money-app-admin/cases" className="text-sm text-teal-700 block">Cases</a>
           <a href="/admin/money-app-admin/reports" className="text-sm text-teal-700 block">Reports</a>
+          <a href="/admin/money-app-admin/security" className="text-sm text-teal-700 block">Security red flags</a>
           <a href="/admin/money-app-admin/audit" className="text-sm text-teal-700 block">Audit</a>
         </div>
       </div>
@@ -303,7 +304,7 @@ export default function MoneyTransferDashboard() {
             </div>
             <div>
               <h4 className="text-base font-bold text-slate-900">Manage Payouts</h4>
-              <p className="text-xs text-slate-500 mt-0.5 font-medium">Monitor & retry failed payouts</p>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Monitor, retry, or manually complete bank payouts</p>
             </div>
           </div>
 

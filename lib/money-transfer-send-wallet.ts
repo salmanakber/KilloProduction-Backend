@@ -1,6 +1,7 @@
-import { prisma } from "@/lib/prisma"
-import { creditMoneyTransferWalletFromTransfer } from "@/lib/money-transfer-wallet"
 import { Prisma } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
+import { settleMoneyTransferAfterPayment } from "@/lib/money-transfer-settlement"
+import { debitMoneyTransferWalletComposite } from "@/lib/money-transfer-wallet"
 
 function normalizeCurrency(code: string): string {
   return code.trim().toUpperCase().slice(0, 3)
@@ -8,7 +9,7 @@ function normalizeCurrency(code: string): string {
 
 /**
  * Pay for a pending transfer from sender's money wallet (no card).
- * Debits sender then credits receiver per settlement mode.
+ * Debits sender across all wallet currencies then settles per delivery mode.
  */
 export async function completeMoneyTransferFromWallet(transferId: string) {
   const transfer = await prisma.moneyTransfer.findUnique({
@@ -28,54 +29,30 @@ export async function completeMoneyTransferFromWallet(transferId: string) {
   const totalDebit = Number(meta.totalAmount ?? transfer.amount)
   const debitCurrency = normalizeCurrency(transfer.currency)
 
-  await prisma.$transaction(async (tx) => {
-    const wallet = await tx.moneyTransferWallet.findUnique({
-      where: {
-        userId_currency: { userId: transfer.senderId, currency: debitCurrency },
-      },
-    })
-    if (!wallet || wallet.balance < totalDebit) {
-      throw new Error(
-        `Insufficient wallet balance. Need ${debitCurrency} ${totalDebit.toFixed(2)}`,
-      )
-    }
-
-    const newBalance = wallet.balance - totalDebit
-    await tx.moneyTransferWallet.update({
-      where: { id: wallet.id },
-      data: { balance: newBalance },
-    })
-
-    await tx.moneyTransferWalletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        userId: transfer.senderId,
-        type: "DEBIT",
-        amount: totalDebit,
-        balanceAfter: newBalance,
-        currency: debitCurrency,
-        description: `Sent to ${transfer.receiver.name || "recipient"}`,
-        reference: `MTW_DEBIT_${transfer.reference}`,
-        transferId: transfer.id,
-        metadata: { paymentSource: "WALLET" } as Prisma.InputJsonValue,
-      },
-    })
-
-    await tx.moneyTransfer.update({
-      where: { id: transfer.id },
-      data: {
-        status: "PROCESSING",
-        sentAt: new Date(),
-        metadata: {
-          ...meta,
-          paymentSource: "WALLET",
-          paidFromWallet: true,
-        } as Prisma.InputJsonValue,
-      },
-    })
+  await debitMoneyTransferWalletComposite({
+    userId: transfer.senderId,
+    amountNeeded: totalDebit,
+    targetCurrency: debitCurrency,
+    transferId: transfer.id,
+    description: `Sent to ${transfer.receiver.name || "recipient"}`,
+    referencePrefix: "MTW_DEBIT",
   })
 
-  await creditMoneyTransferWalletFromTransfer(transferId)
+  await prisma.moneyTransfer.update({
+    where: { id: transfer.id },
+    data: {
+      status: "PROCESSING",
+      sentAt: new Date(),
+      metadata: {
+        ...meta,
+        paymentSource: "WALLET",
+        paidFromWallet: true,
+        compositeWalletDebit: true,
+      } as Prisma.InputJsonValue,
+    },
+  })
+
+  await settleMoneyTransferAfterPayment(transferId)
 
   return prisma.moneyTransfer.findUnique({ where: { id: transferId } })
 }

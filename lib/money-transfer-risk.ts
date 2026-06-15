@@ -12,6 +12,7 @@ export type MoneyRiskAction =
   | "WALLET_WITHDRAW"
   | "SCHEDULED_TRANSFER"
   | "VTPASS_PAY"
+  | "RESET_TRANSFER_PIN"
 
 export type RiskSignal =
   | "DEVELOPER_MODE"
@@ -162,14 +163,15 @@ export async function assessMoneyTransferRisk(
   if (isUnusualHour(client?.timezoneOffsetMinutes)) signals.push("UNUSUAL_TIME")
 
   const since15 = new Date(Date.now() - 15 * 60_000)
-  const recentFailures = await prisma.moneyTransferRiskLog.count({
+  // Only hard blocks count toward "too many attempts" — OTP step-up is normal, not a failure.
+  const recentBlocks = await prisma.moneyTransferRiskLog.count({
     where: {
       userId,
       createdAt: { gte: since15 },
-      OR: [{ blocked: true }, { stepUpRequired: true }],
+      blocked: true,
     },
   })
-  if (recentFailures >= 4) signals.push("FREQUENT_RETRIES")
+  if (recentBlocks >= 4) signals.push("FREQUENT_RETRIES")
 
   if (receiverId && (action === "SEND_MONEY" || action === "SCHEDULED_TRANSFER")) {
     const prior = await prisma.moneyTransfer.count({
@@ -202,7 +204,7 @@ export async function assessMoneyTransferRisk(
     signals.includes("DEVELOPER_MODE") ||
     signals.includes("SIMULATOR") ||
     riskScore >= BLOCK_THRESHOLD ||
-    recentFailures >= 8
+    recentBlocks >= 8
 
   const requiresStepUp =
     !blocked &&

@@ -17,6 +17,12 @@ import {
   getOrCreateMoneyStripeCustomer,
 } from "@/lib/money-transfer-stripe-cards"
 import { settleMoneyTransferAfterPayment } from "@/lib/money-transfer-settlement"
+import {
+  assertTransferPinToken,
+  assertUserTransferLimits,
+  getOrCreateMoneyTransferProfile,
+} from "@/lib/money-transfer-profile"
+import { MoneySavedRecipientDestination } from "@prisma/client"
 
 async function initializePaystackPayment(args: {
   secretKey: string
@@ -114,7 +120,22 @@ export async function POST(request: NextRequest) {
       description,
       paymentSource = "CARD",
       savedPaymentMethodId,
+      transferMode,
+      receiverBankAccountId,
+      saveRecipient,
+      saveRecipientNickname,
+      transferPinToken,
     } = body
+
+    try {
+      await assertTransferPinToken(transferPinToken, user.id)
+    } catch (pinErr) {
+      const msg = pinErr instanceof Error ? pinErr.message : "Transfer PIN verification required"
+      return NextResponse.json(
+        { success: false, error: msg, requiresTransferPin: true },
+        { status: 401 },
+      )
+    }
 
     try {
       await enforceMoneyTransferSecurity({
@@ -194,24 +215,68 @@ export async function POST(request: NextRequest) {
       settlementModeBody,
       defaultSettlementMode,
     )
-    const receiveCurrency = String(receiveCurrencyBody || currency)
-      .trim()
-      .toUpperCase()
-      .slice(0, 3)
+    const isLocal = String(transferMode || "").toUpperCase() === "LOCAL"
+    const sendCurrency = String(currency).trim().toUpperCase().slice(0, 3)
+    const receiveCurrency = isLocal
+      ? sendCurrency
+      : String(receiveCurrencyBody || currency)
+          .trim()
+          .toUpperCase()
+          .slice(0, 3)
 
-    if (
-      transferSettlementMode === "DIRECT_BANK" &&
-      (!receiver.bankAccounts || receiver.bankAccounts.length === 0)
-    ) {
+    if (transferSettlementMode === "DIRECT_BANK" && receiveCurrency !== "NGN") {
       return NextResponse.json(
         {
-          error: "Receiver bank account required",
+          success: false,
+          error: "Direct bank transfer is only available when the recipient receives NGN.",
           message:
-            "The receiver must have a verified bank account to receive money directly to their bank. Ask them to add one, or send to their Kilo wallet instead.",
-          requiresReceiverBankAccount: true,
+            "Send to the recipient's Kilo wallet instead, or choose NGN as the receive currency.",
         },
         { status: 400 },
       )
+    }
+
+    let selectedReceiverBank: {
+      id: string
+      bankName: string
+      accountNumber: string
+      accountHolderName: string
+      routingNumber: string | null
+      swiftCode: string | null
+    } | null = null
+
+    if (transferSettlementMode === "DIRECT_BANK") {
+      if (receiverBankAccountId) {
+        const bank = await prisma.bankAccount.findFirst({
+          where: {
+            id: receiverBankAccountId,
+            userId: receiver.id,
+            isVerified: true,
+          },
+        })
+        if (!bank) {
+          return NextResponse.json(
+            {
+              error: "Invalid receiver bank account",
+              message: "The selected bank account is not available for this recipient.",
+            },
+            { status: 400 },
+          )
+        }
+        selectedReceiverBank = bank
+      } else if (!receiver.bankAccounts || receiver.bankAccounts.length === 0) {
+        return NextResponse.json(
+          {
+            error: "Receiver bank account required",
+            message:
+              "The receiver must have a verified bank account to receive money directly to their bank. Ask them to add one, or send to their Kilo wallet instead.",
+            requiresReceiverBankAccount: true,
+          },
+          { status: 400 },
+        )
+      } else {
+        selectedReceiverBank = receiver.bankAccounts[0]
+      }
     }
 
     const paySource = String(paymentSource || "CARD").toUpperCase()
@@ -240,17 +305,27 @@ export async function POST(request: NextRequest) {
     // Validate amount limits
     if (amount < config.minTransferAmount) {
       return NextResponse.json( 
-        { success: false, error: `Minimum transfer amount is ${config.minTransferAmount} ${currency}` },
+        { success: false, error: `Minimum transfer amount is ${config.minTransferAmount} ${sendCurrency}` },
         { status: 400 }
       )
     }
 
     if (amount > config.maxTransferAmount) {
       return NextResponse.json( 
-        { success: false, error: `Maximum transfer amount is ${config.maxTransferAmount} ${currency}` },
+        { success: false, error: `Maximum transfer amount is ${config.maxTransferAmount} ${sendCurrency}` },
         { status: 400 }
       )
     }
+
+    try {
+      await assertUserTransferLimits(user.id, amount, sendCurrency)
+    } catch (limitErr) {
+      const msg = limitErr instanceof Error ? limitErr.message : "Transfer limit exceeded"
+      return NextResponse.json({ success: false, error: msg, limitExceeded: true }, { status: 400 })
+    }
+
+    void getOrCreateMoneyTransferProfile(user.id)
+    void getOrCreateMoneyTransferProfile(receiver.id)
 
     // Calculate fees
     const feePercentage = config.transferFeePercentage || 0
@@ -260,7 +335,7 @@ export async function POST(request: NextRequest) {
 
     const fin = await computeMoneyTransferFinancials({
       sendAmount: amount,
-      sendCurrency: currency,
+      sendCurrency,
       feeInSendCurrency: totalFee,
       settlementCurrency: receiveCurrency,
     })
@@ -302,18 +377,23 @@ export async function POST(request: NextRequest) {
         senderId: user.id,
         receiverId: receiver.id,
         amount,
-        currency,
+        currency: sendCurrency,
         description: description || `Money transfer to ${receiver.name || receiver.email || receiver.phone}`,
         status: "PENDING",
         reference: `MT_${Date.now()}_${user.id.substring(0, 8)}`,
         ngnAmount:
           receiveCurrency === "NGN"
-            ? (fin.receiveAmount ?? (currency.toUpperCase() === "NGN" ? amount : undefined))
+            ? (fin.receiveAmount ?? (sendCurrency === "NGN" ? amount : undefined))
             : undefined,
         exchangeRate: fin.customerRate ?? undefined,
         receiveAmount: fin.receiveAmount,
         receiveCurrency: fin.receiveCurrency ?? receiveCurrency,
         settlementMode: transferSettlementMode,
+        receiverBankName: selectedReceiverBank?.bankName,
+        receiverAccountNumber: selectedReceiverBank?.accountNumber,
+        receiverAccountName: selectedReceiverBank?.accountHolderName,
+        receiverBankCode:
+          selectedReceiverBank?.routingNumber || selectedReceiverBank?.swiftCode || undefined,
         baseCurrency: fin.baseCurrency,
         baseAmount: fin.baseAmount ?? undefined,
         midMarketRate: fin.midMarketRate ?? undefined,
@@ -329,9 +409,42 @@ export async function POST(request: NextRequest) {
           feePercentage,
           feeFixed,
           totalAmount,
+          transferMode: isLocal ? "LOCAL" : "INTERNATIONAL",
+          receiverBankAccountId: selectedReceiverBank?.id,
         },
       },
     })
+
+    if (saveRecipient) {
+      const dest =
+        transferSettlementMode === "DIRECT_BANK"
+          ? MoneySavedRecipientDestination.BANK
+          : MoneySavedRecipientDestination.WALLET
+      const existing = await prisma.moneySavedRecipient.findFirst({
+        where: {
+          ownerId: user.id,
+          receiverId: receiver.id,
+          destinationType: dest,
+          bankAccountId: selectedReceiverBank?.id ?? null,
+        },
+      })
+      if (existing) {
+        await prisma.moneySavedRecipient.update({
+          where: { id: existing.id },
+          data: { nickname: saveRecipientNickname?.trim() || existing.nickname },
+        })
+      } else {
+        await prisma.moneySavedRecipient.create({
+          data: {
+            ownerId: user.id,
+            receiverId: receiver.id,
+            destinationType: dest,
+            bankAccountId: selectedReceiverBank?.id ?? null,
+            nickname: saveRecipientNickname?.trim() || null,
+          },
+        })
+      }
+    }
 
     if (paySource === "WALLET") {
       const completed = await completeMoneyTransferFromWallet(transfer.id)
@@ -353,7 +466,13 @@ export async function POST(request: NextRequest) {
     const settings = await prisma.systemSettings.findFirst({ select: { paymentMethods: true } })
     const paymentMethods = (settings?.paymentMethods || {}) as any
     const primaryGateway = String(paymentMethods?.primaryGateway || paymentMethods?.primary || "STRIPE").toUpperCase()
-    const shouldUsePaystack = primaryGateway === "PAYSTACK" && Boolean(config?.paystackSecretKey)
+    const forcePaystackForNgnBank =
+      transferSettlementMode === "DIRECT_BANK" &&
+      receiveCurrency === "NGN" &&
+      Boolean(config?.paystackSecretKey)
+    const shouldUsePaystack =
+      forcePaystackForNgnBank ||
+      (primaryGateway === "PAYSTACK" && Boolean(config?.paystackSecretKey))
     let payment: Record<string, unknown>
 
     if (savedPaymentMethodId && !shouldUsePaystack) {
