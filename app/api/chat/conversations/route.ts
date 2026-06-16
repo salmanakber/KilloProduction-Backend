@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       customerId: string
       vendorId: string
     } = {
-      module: (module as Module) || Module.GENERAL,
+      module: (module as Module) || Module.PROPERTY,
       orderId,
       customerId: "",
       vendorId: "",
@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
       data: conversationData,
       include: {
         customer: {
-          select: { id: true, name: true, profile: { select: { profileImage: true } } },
+          select: { id: true, name: true, avatar: true },
         },
         vendor: {
           select: { id: true, name: true, vendorProfile: { select: { businessName: true } } },

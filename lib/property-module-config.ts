@@ -81,10 +81,7 @@ const DEFAULT_CONFIG = {
     { id: "apartment", name: "Apartments", slug: "apartment", icon: "home-city", isActive: true, minimumNights: 1 },
     { id: "villa", name: "Villas", slug: "villa", icon: "home-variant", isActive: true, minimumNights: 1 },
   ] as PropertyCategoryConfig[],
-  destinations: [
-    { id: "lagos", cityName: "Lagos", country: "Nigeria", stateRegion: "Lagos State", isActive: true, isFeatured: true },
-    { id: "abuja", cityName: "Abuja", country: "Nigeria", stateRegion: "FCT", isActive: true, isFeatured: true },
-  ] as PropertyDestinationConfig[],
+  destinations: [] as PropertyDestinationConfig[],
   compliance: [
     {
       id: "nin",
@@ -169,7 +166,7 @@ export async function getPropertyModuleConfig() {
   )
   return {
     categories: parseJsonArray(row.categories, DEFAULT_CONFIG.categories),
-    destinations: parseJsonArray(row.destinations, DEFAULT_CONFIG.destinations),
+    destinations: parseJsonArray(row.destinations, []),
     compliance: parseJsonArray(row.compliance, DEFAULT_CONFIG.compliance),
     folders: parseJsonArray(row.folders, DEFAULT_CONFIG.folders),
     heroSlides: normalizeHeroSlides(heroSlides as PropertyHeroSlideConfig[]),
@@ -215,7 +212,7 @@ export async function savePropertyModuleConfig(data: {
   )
   return {
     categories: parseJsonArray(updated.categories, DEFAULT_CONFIG.categories),
-    destinations: parseJsonArray(updated.destinations, DEFAULT_CONFIG.destinations),
+    destinations: parseJsonArray(updated.destinations, []),
     compliance: parseJsonArray(updated.compliance, DEFAULT_CONFIG.compliance),
     folders: parseJsonArray(updated.folders, DEFAULT_CONFIG.folders),
     heroSlides: normalizeHeroSlides(heroSlides as PropertyHeroSlideConfig[]),

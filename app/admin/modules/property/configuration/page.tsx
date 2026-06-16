@@ -505,11 +505,14 @@ export default function BookingConfiguration() {
     let cancelled = false
     ;(async () => {
       try {
-        const r = await fetch("/api/admin/property/settings")
+        const r = await fetch("/api/admin/property/settings", { credentials: "include" })
         const data = await r.json()
-        if (cancelled || !r.ok) return
+        if (cancelled || !r.ok) {
+          console.error("Property config load failed:", r.status, data?.error || data)
+          return
+        }
         
-        if (Array.isArray(data.categories) && data.categories.length > 0) {
+        if (Array.isArray(data.categories)) {
           setCategories(data.categories.map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -521,14 +524,9 @@ export default function BookingConfiguration() {
             propertyCount: 0,
             minimumNights: c.minimumNights ?? 1,
           })))
-        } else {
-          setCategories([
-            { id: "bcat-1", name: "Boutique Hotel Stay", slug: "hotels", description: "Serviced private lodging units featuring hotel suites, lobbies, and luxury room service.", image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80", icon: "bed", isActive: true, propertyCount: 14, minimumNights: 1 },
-            { id: "bcat-2", name: "Beach Resort Villa", slug: "resorts", description: "Waterfront and beach-accessible multi-room spaces optimized for vacations.", image: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=600&q=80", icon: "island", isActive: true, propertyCount: 8, minimumNights: 2 }
-          ])
         }
 
-        if (Array.isArray(data.destinations) && data.destinations.length > 0) {
+        if (Array.isArray(data.destinations)) {
           setDestinations(data.destinations.map((d: any) => ({
             id: d.id,
             cityName: d.cityName,
@@ -540,29 +538,18 @@ export default function BookingConfiguration() {
             totalStays: 0,
             tourismLevyRate: d.tourismLevyRate ?? 0,
           })))
-        } else {
-          setDestinations([
-            { id: "dest-1", cityName: "Victoria Island, Lagos", country: "Nigeria", stateRegion: "Lagos State", image: "https://images.unsplash.com/photo-1594142404563-64cccaf5a10f?auto=format&fit=crop&w=600&q=80", isActive: true, isFeatured: true, totalStays: 210, tourismLevyRate: 5.0 },
-            { id: "dest-2", cityName: "Maitama, Abuja", country: "Nigeria", stateRegion: "Federal Capital Territory", image: "https://images.unsplash.com/photo-1628155930542-3c7a64e2c833?auto=format&fit=crop&w=600&q=80", isActive: true, isFeatured: true, totalStays: 104, tourismLevyRate: 4.5 }
-          ])
         }
 
-        if (Array.isArray(data.folders) && data.folders.length > 0) {
+        if (Array.isArray(data.folders)) {
           setCollectionFolders(data.folders.map((f: any) => ({
             id: f.id,
             label: f.label,
             icon: f.icon || "folder-outline",
             isActive: f.isActive !== false,
           })))
-        } else {
-          setCollectionFolders([
-            { id: "retreats", label: "Bali Retreats", icon: "palm-tree", isActive: true },
-            { id: "beach", label: "Beachfront", icon: "waves", isActive: true },
-            { id: "spas", label: "Wellness Spas", icon: "spa-outline", isActive: true },
-          ])
         }
 
-        if (Array.isArray(data.compliance) && data.compliance.length > 0) {
+        if (Array.isArray(data.compliance)) {
           setComplianceChecks(data.compliance.map((c: any) => ({
             id: c.id,
             documentName: c.documentName,
@@ -573,14 +560,9 @@ export default function BookingConfiguration() {
             allowCamera: c.allowCamera !== false,
             description: c.description || "",
           })))
-        } else {
-          setComplianceChecks([
-            { id: "cc-1", documentName: "Tourism / Hospitality Permit License", isRequired: true, userType: "HOST", requiresUpload: true, description: "Official local authority license authorizing short-stay commercial lodging operations." },
-            { id: "cc-2", documentName: "National Identity Verification", isRequired: true, userType: "GUEST", requiresUpload: true, allowCamera: true, description: "NIN slip, International Passport, or Voter's Card required to verify account registration." }
-          ])
         }
 
-        if (Array.isArray(data.heroSlides) && data.heroSlides.length > 0) {
+        if (Array.isArray(data.heroSlides)) {
           setHeroSlides(
             data.heroSlides.map((s: any, index: number) => ({
               id: s.id || `hero-${index + 1}`,
@@ -589,16 +571,9 @@ export default function BookingConfiguration() {
               isActive: s.isActive !== false,
             })),
           )
-        } else {
-          setHeroSlides([
-            { id: "hero-1", image: "https://images.unsplash.com/photo-1542314831-c6a4d14d83f1?w=1400&q=90", label: "Luxury resort", isActive: true },
-            { id: "hero-2", image: "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=1400&q=90", label: "Beach villa", isActive: true },
-            { id: "hero-3", image: "https://images.unsplash.com/photo-1582719508461-905c673771fd?w=1400&q=90", label: "Pool suite", isActive: true },
-            { id: "hero-4", image: "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1400&q=90", label: "Ocean view", isActive: true },
-          ])
         }
       } catch (err) {
-        console.error("Config fetch failed, using fallback stays", err)
+        console.error("Config fetch failed", err)
       } finally {
         if (!cancelled) setConfigLoading(false)
       }
@@ -642,7 +617,7 @@ export default function BookingConfiguration() {
               ...cat,
               name: categoryForm.name,
               description: categoryForm.description,
-              image: categoryForm.image || "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80",
+              image: categoryForm.image || "",
               icon: categoryForm.icon,
               minimumNights: categoryForm.minimumNights,
               isActive: categoryForm.isActive,
@@ -655,7 +630,7 @@ export default function BookingConfiguration() {
         name: categoryForm.name,
         slug: categoryForm.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         description: categoryForm.description,
-        image: categoryForm.image || "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80",
+        image: categoryForm.image || "",
         icon: categoryForm.icon,
         isActive: categoryForm.isActive,
         propertyCount: 0,
@@ -717,9 +692,6 @@ export default function BookingConfiguration() {
     }
 
     const isEdit = destinationModalMode === "edit" && editDestinationTarget != null
-    const defaultImage =
-      "https://images.unsplash.com/photo-1594142404563-64cccaf5a10f?auto=format&fit=crop&w=600&q=80"
-
     let next: TravelDestination[]
     if (isEdit) {
       next = destinations.map((d) =>
@@ -729,7 +701,7 @@ export default function BookingConfiguration() {
               cityName: destinationForm.cityName.trim(),
               country: destinationForm.country,
               stateRegion: destinationForm.stateRegion,
-              image: destinationForm.image || defaultImage,
+              image: destinationForm.image || "",
               tourismLevyRate: destinationForm.tourismLevyRate,
               isFeatured: destinationForm.isFeatured,
               isActive: destinationForm.isActive,
@@ -748,7 +720,7 @@ export default function BookingConfiguration() {
         cityName: destinationForm.cityName.trim(),
         country: destinationForm.country,
         stateRegion: destinationForm.stateRegion,
-        image: destinationForm.image || defaultImage,
+        image: destinationForm.image || "",
         isActive: destinationForm.isActive,
         isFeatured: destinationForm.isFeatured,
         totalStays: 0,
