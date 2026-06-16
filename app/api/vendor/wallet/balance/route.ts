@@ -10,7 +10,7 @@ import { getVendorWithdrawableBalance } from "@/lib/vendor-withdrawable-balance"
 export async function GET(request: NextRequest) {
   try {
     const session = await authenticateRequest(request)
-    if (!session || session.role !== "VENDOR") {
+    if (!session || (session.role !== "VENDOR" && session.role !== "MECHANIC")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
