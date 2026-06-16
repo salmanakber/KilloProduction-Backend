@@ -5,7 +5,11 @@ Prerequisites:
 ```bash
 cd web/backend-data
 npx tsx scripts/seed-property-commission.ts
-# optional listings:
+# Karachi (10 listings):
+npm run db:seed:property-karachi
+# Lagos (15 listings):
+npm run db:seed:property-lagos
+# optional generic samples:
 PROPERTY_SEED_VENDOR_ID=<vendorUserId> npx tsx scripts/seed-property-listings.ts
 ```
 

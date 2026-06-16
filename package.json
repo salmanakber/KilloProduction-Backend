@@ -24,6 +24,8 @@
     "db:reset": "prisma migrate reset",
     "db:migrate": "prisma migrate dev",
     "worker:food-dispatch": "tsx scripts/food-rider-dispatch-worker.ts",
+    "db:seed:property-karachi": "tsx scripts/seed-property-karachi.ts",
+    "db:seed:property-lagos": "tsx scripts/seed-property-lagos.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "type-check": "tsc --noEmit"
