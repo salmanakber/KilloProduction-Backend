@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   buildAndroidIntentUrl,
@@ -17,7 +17,7 @@ type AppOpenClientProps = {
   preserveQuery?: boolean
 }
 
-export default function AppOpenClient({
+function AppOpenClientInner({
   title,
   subtitle = "Open in the Kilo Super App to continue.",
   path,
@@ -89,5 +89,21 @@ export default function AppOpenClient({
         </section>
       </div>
     </main>
+  )
+}
+
+function AppOpenFallback({ title }: { title: string }) {
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 text-white flex items-center justify-center p-6">
+      <p className="text-slate-300">Loading {title}…</p>
+    </main>
+  )
+}
+
+export default function AppOpenClient(props: AppOpenClientProps) {
+  return (
+    <Suspense fallback={<AppOpenFallback title={props.title} />}>
+      <AppOpenClientInner {...props} />
+    </Suspense>
   )
 }
