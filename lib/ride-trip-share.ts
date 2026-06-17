@@ -45,10 +45,11 @@ const SHARE_TTL_HOURS = 24
 
 export function getPublicAppBaseUrl(): string {
   const raw =
+    process.env.NEXT_PUBLIC_APP_DEEP_LINK_ORIGIN ||
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_PUBLIC_URL ||
     process.env.MOBILE_APP_URL ||
-    "https://kilo1app.com"
+    "https://app.kilo1app.com"
   return raw.replace(/\/+$/, "")
 }
 

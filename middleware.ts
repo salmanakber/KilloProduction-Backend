@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { jwtVerify } from "jose"
 import { requiredFeatureForPath, resolveAdminFeatures } from "@/lib/admin-access"
+import { isPublicDeepLinkPath } from "@/lib/mobile-app-link"
+
+const APP_DEEP_LINK_HOSTS = new Set(["app.kilo1app.com", "www.app.kilo1app.com"])
 
 // Public routes (no auth required)
 const publicRoutes = [
@@ -20,9 +23,23 @@ export async function middleware(req: NextRequest) {
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
+    pathname.startsWith("/.well-known") ||
     pathname === "/favicon.ico" ||
     pathname.match(/\.(.*)$/)
   ) {
+    return NextResponse.next()
+  }
+
+  const host = (req.headers.get("host") || "").split(":")[0].toLowerCase()
+  const isAppDeepLinkHost = APP_DEEP_LINK_HOSTS.has(host)
+
+  // ✅ Mobile deep-link fallback pages (app.kilo1app.com + shared paths)
+  if (isPublicDeepLinkPath(pathname)) {
+    return NextResponse.next()
+  }
+
+  // ✅ On app deep-link subdomain, only /admin/* requires login (not property/pay/etc.)
+  if (isAppDeepLinkHost && !pathname.startsWith("/admin")) {
     return NextResponse.next()
   }
 

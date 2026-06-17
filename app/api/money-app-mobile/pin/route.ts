@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
       newPin?: string
       stepUpToken?: string
     }
-
     if (action === "set") {
       if (!isValidTransferPin(String(pin || ""))) {
         return NextResponse.json({ error: "PIN must be 4–6 digits" }, { status: 400 })
@@ -40,7 +39,6 @@ export async function POST(request: NextRequest) {
       await setMoneyTransferPin(user.id, String(pin))
       return NextResponse.json({ success: true, message: "Transfer PIN set successfully" })
     }
-
     if (action === "verify") {
       if (!isValidTransferPin(String(pin || ""))) {
         return NextResponse.json({ error: "Invalid PIN format" }, { status: 400 })
