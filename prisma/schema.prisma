@@ -185,6 +185,8 @@ model User {
   doctorVisits            DoctorVisit[]             @relation("UserDoctorVisits")
   healthSummaries         HealthSummary[]           @relation("UserHealthSummaries")
   healthDietPlans         HealthDietPlan[]          @relation("UserHealthDietPlans")
+  wellnessModuleProfile   WellnessModuleProfile?
+  wellnessModuleDaily     WellnessModuleDaily[]     @relation("UserWellnessModuleDaily")
   /// Aggregate of Review rows where this user is the rated party (targetType CUSTOMER)
   customerTargetRating       Float @default(0)
   customerTargetReviewCount  Int   @default(0)
@@ -5691,6 +5693,44 @@ model HealthDietPlan {
 
   @@index([userId, isActive])
   @@map("health_diet_plans")
+}
+
+enum WellnessModule {
+  WALK
+  WATER
+  SLEEP
+}
+
+model WellnessModuleProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  walkConfig    Json?
+  waterConfig   Json?
+  sleepConfig   Json?
+  gamification  Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wellness_module_profiles")
+}
+
+model WellnessModuleDaily {
+  id              String         @id @default(cuid())
+  userId          String
+  module          WellnessModule
+  dateKey         String
+  recommendations Json           @default("[]")
+  challenges      Json           @default("[]")
+  completedIds    String[]       @default([])
+  pointsEarned    Int            @default(0)
+  generatedAt     DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation("UserWellnessModuleDaily", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, dateKey])
+  @@index([userId, dateKey])
+  @@map("wellness_module_daily")
 }
 
 /// Admin “system notice” broadcasts (maintenance, service updates, etc.) — separate from marketing campaigns.

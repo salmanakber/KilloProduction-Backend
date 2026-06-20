@@ -119,11 +119,85 @@ export class NotificationBridge {
       actionUrl: "/health-record",
       data: {
         actionType: "navigate",
-        screen: "HealthRecord",
-        params: [],
+        screen: "HealthHub",
+        params: [{ module: "WALK" }],
         healthDedupeKey: params.dedupeKey,
         steps: params.steps,
         distanceKm: params.distanceKm,
+      },
+    })
+  }
+
+  /** Smart hydration reminder from wellness module frequency settings. */
+  static async sendWellnessHydrationReminder(params: {
+    userId: string
+    message: string
+    glasses: number
+    goal: number
+    dedupeKey: string
+  }) {
+    return this.sendNotification({
+      userId: params.userId,
+      title: "💧 Hydration reminder — Kilo Health",
+      message: params.message,
+      type: "REMINDER",
+      module: "PHARMACY",
+      actionUrl: "/health-record",
+      data: {
+        actionType: "navigate",
+        screen: "HealthHub",
+        params: [{ module: "WATER" }],
+        healthDedupeKey: params.dedupeKey,
+        glasses: params.glasses,
+        goal: params.goal,
+      },
+    })
+  }
+
+  /** Bedtime / wind-down reminder from sleep schedule config. */
+  static async sendWellnessSleepReminder(params: {
+    userId: string
+    message: string
+    dedupeKey: string
+    bedtimeTarget: string
+  }) {
+    return this.sendNotification({
+      userId: params.userId,
+      title: "🌙 Sleep reminder — Kilo Health",
+      message: params.message,
+      type: "REMINDER",
+      module: "PHARMACY",
+      actionUrl: "/health-record",
+      data: {
+        actionType: "navigate",
+        screen: "HealthHub",
+        params: [{ module: "SLEEP" }],
+        healthDedupeKey: params.dedupeKey,
+        bedtimeTarget: params.bedtimeTarget,
+      },
+    })
+  }
+
+  /** AI-powered inactivity / movement nudge. */
+  static async sendWellnessWalkNudge(params: {
+    userId: string
+    message: string
+    steps: number
+    dedupeKey: string
+  }) {
+    return this.sendNotification({
+      userId: params.userId,
+      title: "🚶 Movement nudge — Kilo Health",
+      message: params.message,
+      type: "REMINDER",
+      module: "PHARMACY",
+      actionUrl: "/health-record",
+      data: {
+        actionType: "navigate",
+        screen: "HealthHub",
+        params: [{ module: "WALK" }],
+        healthDedupeKey: params.dedupeKey,
+        steps: params.steps,
       },
     })
   }

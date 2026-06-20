@@ -20,6 +20,7 @@ import { runPillRemindersJob } from "@/lib/pill-reminders-runner";
 import { runHealthActivityNotificationsJob } from "@/lib/health-activity-notifications-runner";
 import { runLowStockNotificationsJob } from "@/lib/low-stock-notifications-runner";
 import { runHealthDietMealRemindersJob, runHealthDietMorningAdviceJob } from "@/lib/health-diet-notifications-runner";
+import { runWellnessModuleNotificationsJob } from "@/lib/wellness-module-notifications-runner";
 import { prisma } from "@/lib/prisma";
 import {
   processMoneyRateAlerts,
@@ -193,6 +194,8 @@ const HEALTH_ACTIVITY_MS = parseMs(process.env.HEALTH_ACTIVITY_TICK_MS, 60 * 60 
 const LOW_STOCK_MS = parseMs(process.env.LOW_STOCK_TICK_MS, 30 * 60 * 1000, 5 * 60 * 1000);
 /** Diet meal reminders on active health diet plans (`runHealthDietMealRemindersJob`). */
 const HEALTH_DIET_MS = parseMs(process.env.HEALTH_DIET_TICK_MS, 30 * 60 * 1000, 5 * 60 * 1000);
+/** Smart hydration, sleep & walk wellness reminders (`runWellnessModuleNotificationsJob`). */
+const WELLNESS_MODULE_MS = parseMs(process.env.WELLNESS_MODULE_TICK_MS, 15 * 60 * 1000, 5 * 60 * 1000);
 const BOOKING_CLEANUP_MS = parseMs(process.env.BOOKING_CLEANUP_TICK_MS, 15 * 60 * 1000);
 const MONEY_TRANSFER_TICK_MS = parseMs(process.env.MONEY_TRANSFER_WORKER_MS, 60 * 1000, 10 * 1000);
 const ACCOUNT_DELETION_PURGE_MS = parseMs(
@@ -214,7 +217,7 @@ const PICKUP_WAITING_NOTIFY_MS = parseMs(
 );
 
 console.log(
-  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms payableCommission=${PAYABLE_COMMISSION_MS}ms pill=${PILL_REMINDERS_MS}ms healthActivity=${HEALTH_ACTIVITY_MS}ms healthDiet=${HEALTH_DIET_MS}ms lowStock=${LOW_STOCK_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
+  `[worker-intervals] bonus=${BONUS_MS}ms marketing=${MARKETING_MS}ms catchup=${MARKETING_CATCHUP_MS}ms wallet=${WALLET_CLEARANCE_MS}ms payableCommission=${PAYABLE_COMMISSION_MS}ms pill=${PILL_REMINDERS_MS}ms healthActivity=${HEALTH_ACTIVITY_MS}ms healthDiet=${HEALTH_DIET_MS}ms wellnessModule=${WELLNESS_MODULE_MS}ms lowStock=${LOW_STOCK_MS}ms cleanup=${BOOKING_CLEANUP_MS}ms moneyFxSnapshot=${MONEY_FX_SNAPSHOT_MS}ms adminNotices=${NOTIFICATION_BROADCAST_MS}ms pickupWaiting=${PICKUP_WAITING_NOTIFY_MS}ms`
 );
 
 createGuardedInterval("rider-bonus-tick", () => processRiderBonusTick(), BONUS_MS);
@@ -344,6 +347,19 @@ createGuardedInterval(
     await runHealthDietMorningAdviceJob();
   },
   HEALTH_DIET_MS
+);
+
+createGuardedInterval(
+  "wellness-module",
+  async () => {
+    const r = await runWellnessModuleNotificationsJob();
+    if (r.notificationsSent > 0) {
+      console.log(
+        `[wellness-module] sent=${r.notificationsSent} hydration=${r.hydrationReminders} sleep=${r.sleepReminders} walk=${r.walkNudges}`
+      );
+    }
+  },
+  WELLNESS_MODULE_MS
 );
 
 const PROPERTY_BOOKING_JOBS_MS = parseMs(process.env.PROPERTY_BOOKING_JOBS_MS, 5 * 60 * 1000, 60 * 1000);

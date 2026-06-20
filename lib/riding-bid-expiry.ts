@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 export const RIDE_BROADCAST_WINDOW_SEC = 90
 
 /** Default rider bid TTL when request window still allows it (ms). */
-export const DEFAULT_RIDING_BID_TTL_MS = 60 * 1000
+export const DEFAULT_RIDING_BID_TTL_MS = 8 * 1000
 
 /** Courier non–ride-like listing TTL (matches available-requests). */
 export const COURIER_NON_RIDE_BROADCAST_MS = 90 * 60 * 1000

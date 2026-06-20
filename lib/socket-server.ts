@@ -380,6 +380,84 @@ class SocketIOServer {
         }
       );
 
+      socket.on(
+        "request_view_ping",
+        async (payload: {
+          bookingId?: string
+          riderName?: string
+          avatar?: string | null
+        }) => {
+          if (socket.data?.role !== "RIDER" || !socket.data?.userId) return
+          const bookingId = String(payload?.bookingId || "").trim()
+          if (!bookingId) return
+          try {
+            const { upsertRequestViewer } = await import("@/lib/riding-request-viewers")
+            const viewers = upsertRequestViewer(bookingId, {
+              riderUserId: socket.data.userId,
+              riderName: payload?.riderName || "Rider",
+              avatar: payload?.avatar ?? null,
+            })
+            const booking =
+              (await prisma.rideBooking.findUnique({
+                where: { id: bookingId },
+                select: { customerId: true },
+              })) ||
+              (await prisma.courierBooking.findUnique({
+                where: { id: bookingId },
+                select: { customerId: true },
+              }))
+            if (booking?.customerId) {
+              await this.sendNotificationToUser(booking.customerId, {
+                type: "request_viewers_update",
+                bookingId,
+                viewers: viewers.map((v) => ({
+                  riderUserId: v.riderUserId,
+                  riderName: v.riderName,
+                  avatar: v.avatar ?? null,
+                })),
+              })
+            }
+          } catch (e) {
+            console.error("request_view_ping:", e)
+          }
+        }
+      )
+
+      socket.on(
+        "request_view_leave",
+        async (payload: { bookingId?: string }) => {
+          if (socket.data?.role !== "RIDER" || !socket.data?.userId) return
+          const bookingId = String(payload?.bookingId || "").trim()
+          if (!bookingId) return
+          try {
+            const { removeRequestViewer } = await import("@/lib/riding-request-viewers")
+            const viewers = removeRequestViewer(bookingId, socket.data.userId)
+            const booking =
+              (await prisma.rideBooking.findUnique({
+                where: { id: bookingId },
+                select: { customerId: true },
+              })) ||
+              (await prisma.courierBooking.findUnique({
+                where: { id: bookingId },
+                select: { customerId: true },
+              }))
+            if (booking?.customerId) {
+              await this.sendNotificationToUser(booking.customerId, {
+                type: "request_viewers_update",
+                bookingId,
+                viewers: viewers.map((v) => ({
+                  riderUserId: v.riderUserId,
+                  riderName: v.riderName,
+                  avatar: v.avatar ?? null,
+                })),
+              })
+            }
+          } catch (e) {
+            console.error("request_view_leave:", e)
+          }
+        }
+      )
+
       socket.on("rider_location_update", async ({ bookingId, riderId, lat, lng, heading, timestamp }) => {
         
         if (!socket.data?.userId) return;
@@ -942,7 +1020,8 @@ class SocketIOServer {
                 estimatedTime: data.estimatedTime,
                 message: data.message,
                 riderId: data.riderId,
-                riderName: data.riderName
+                riderName: data.riderName,
+                bid: data.bid,
               })
             }
           } catch (error) {

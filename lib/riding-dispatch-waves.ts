@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { NotificationBridge } from "@/lib/notification-bridge"
 import { getGlobalSocketServer } from "@/lib/socket-server"
+import { recordNotifiedRiderUserIds } from "@/lib/riding-rebroadcast-state"
 
 const RIDE_REQUEST_MAX_AGE_MS = 90 * 1000
 const NON_RIDE_REQUEST_MAX_AGE_MS = 90 * 60 * 1000
@@ -135,6 +136,7 @@ export async function dispatchBookingInWaves(params: {
     if (!batch.length) return
 
     const lockUntil = new Date(Date.now() + DISPATCH_LOCK_SECONDS * 1000).toISOString()
+    const notifiedThisWave: string[] = []
     for (const rider of batch) {
       const riderUserId = (rider as any).user.id as string
       const riderData = {
@@ -177,6 +179,7 @@ export async function dispatchBookingInWaves(params: {
       }
 
       await params.socketServer.sendNewRideToUser(riderUserId, riderData)
+      notifiedThisWave.push(riderUserId)
       await NotificationBridge.sendNotification({
         userId: riderUserId,
         title: "New Ride Request",
@@ -186,6 +189,9 @@ export async function dispatchBookingInWaves(params: {
         data: riderData,
         actionUrl: "AvailableRides",
       })
+    }
+    if (notifiedThisWave.length) {
+      recordNotifiedRiderUserIds(params.bookingId, notifiedThisWave)
     }
   }
 
