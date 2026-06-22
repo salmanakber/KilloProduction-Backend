@@ -3,6 +3,10 @@ import {
   applyGoogleMapsCountryParams,
   getGoogleMapsRuntimeConfig,
 } from "@/lib/google-maps"
+import {
+  cleanFormattedAddress,
+  pickBestGeocodeResult,
+} from "@/lib/format-google-address"
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Location not found" }, { status: 404 })
     }
 
-    const topResult = data.results[0]
+    const topResult = pickBestGeocodeResult(data.results) || data.results[0]
     const components = topResult.address_components || []
 
     let city = ""
@@ -65,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
 
     const addressLine = [streetNumber, route].filter(Boolean).join(" ").trim()
-    const formattedAddress = topResult.formatted_address
+    const formattedAddress = cleanFormattedAddress(topResult.formatted_address)
 
     return NextResponse.json({
       formattedAddress,

@@ -8,6 +8,7 @@ import {
   computeBidExpiresAt,
   courierBookingRequestEndsAtMs,
   expirePendingCourierBidsForBooking,
+  isNewCounterOfferAllowed,
 } from "@/lib/riding-bid-expiry"
 
 const DEFAULT_BID_CAP_PERCENT = 20
@@ -69,6 +70,15 @@ export async function POST(
     const normalizedBidAmount = Number(bidAmount)
     if (!Number.isFinite(normalizedBidAmount) || normalizedBidAmount <= 0) {
       return NextResponse.json({ error: "Invalid bid amount" }, { status: 400 })
+    }
+    if (!isNewCounterOfferAllowed(requestEndsAtMs)) {
+      return NextResponse.json(
+        {
+          error: "Bidding closed — accept at base price only",
+          biddingClosed: true,
+        },
+        { status: 400 },
+      )
     }
     const maxBidCapAmount = calculateMaxBidCapAmount(Number(courierBooking.fare || 0))
     if (normalizedBidAmount > maxBidCapAmount) {
@@ -162,7 +172,16 @@ export async function POST(
       estimatedTime: bid.estimatedTime,
       message: bid.message,
       rider: bid.rider,
-      requestType: 'courier'
+      requestType: 'courier',
+      bid: {
+        id: bid.id,
+        bidAmount: bid.bidAmount,
+        estimatedTime: bid.estimatedTime,
+        message: bid.message,
+        createdAt: bid.createdAt,
+        expiresAt: bid.expiresAt,
+        rider: bid.rider,
+      },
     })
 
     // Notify all riders about the status change

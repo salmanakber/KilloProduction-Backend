@@ -7,6 +7,7 @@ import { NotificationBridge } from "@/lib/notification-bridge"
 import {
   computeBidExpiresAt,
   expirePendingRideBidsForBooking,
+  isNewCounterOfferAllowed,
   rideBookingRequestEndsAtMs,
 } from "@/lib/riding-bid-expiry"
 
@@ -68,6 +69,15 @@ export async function POST(
     const normalizedBidAmount = Number(bidAmount)
     if (!Number.isFinite(normalizedBidAmount) || normalizedBidAmount <= 0) {
       return NextResponse.json({ error: "Invalid bid amount" }, { status: 400 })
+    }
+    if (!isNewCounterOfferAllowed(requestEndsAtMs)) {
+      return NextResponse.json(
+        {
+          error: "Bidding closed — accept at base price only",
+          biddingClosed: true,
+        },
+        { status: 400 },
+      )
     }
     const maxBidCapAmount = calculateMaxBidCapAmount(Number(rideBooking.estimatedFare || 0))
     if (normalizedBidAmount > maxBidCapAmount) {
@@ -157,7 +167,16 @@ export async function POST(
       estimatedTime: bid.estimatedTime,
       message: bid.message,
       rider: bid.rider,
-      requestType: 'ride'
+      requestType: 'ride',
+      bid: {
+        id: bid.id,
+        bidAmount: bid.bidAmount,
+        estimatedTime: bid.estimatedTime,
+        message: bid.message,
+        createdAt: bid.createdAt,
+        expiresAt: bid.expiresAt,
+        rider: bid.rider,
+      },
     })
 
     // Notify all riders about the status change

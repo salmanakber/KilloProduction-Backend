@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getGoogleMapsRuntimeConfig } from "@/lib/google-maps"
+import { cleanFormattedAddress } from "@/lib/format-google-address"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -28,6 +29,14 @@ export async function GET(request: NextRequest) {
   const data = await res.json()
 
   const result = data?.result || null
+  if (result) {
+    if (result.formatted_address) {
+      result.formatted_address = cleanFormattedAddress(result.formatted_address)
+    }
+    if (result.name) {
+      result.name = cleanFormattedAddress(result.name)
+    }
+  }
   if (result?.address_components) {
     const components: Record<string, string> = {}
     result.address_components.forEach((comp: { types: string[]; long_name: string }) => {

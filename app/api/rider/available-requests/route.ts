@@ -16,6 +16,21 @@ import {
   haversineKm,
   isScheduledRequestVisible,
 } from "@/lib/rider-available-requests-shared"
+import { getRidingBiddingPolicy, ridingBidTtlSec } from "@/lib/riding-bid-expiry"
+
+function activePendingBids<T extends { status?: string; expiresAt?: Date | string; createdAt?: Date | string }>(bids: T[]): T[] {
+  const now = Date.now()
+  const ttlSec = ridingBidTtlSec()
+  return (bids || []).filter((b) => {
+    if (String(b.status ?? "PENDING").toUpperCase() !== "PENDING") return false
+    if (b.createdAt) {
+      const start = new Date(b.createdAt).getTime()
+      if (Number.isFinite(start) && Math.floor((now - start) / 1000) >= ttlSec) return false
+    }
+    if (b.expiresAt && new Date(b.expiresAt).getTime() <= now) return false
+    return true
+  })
+}
 
 
 /**
@@ -237,7 +252,7 @@ export async function GET(request: NextRequest) {
         recipientName: booking.recipientName,
         recipientPhone: booking.recipientPhone,
         notes: booking.notes,
-        bids: booking.bids,
+        bids: activePendingBids(booking.bids || []),
         rideType: booking.rideType,
         scheduledAt: booking.scheduledAt,
         createdAt: booking.createdAt,
@@ -246,6 +261,7 @@ export async function GET(request: NextRequest) {
         orderId: (booking as any).orderId || null,
         module: booking.module ?? null,
         expiresAt: expiresAt.toISOString(),
+        broadcastExpiresAt: new Date(broadcastEndMs).toISOString(),
         isExpiredByTime: nowTs >= listingEndMs,
         multiplePickups: booking.multiplePickups?.map((mp: any) => ({
           id: mp.id,
@@ -300,7 +316,7 @@ export async function GET(request: NextRequest) {
         passengerCount: booking.passengerCount,
         passengerPhone: booking.passengerPhone,
         specialRequests: booking.specialRequests,
-        bids: booking.rideBids,
+        bids: activePendingBids(booking.rideBids || []),
         rideBids: booking.rideBids,
         rideType: booking.rideType,
         scheduledAt: booking.scheduledAt,
@@ -310,6 +326,7 @@ export async function GET(request: NextRequest) {
         testing: 'testing',
         module: "CUSTOMER",
         expiresAt: expiresAt.toISOString(),
+        broadcastExpiresAt: new Date(broadcastEndMs).toISOString(),
         isExpiredByTime: nowTs >= listingEndMs,
       }
     })
@@ -386,6 +403,7 @@ const sortedRequests = filteredRequests.sort(
       success: true,
       requests: sortedWithCustomerContext,
       total: sortedWithCustomerContext.length,
+      biddingPolicy: getRidingBiddingPolicy(),
       riderInfo: {
         currentLatitude: effectiveRiderLat,
         currentLongitude: effectiveRiderLng,

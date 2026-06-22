@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authenticateRequest } from "@/lib/auth"
+import { computeRiderPickupEta } from "@/lib/riding-bid-pickup-eta"
+import { getRidingBiddingPolicy } from "@/lib/riding-bid-expiry"
 
 export async function GET(
   request: NextRequest
@@ -33,7 +35,9 @@ export async function GET(
         id: true, 
         customerId: true, 
         status: true,
-        bookingNumber: true
+        bookingNumber: true,
+        pickupLatitude: true,
+        pickupLongitude: true,
       }
     });
 
@@ -43,7 +47,9 @@ export async function GET(
         id: true, 
         customerId: true, 
         status: true,
-        bookingNumber: true
+        bookingNumber: true,
+        pickupLatitude: true,
+        pickupLongitude: true,
       }
     });
 
@@ -74,6 +80,10 @@ export async function GET(
       await expirePendingCourierBidsForBooking(bookingId)
     }
 
+    const pickupLat = Number((booking as any).pickupLatitude)
+    const pickupLng = Number((booking as any).pickupLongitude)
+    const googleApiKey = process.env.GOOGLE_MAPS_API_KEY || null
+
     // Fetch bids based on booking type
     let transformedBids: any[] = [];
     
@@ -95,6 +105,7 @@ export async function GET(
                   vehicleType: true,
                   licensePlate: true,
                   rating: true,
+                  currentLocation: true,
                 }
               }
             }
@@ -105,24 +116,36 @@ export async function GET(
         }
       });
 
-      transformedBids = rideBids.map(bid => ({
-        id: bid.id,
-        bidAmount: bid.bidAmount,
-        estimatedTime: bid.estimatedTime,
-        message: bid.message,
-        status: bid.status,
-        createdAt: bid.createdAt,
-        expiresAt: bid.expiresAt,
-        rider: {
-          id: bid.rider.id,
-          name: bid.rider.name,
-          phone: bid.rider.phone,
-          avatar: bid.rider.avatar,
-          vehicleType: bid.rider.riderProfile?.vehicleType,
-          licensePlate: bid.rider.riderProfile?.licensePlate,
-          rating: bid.rider.riderProfile?.rating || 0
-        }
-      }));
+      transformedBids = await Promise.all(
+        rideBids.map(async (bid) => {
+          const pickupEta = await computeRiderPickupEta({
+            riderLocation: bid.rider.riderProfile?.currentLocation,
+            pickupLat,
+            pickupLng,
+            googleApiKey,
+          })
+          return {
+            id: bid.id,
+            bidAmount: bid.bidAmount,
+            estimatedTime: bid.estimatedTime,
+            pickupEtaMinutes: pickupEta.pickupEtaMinutes,
+            pickupDistanceKm: pickupEta.pickupDistanceKm,
+            message: bid.message,
+            status: bid.status,
+            createdAt: bid.createdAt,
+            expiresAt: bid.expiresAt,
+            rider: {
+              id: bid.rider.id,
+              name: bid.rider.name,
+              phone: bid.rider.phone,
+              avatar: bid.rider.avatar,
+              vehicleType: bid.rider.riderProfile?.vehicleType,
+              licensePlate: bid.rider.riderProfile?.licensePlate,
+              rating: bid.rider.riderProfile?.rating || 0
+            }
+          }
+        }),
+      );
     } else {
       const courierBids = await prisma.courierBid.findMany({
         where: {
@@ -143,6 +166,7 @@ export async function GET(
                   vehicleType: true,
                   licensePlate: true,
                   rating: true,
+                  currentLocation: true,
                 }
               }
             }
@@ -153,24 +177,36 @@ export async function GET(
         }
       });
 
-      transformedBids = courierBids.map(bid => ({
-        id: bid.id,
-        bidAmount: bid.bidAmount,
-        estimatedTime: bid.estimatedTime,
-        message: bid.message,
-        status: bid.status,
-        createdAt: bid.createdAt,
-        expiresAt: bid.expiresAt,
-        rider: {
-          id: bid.rider.id,
-          name: bid.rider.name,
-          phone: bid.rider.phone,
-          avatar: bid.rider.avatar,
-          vehicleType: bid.rider.riderProfile?.vehicleType,
-          licensePlate: bid.rider.riderProfile?.licensePlate,
-          rating: bid.rider.riderProfile?.rating || 0
-        }
-      }));
+      transformedBids = await Promise.all(
+        courierBids.map(async (bid) => {
+          const pickupEta = await computeRiderPickupEta({
+            riderLocation: bid.rider.riderProfile?.currentLocation,
+            pickupLat,
+            pickupLng,
+            googleApiKey,
+          })
+          return {
+            id: bid.id,
+            bidAmount: bid.bidAmount,
+            estimatedTime: bid.estimatedTime,
+            pickupEtaMinutes: pickupEta.pickupEtaMinutes,
+            pickupDistanceKm: pickupEta.pickupDistanceKm,
+            message: bid.message,
+            status: bid.status,
+            createdAt: bid.createdAt,
+            expiresAt: bid.expiresAt,
+            rider: {
+              id: bid.rider.id,
+              name: bid.rider.name,
+              phone: bid.rider.phone,
+              avatar: bid.rider.avatar,
+              vehicleType: bid.rider.riderProfile?.vehicleType,
+              licensePlate: bid.rider.riderProfile?.licensePlate,
+              rating: bid.rider.riderProfile?.rating || 0
+            }
+          }
+        }),
+      );
     }
 
     return NextResponse.json({
@@ -181,7 +217,8 @@ export async function GET(
         bookingStatus: booking.status,
         bookingNumber: booking.bookingNumber,
         bids: transformedBids,
-        totalBids: transformedBids.length
+        totalBids: transformedBids.length,
+        biddingPolicy: getRidingBiddingPolicy(),
       }
     });
 

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authenticateRequest } from "@/lib/auth"
 import { RideStatus, CourierStatus } from "@prisma/client"
+import { getRidingBiddingPolicy } from "@/lib/riding-bid-expiry"
 
 export async function GET(request: NextRequest) {
   try {
@@ -423,7 +424,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       hasActiveBooking: true,
-      booking: transformedBooking
+      booking: transformedBooking,
+      biddingPolicy: getRidingBiddingPolicy(),
     })
 
   } catch (error) {
