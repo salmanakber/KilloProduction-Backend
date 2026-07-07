@@ -5,6 +5,7 @@ import { sendEmailFromTemplate } from "@/lib/email"
 import { generateToken } from "@/lib/auth"
 import bcrypt from "bcryptjs"
 import { authUserModuleInclude, formatAuthUserPayload, getUserModules } from "@/lib/auth-user-modules"
+import { shouldBypassLoginOtp } from "@/lib/otp-login-bypass"
 
 export async function POST(request: NextRequest) {
   try {
@@ -165,16 +166,38 @@ export async function POST(request: NextRequest) {
         lastLoginAt: new Date(),
       },
     })
-    // Check if OTP verification should be skipped
-    // If otp parameter is false, skip OTP. Otherwise check environment variable
-    const skipOTP = otp === false || process.env.SKIP_OTP_VERIFICATION === "true"
+    // OTP skip order:
+    // 1) Play Store review allowlist (PLAYSTORE_REVIEW_OTP_BYPASS_PHONES / _EMAILS)
+    // 2) Global dev flag SKIP_OTP_VERIFICATION=true
+    // 3) Legacy client flag otp=false (avoid in production clients)
+    const playstoreBypass = shouldBypassLoginOtp({
+      loginPhone: phone,
+      loginEmail: email,
+      userPhone: user.phone,
+      userEmail: user.email,
+    })
+    const skipOTP =
+      playstoreBypass ||
+      process.env.SKIP_OTP_VERIFICATION === "true" ||
+      otp === false
+
     await prisma.auditLog.create({
       data: {
         performedBy: user.id,
         action: "LOGIN_SUCCESS",
         entityType: "AUTH",
         entityId: user.id,
-        details: { via: email ? "EMAIL" : "PHONE", otpRequired: !skipOTP },
+        details: {
+          via: email ? "EMAIL" : "PHONE",
+          otpRequired: !skipOTP,
+          otpBypassReason: playstoreBypass
+            ? "PLAYSTORE_REVIEW_ALLOWLIST"
+            : process.env.SKIP_OTP_VERIFICATION === "true"
+              ? "SKIP_OTP_VERIFICATION_ENV"
+              : otp === false
+                ? "CLIENT_OTP_FALSE"
+                : null,
+        },
       },
     }).catch(() => {})
 
