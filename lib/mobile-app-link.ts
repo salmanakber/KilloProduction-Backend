@@ -50,6 +50,18 @@ export function propertyListingAndroidIntentUrl(listingId: string) {
   return buildAndroidIntentUrl(propertyListingWebPath(listingId))
 }
 
+export function accountDeletionWebPath() {
+  return "/account-deletion"
+}
+
+export function accountDeletionWebUrl() {
+  return buildWebDeepLinkUrl(accountDeletionWebPath())
+}
+
+export function accountDeletionAppSchemeUrl() {
+  return buildAppSchemeUrl(accountDeletionWebPath())
+}
+
 export function isMobileUserAgent(userAgent: string | null | undefined) {
   if (!userAgent) return false
   return /android|iphone|ipad|ipod|mobile/i.test(userAgent)
@@ -78,6 +90,7 @@ export const DEEP_LINK_PATH_PREFIXES = [
   "/auto-parts/",
   "/health-record",
   "/register",
+  "/account-deletion",
 ]
 
 /** Web fallback + universal link pages — no admin login required. */
