@@ -435,6 +435,7 @@ export default function AdminSidebar({ isCollapsed, onToggle, isMobileOpen }: Ad
         { name: "Configuration", href: "/admin/money-app-admin/config", icon: Settings },
         { name: "VTpass & bills", href: "/admin/money-app-admin/vtpass", icon: Database },
         { name: "Bank Verification", href: "/admin/money-app-admin/kyc", icon: Shield },
+        { name: "Ajo / Esusu", href: "/admin/money-app-admin/ajo", icon: Handshake },
       ]
     },
     {

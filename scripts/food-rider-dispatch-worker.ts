@@ -33,6 +33,12 @@ import { runMoneyFxSnapshotTick } from "@/lib/process-money-fx-snapshot-job";
 import { processDueNotificationBroadcasts } from "@/lib/process-due-notification-broadcasts";
 import { runPickupWaitingJobs } from "@/lib/pickup-waiting";
 import { processPropertyBookingScheduledJobs } from "@/lib/process-property-booking-jobs";
+import {
+  processAjoCyclePayouts,
+  processAjoDueContributions,
+  processAjoRetryFailed,
+  processAjoUpcomingNotifications,
+} from "@/lib/process-ajo-tasks";
 import { createGuardedInterval } from "@/lib/worker-interval";
 
 const url = process.env.REDIS_URL;
@@ -198,6 +204,7 @@ const HEALTH_DIET_MS = parseMs(process.env.HEALTH_DIET_TICK_MS, 30 * 60 * 1000, 
 const WELLNESS_MODULE_MS = parseMs(process.env.WELLNESS_MODULE_TICK_MS, 15 * 60 * 1000, 5 * 60 * 1000);
 const BOOKING_CLEANUP_MS = parseMs(process.env.BOOKING_CLEANUP_TICK_MS, 15 * 60 * 1000);
 const MONEY_TRANSFER_TICK_MS = parseMs(process.env.MONEY_TRANSFER_WORKER_MS, 60 * 1000, 10 * 1000);
+const AJO_WORKER_TICK_MS = parseMs(process.env.AJO_WORKER_TICK_MS, 60 * 1000, 10 * 1000);
 const ACCOUNT_DELETION_PURGE_MS = parseMs(
   process.env.ACCOUNT_DELETION_PURGE_TICK_MS,
   6 * 60 * 60 * 1000,
@@ -490,6 +497,24 @@ createGuardedInterval(
     }
   },
   MONEY_TRANSFER_TICK_MS
+);
+
+createGuardedInterval(
+  "ajo-worker",
+  async () => {
+    const [c, r, p, n] = await Promise.all([
+      processAjoDueContributions(),
+      processAjoRetryFailed(),
+      processAjoCyclePayouts(),
+      processAjoUpcomingNotifications(),
+    ]);
+    if (c.collected > 0 || c.failed > 0 || r.retried > 0 || p.paid > 0 || n.notified > 0) {
+      console.log(
+        `[ajo-worker] collected=${c.collected} failed=${c.failed} retried=${r.retried} payouts=${p.paid} notified=${n.notified}`
+      );
+    }
+  },
+  AJO_WORKER_TICK_MS
 );
 
 // Graceful shutdown (IMPORTANT)

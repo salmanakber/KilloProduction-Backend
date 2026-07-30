@@ -175,6 +175,17 @@ model User {
   moneyTransferProfile          MoneyTransferProfile?
   moneySavedRecipients          MoneySavedRecipient[]      @relation("MoneySavedRecipients")
   moneySavedAsRecipient         MoneySavedRecipient[]      @relation("MoneySavedAsRecipient")
+  ajoGroupsCreated              AjoGroup[]                 @relation("AjoGroupCreator")
+  ajoGroupMemberships           AjoGroupMember[]           @relation("AjoGroupMemberships")
+  ajoCyclesAsRecipient          AjoCycle[]                 @relation("AjoCycleRecipient")
+  ajoContributions              AjoContribution[]          @relation("AjoContributions")
+  ajoPayoutsReceived            AjoPayout[]                @relation("AjoPayoutRecipient")
+  ajoChatMessagesSent           AjoChatMessage[]           @relation("AjoChatMessageSender")
+  ajoChatPins                   AjoGroup[]                 @relation("AjoChatPinActor")
+  ajoPollsCreated               AjoPoll[]                  @relation("AjoPollCreator")
+  ajoPollVotes                  AjoPollVote[]              @relation("AjoPollVotes")
+  creditOffers                  CreditOffer[]              @relation("CreditOffers")
+  creditLoans                   CreditLoan[]               @relation("CreditLoans")
   vtpassTransactions            VtpassTransaction[]
   userActivities          UserActivity[]            @relation("UserActivities")
   specialOfferVendors     SpecialOfferVendor[]
@@ -4475,6 +4486,8 @@ enum CommissionType {
   MECHANIC_COMMISSION
   CUSTOMER_TAX
   MECHANIC_TAX
+  AJO_PLATFORM_FEE
+  AJO_PAYOUT_FEE
 }
 
 enum CommissionStatus {
@@ -5348,6 +5361,323 @@ model MoneySavedRecipient {
   @@index([ownerId])
   @@index([receiverId])
   @@map("money_saved_recipients")
+}
+
+enum AjoGroupType {
+  ROTATIONAL
+  FIXED_SAVINGS
+  INVESTMENT_POOL
+  EMERGENCY_FUND
+}
+
+enum AjoGroupStatus {
+  DRAFT
+  ACTIVE
+  CYCLE_IN_PROGRESS
+  CYCLE_PAYOUT_PENDING
+  COMPLETED
+  PAUSED
+  DISPUTED
+  CANCELLED
+}
+
+enum AjoContributionFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum AjoMemberRole {
+  CREATOR
+  ADMIN
+  MEMBER
+}
+
+enum AjoMemberStatus {
+  INVITED
+  ACTIVE
+  LEFT
+  REMOVED
+}
+
+enum AjoContributionStatus {
+  PENDING
+  PAID
+  LATE
+  FAILED
+  WAIVED
+}
+
+enum AjoPayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum AjoCycleStatus {
+  PENDING
+  COLLECTING
+  PAYOUT_PENDING
+  COMPLETED
+}
+
+model AjoGroup {
+  id                 String                   @id @default(cuid())
+  name               String
+  description        String?
+  type               AjoGroupType             @default(ROTATIONAL)
+  status             AjoGroupStatus           @default(DRAFT)
+  creatorId          String
+  contributionAmount Float
+  currency           String                   @default("NGN")
+  frequency          AjoContributionFrequency
+  maxMembers         Int
+  currentCycle       Int                      @default(0)
+  totalCycles        Int
+  collectionOrder    Json                     @default("[]")
+  inviteCode         String                   @unique
+  rules              Json?
+  treasuryBalance    Float                    @default(0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  pinnedMessageId    String?                  @unique
+  pinnedAt           DateTime?
+  pinnedById         String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  creator       User              @relation("AjoGroupCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  pinnedMessage AjoChatMessage?   @relation("AjoGroupPinnedMessage", fields: [pinnedMessageId], references: [id], onDelete: SetNull)
+  pinnedBy      User?             @relation("AjoChatPinActor", fields: [pinnedById], references: [id], onDelete: SetNull)
+  members       AjoGroupMember[]
+  cycles        AjoCycle[]
+  contributions AjoContribution[]
+  payouts       AjoPayout[]
+  chatMessages  AjoChatMessage[]
+  polls         AjoPoll[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@map("ajo_groups")
+}
+
+model AjoGroupMember {
+  id              String          @id @default(cuid())
+  groupId         String
+  userId          String
+  role            AjoMemberRole   @default(MEMBER)
+  status          AjoMemberStatus @default(INVITED)
+  slotPosition    Int?
+  reputationScore Int             @default(100)
+  joinedAt        DateTime?
+  invitedAt       DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  group AjoGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User     @relation("AjoGroupMemberships", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId])
+  @@map("ajo_group_members")
+}
+
+model AjoCycle {
+  id            String           @id @default(cuid())
+  groupId       String
+  cycleNumber   Int
+  recipientId   String
+  dueDate       DateTime
+  status        AjoCycleStatus   @default(PENDING)
+  poolTarget    Float
+  poolCollected Float            @default(0)
+  payoutStatus  AjoPayoutStatus?
+  payoutAt      DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  group         AjoGroup          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  recipient     User              @relation("AjoCycleRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  contributions AjoContribution[]
+  payout        AjoPayout?
+
+  @@unique([groupId, cycleNumber])
+  @@index([groupId])
+  @@index([dueDate, status])
+  @@map("ajo_cycles")
+}
+
+model AjoContribution {
+  id                  String                @id @default(cuid())
+  cycleId             String
+  groupId             String
+  userId              String
+  amount              Float
+  platformFee         Float                 @default(0)
+  platformFeeRate     Float                 @default(0)
+  netAmount           Float
+  currency            String                @default("NGN")
+  status              AjoContributionStatus @default(PENDING)
+  dueDate             DateTime
+  paidAt              DateTime?
+  walletTransactionId String?
+  failureReason       String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  cycle AjoCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  group AjoGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User     @relation("AjoContributions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cycleId, userId])
+  @@index([userId])
+  @@index([groupId])
+  @@index([dueDate, status])
+  @@map("ajo_contributions")
+}
+
+model AjoPayout {
+  id                  String          @id @default(cuid())
+  cycleId             String          @unique
+  groupId             String
+  recipientId         String
+  amount              Float
+  currency            String          @default("NGN")
+  status              AjoPayoutStatus @default(PENDING)
+  walletTransactionId String?
+  processedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  cycle     AjoCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  group     AjoGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  recipient User     @relation("AjoPayoutRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([recipientId])
+  @@map("ajo_payouts")
+}
+
+model AjoChatMessage {
+  id               String      @id @default(cuid())
+  groupId          String
+  senderId         String
+  content          String
+  type             MessageType @default(TEXT)
+  pollId           String?
+  replyToMessageId String?
+  mentionUserIds   Json        @default("[]")
+  createdAt        DateTime    @default(now())
+
+  group         AjoGroup         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender        User             @relation("AjoChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  poll          AjoPoll?         @relation(fields: [pollId], references: [id], onDelete: SetNull)
+  replyTo       AjoChatMessage?  @relation("AjoChatReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies       AjoChatMessage[] @relation("AjoChatReply")
+  pinnedInGroup AjoGroup?        @relation("AjoGroupPinnedMessage")
+
+  @@index([groupId, createdAt])
+  @@map("ajo_chat_messages")
+}
+
+model AjoPoll {
+  id          String    @id @default(cuid())
+  groupId     String
+  createdById String
+  question    String
+  options     Json
+  status      String    @default("OPEN")
+  closesAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  group     AjoGroup         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("AjoPollCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  votes     AjoPollVote[]
+  messages  AjoChatMessage[]
+
+  @@index([groupId])
+  @@map("ajo_polls")
+}
+
+model AjoPollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  userId    String
+  optionId  String
+  createdAt DateTime @default(now())
+
+  poll AjoPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user User    @relation("AjoPollVotes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([pollId])
+  @@map("ajo_poll_votes")
+}
+
+enum CreditOfferStatus {
+  OFFERED
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum CreditLoanStatus {
+  PENDING
+  DISBURSED
+  REPAYING
+  DEFAULTED
+  PAID_OFF
+  CANCELLED
+}
+
+/// Soft credit offer derived from Ajo + wallet behaviour (Empower / Trust score).
+model CreditOffer {
+  id            String            @id @default(cuid())
+  userId        String
+  currency      String            @default("NGN")
+  maxAmount     Float
+  interestRate  Float             @default(0.05)
+  termDays      Int               @default(30)
+  status        CreditOfferStatus @default(OFFERED)
+  scoreSnapshot Int?
+  expiresAt     DateTime?
+  metadata      Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user  User         @relation("CreditOffers", fields: [userId], references: [id], onDelete: Cascade)
+  loans CreditLoan[]
+
+  @@index([userId, status])
+  @@map("credit_offers")
+}
+
+model CreditLoan {
+  id                 String           @id @default(cuid())
+  offerId            String?
+  userId             String
+  principal          Float
+  currency           String           @default("NGN")
+  interestAmount     Float            @default(0)
+  totalDue           Float
+  amountRepaid       Float            @default(0)
+  status             CreditLoanStatus @default(PENDING)
+  disbursedAt        DateTime?
+  dueAt              DateTime?
+  disburseWalletTxId String?
+  metadata           Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  offer CreditOffer? @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  user  User         @relation("CreditLoans", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([dueAt, status])
+  @@map("credit_loans")
 }
 
 // AI Configuration Models

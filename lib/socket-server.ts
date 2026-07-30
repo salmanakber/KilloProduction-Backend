@@ -171,6 +171,56 @@ class SocketIOServer {
         }
       });
 
+      socket.on("ajo_chat_subscribe", async (payload: { groupId?: string }, ack?: (res: unknown) => void) => {
+        try {
+          const groupId = typeof payload?.groupId === "string" ? payload.groupId : null;
+          const userId = socket.data?.userId;
+          if (!groupId || !userId || !socket.connected) {
+            ack?.({ ok: false, error: "Unauthorized" });
+            return;
+          }
+          const membership = await prisma.ajoGroupMember.findFirst({
+            where: {
+              groupId,
+              userId,
+              status: { in: ["ACTIVE", "INVITED"] },
+            },
+            select: { id: true },
+          });
+          const isCreator = await prisma.ajoGroup.findFirst({
+            where: { id: groupId, creatorId: userId },
+            select: { id: true },
+          });
+          if (!membership && !isCreator) {
+            ack?.({ ok: false, error: "Not a group member" });
+            return;
+          }
+          socket.join(`ajo_chat:${groupId}`);
+          socket.emit("ajo_chat_subscribed", { groupId });
+          ack?.({ ok: true, groupId });
+        } catch (e: any) {
+          ack?.({ ok: false, error: e?.message || "Failed to subscribe" });
+        }
+      });
+
+      socket.on("ajo_chat_unsubscribe", (payload: { groupId?: string }) => {
+        const groupId = typeof payload?.groupId === "string" ? payload.groupId : null;
+        if (groupId && socket.connected) {
+          socket.leave(`ajo_chat:${groupId}`);
+        }
+      });
+
+      socket.on("ajo_typing", async (payload: { groupId?: string; isTyping?: boolean }) => {
+        const groupId = typeof payload?.groupId === "string" ? payload.groupId : null;
+        const userId = socket.data?.userId;
+        if (!groupId || !userId) return;
+        this.io?.to(`ajo_chat:${groupId}`).emit("ajo_user_typing", {
+          groupId,
+          userId,
+          isTyping: Boolean(payload?.isTyping),
+        });
+      });
+
       socket.on("auto_parts_subscribe", (payload: { requestId?: string }) => {
         const rid = typeof payload?.requestId === "string" ? payload.requestId : null;
         if (rid && socket.connected) {
@@ -1763,6 +1813,13 @@ class SocketIOServer {
   /** Broadcast to everyone subscribed to a property conversation room. */
   emitToPropertyChatRoom(conversationId: string, event: string, payload: any) {
     this.io?.to(`prop_chat:${conversationId}`).emit(event, payload)
+  }
+
+  /** Broadcast to Ajo group chat room (clients join via `ajo_chat_subscribe`). */
+  emitToAjoGroupChatRoom(groupId: string, event: string, payload: any) {
+    this.ensureRuntimeAttached();
+    if (!this.io || !groupId) return;
+    this.io.to(`ajo_chat:${groupId}`).emit(event, payload);
   }
 
   private startClientsMonitoring() {

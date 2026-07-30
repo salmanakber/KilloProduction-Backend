@@ -40,8 +40,8 @@ import {
 
 interface CommissionSetting {
   id: string
-  module: "AUTO_PARTS" | "PHARMACY" | "FOOD" | "GROCERY" | "RIDING" | "COURIER" | "WHOLESALER" | "CUSTOMER" | "WALLET" | "PROPERTY"
-  commissionType: "VENDOR_COMMISSION" | "RIDER_COMMISSION" | "PLATFORM_FEE" | "PAYMENT_PROCESSING" | "MECHANIC_COMMISSION" | "CUSTOMER_TAX" | "MECHANIC_TAX"
+  module: "AUTO_PARTS" | "PHARMACY" | "FOOD" | "GROCERY" | "RIDING" | "COURIER" | "WHOLESALER" | "CUSTOMER" | "WALLET" | "PROPERTY" | "MONEY_TRANSFER"
+  commissionType: "VENDOR_COMMISSION" | "RIDER_COMMISSION" | "PLATFORM_FEE" | "PAYMENT_PROCESSING" | "MECHANIC_COMMISSION" | "CUSTOMER_TAX" | "MECHANIC_TAX" | "AJO_PLATFORM_FEE" | "AJO_PAYOUT_FEE"
   rate: number
   minAmount?: number
   maxAmount?: number
@@ -85,6 +85,7 @@ const getModuleConfig = (module: string) => {
     case "AUTO_PARTS": return { icon: <Wrench className="h-4 w-4" />, color: "bg-blue-100 text-blue-700 border-blue-200", label: "Auto Parts" }
     case "RIDING": return { icon: <Bike className="h-4 w-4" />, color: "bg-red-100 text-red-700 border-red-200", label: "Ride Hailing" }
     case "COURIER": return { icon: <Package className="h-4 w-4" />, color: "bg-indigo-100 text-indigo-700 border-indigo-200", label: "Courier" }
+    case "MONEY_TRANSFER": return { icon: <CreditCard className="h-4 w-4" />, color: "bg-cyan-100 text-cyan-700 border-cyan-200", label: "Kilo Money" }
     default: return { icon: <Layers className="h-4 w-4" />, color: "bg-gray-100 text-gray-700 border-gray-200", label: module.replace("_", " ") }
   }
 }
@@ -94,6 +95,8 @@ const getTypeConfig = (type: string) => {
     case "VENDOR_COMMISSION": return { icon: <Store className="h-3 w-3" />, label: "Vendor Commission" }
     case "RIDER_COMMISSION": return { icon: <Bike className="h-3 w-3" />, label: "Rider Commission" }
     case "PLATFORM_FEE": return { icon: <Layers className="h-3 w-3" />, label: "Platform Fee" }
+    case "AJO_PLATFORM_FEE": return { icon: <Percent className="h-3 w-3" />, label: "Ajo Contribution Fee" }
+    case "AJO_PAYOUT_FEE": return { icon: <Percent className="h-3 w-3" />, label: "Ajo Payout Fee" }
     case "PAYMENT_PROCESSING": return { icon: <CreditCard className="h-3 w-3" />, label: "Processing Fee" }
     default: return { icon: <Percent className="h-3 w-3" />, label: type.replace("_", " ") }
   }
@@ -814,8 +817,8 @@ export default function CommissionManagement() {
                         onChange={(e) => setFormData({ ...formData, module: e.target.value as any })}
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#2E8B57] focus:ring-4 focus:ring-[#2E8B57]/10 outline-none text-sm bg-white font-semibold text-gray-800 appearance-none shadow-sm transition-all"
                       >
-                        {["PHARMACY", "FOOD", "GROCERY", "AUTO_PARTS", "RIDING", "COURIER", "WHOLESALER", "PROPERTY", "CUSTOMER", "WALLET"].map(m => (
-                          <option key={m} value={m}>{m === "PROPERTY" ? "Booking" : m.replace("_", " ")}</option>
+                        {["PHARMACY", "FOOD", "GROCERY", "AUTO_PARTS", "RIDING", "COURIER", "WHOLESALER", "PROPERTY", "CUSTOMER", "WALLET", "MONEY_TRANSFER"].map(m => (
+                          <option key={m} value={m}>{m === "PROPERTY" ? "Booking" : m === "MONEY_TRANSFER" ? "Kilo Money" : m.replace("_", " ")}</option>
                         ))}
                       </select>
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
@@ -831,7 +834,7 @@ export default function CommissionManagement() {
                         onChange={(e) => setFormData({ ...formData, commissionType: e.target.value as any })}
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#2E8B57] focus:ring-4 focus:ring-[#2E8B57]/10 outline-none text-sm bg-white font-semibold text-gray-800 appearance-none shadow-sm transition-all"
                       >
-                        {["VENDOR_COMMISSION", "RIDER_COMMISSION", "PLATFORM_FEE", "PAYMENT_PROCESSING", "WHOLESALE_ORDER", "MECHANIC_COMMISSION", "CUSTOMER_TAX", "MECHANIC_TAX"].map(t => ( 
+                        {["VENDOR_COMMISSION", "RIDER_COMMISSION", "PLATFORM_FEE", "PAYMENT_PROCESSING", "WHOLESALE_ORDER", "MECHANIC_COMMISSION", "CUSTOMER_TAX", "MECHANIC_TAX", "AJO_PLATFORM_FEE", "AJO_PAYOUT_FEE"].map(t => (
                           <option key={t} value={t}>{t.replace("_", " ")}</option>
                         ))}
                       </select>
