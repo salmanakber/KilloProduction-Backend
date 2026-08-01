@@ -224,14 +224,14 @@ export default function MoneyTransferRecordsPage() {
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase text-slate-400">Collection</Label>
               <Select value={recordType} onValueChange={(v) => handleTypeChange(v as RecordKind)}>
-                <SelectTrigger className="rounded-xl border-slate-200 bg-white">
+                <SelectTrigger className="rounded-xl border-slate-200 bg-white text-slate-900">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="transfer">Money Transfers</SelectItem>
-                  <SelectItem value="payout">Paystack Payouts</SelectItem>
-                  <SelectItem value="wallet_tx">Wallet Transactions</SelectItem>
-                  <SelectItem value="withdrawal">Withdrawal Queue</SelectItem>
+                <SelectContent className="bg-white text-slate-900 border border-slate-200 shadow-xl z-[200]">
+                  <SelectItem value="transfer" className="focus:bg-teal-50 focus:text-teal-900">Money Transfers</SelectItem>
+                  <SelectItem value="payout" className="focus:bg-teal-50 focus:text-teal-900">Paystack Payouts</SelectItem>
+                  <SelectItem value="wallet_tx" className="focus:bg-teal-50 focus:text-teal-900">Wallet Transactions</SelectItem>
+                  <SelectItem value="withdrawal" className="focus:bg-teal-50 focus:text-teal-900">Withdrawal Queue</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -242,14 +242,14 @@ export default function MoneyTransferRecordsPage() {
                   value={recordId}
                   onChange={(e) => setRecordId(e.target.value)}
                   placeholder="Paste reference or cuid..."
-                  className="rounded-xl border-slate-200 font-mono text-sm bg-white"
+                  className="rounded-xl border-slate-200 font-mono text-sm bg-white text-slate-900"
                 />
                 <Button 
                   onClick={loadRecord} 
                   disabled={loading} 
-                  className="bg-slate-900 hover:bg-slate-800 rounded-xl px-8 font-bold"
+                  className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-8 font-bold shadow-sm"
                 >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch Record"}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : "Fetch Record"}
                 </Button>
               </div>
             </div>
@@ -277,7 +277,7 @@ export default function MoneyTransferRecordsPage() {
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Stripe ID</p>
                       <p className="font-mono text-[10px] break-all">{String(loaded.transfer.stripePaymentIntentId ?? "N/A")}</p>
                     </div>
-                    <Button variant="outline" size="sm" asChild className="w-full rounded-xl text-teal-700 border-teal-100 hover:bg-teal-50">
+                    <Button variant="outline" size="sm" asChild className="w-full rounded-xl text-teal-800 border-teal-200 bg-white hover:bg-teal-50 font-semibold">
                       <Link href={`/admin/money-app-admin/transactions/${String(loaded.transfer.id)}`} target="_blank">
                         View Transfer Hub <ExternalLink className="h-3.5 w-3.5 ml-2" />
                       </Link>
@@ -325,18 +325,18 @@ export default function MoneyTransferRecordsPage() {
                       <div className="space-y-2">
                         <Label className="text-xs font-bold">Status</Label>
                         <Select value={fields.status} onValueChange={(v) => setField("status", v)}>
-                          <SelectTrigger className="rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {TRANSFER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                          <SelectTrigger className="rounded-xl border-slate-200 bg-white text-slate-900"><SelectValue /></SelectTrigger>
+                          <SelectContent className="bg-white text-slate-900 border border-slate-200 shadow-xl z-[200]">
+                            {TRANSFER_STATUSES.map(s => <SelectItem key={s} value={s} className="focus:bg-teal-50 focus:text-teal-900">{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-bold">Settlement Mode</Label>
                         <Select value={fields.settlementMode} onValueChange={(v) => setField("settlementMode", v)}>
-                          <SelectTrigger className="rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {SETTLEMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                          <SelectTrigger className="rounded-xl border-slate-200 bg-white text-slate-900"><SelectValue /></SelectTrigger>
+                          <SelectContent className="bg-white text-slate-900 border border-slate-200 shadow-xl z-[200]">
+                            {SETTLEMENT_MODES.map(m => <SelectItem key={m} value={m} className="focus:bg-teal-50 focus:text-teal-900">{m}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
@@ -356,9 +356,9 @@ export default function MoneyTransferRecordsPage() {
                       <div className="space-y-2">
                         <Label className="text-xs font-bold">Status</Label>
                         <Select value={fields.status} onValueChange={(v) => setField("status", v)}>
-                          <SelectTrigger className="rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {WITHDRAWAL_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                          <SelectTrigger className="rounded-xl border-slate-200 bg-white text-slate-900"><SelectValue /></SelectTrigger>
+                          <SelectContent className="bg-white text-slate-900 border border-slate-200 shadow-xl z-[200]">
+                            {WITHDRAWAL_STATUSES.map(s => <SelectItem key={s} value={s} className="focus:bg-teal-50 focus:text-teal-900">{s}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
@@ -391,9 +391,9 @@ export default function MoneyTransferRecordsPage() {
                   <Button
                     disabled={saving || !loaded}
                     onClick={handleSave}
-                    className="w-full h-14 bg-teal-600 hover:bg-teal-700 rounded-2xl shadow-lg shadow-teal-100 flex items-center justify-center gap-3 text-lg font-black transition-all"
+                    className="w-full h-14 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl shadow-lg shadow-teal-200/60 flex items-center justify-center gap-3 text-lg font-black transition-all disabled:opacity-60"
                   >
-                    {saving ? <Loader2 className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
+                    {saving ? <Loader2 className="h-6 w-6 animate-spin text-white" /> : <Save className="h-6 w-6 text-white" />}
                     Commit Changes to Database
                   </Button>
                 </div>

@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
           withdrawalSmartApproveDelayMinutes: 15,
           withdrawalPaystackBufferNgn: 50_000,
           withdrawalInstantMaxNgn: null,
+          walletTopUpGateway: "AUTO",
         },
       })
     }
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
         withdrawalSmartApproveDelayMinutes: config.withdrawalSmartApproveDelayMinutes ?? 15,
         withdrawalPaystackBufferNgn: config.withdrawalPaystackBufferNgn ?? 50_000,
         withdrawalInstantMaxNgn: config.withdrawalInstantMaxNgn ?? null,
+        walletTopUpGateway: config.walletTopUpGateway ?? "AUTO",
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       },
@@ -108,10 +110,21 @@ export async function POST(request: NextRequest) {
       withdrawalSmartApproveDelayMinutes,
       withdrawalPaystackBufferNgn,
       withdrawalInstantMaxNgn,
+      walletTopUpGateway,
     } = body
 
     // Get or create config
     let config = await prisma.moneyTransferConfig.findFirst()
+
+    const allowedGateways = new Set([
+      "AUTO",
+      "STRIPE_PREFERRED",
+      "PAYSTACK_PREFERRED",
+      "STRIPE_ONLY",
+      "PAYSTACK_ONLY",
+    ])
+    const normalizedGateway = String(walletTopUpGateway || config?.walletTopUpGateway || "AUTO").toUpperCase()
+    const safeGateway = allowedGateways.has(normalizedGateway) ? normalizedGateway : "AUTO"
 
     const configData: any = {
       isEnabled: isEnabled !== undefined ? isEnabled : config?.isEnabled ?? true,
@@ -155,6 +168,7 @@ export async function POST(request: NextRequest) {
               ? Math.max(0, Number(withdrawalInstantMaxNgn))
               : config?.withdrawalInstantMaxNgn ?? null
           : config?.withdrawalInstantMaxNgn ?? null,
+      walletTopUpGateway: safeGateway,
     }
 
     // Only update keys if provided
@@ -203,6 +217,7 @@ export async function POST(request: NextRequest) {
         withdrawalSmartApproveDelayMinutes: config.withdrawalSmartApproveDelayMinutes,
         withdrawalPaystackBufferNgn: config.withdrawalPaystackBufferNgn,
         withdrawalInstantMaxNgn: config.withdrawalInstantMaxNgn,
+        walletTopUpGateway: config.walletTopUpGateway ?? "AUTO",
         createdAt: config.createdAt,
         updatedAt: config.updatedAt,
       },

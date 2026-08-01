@@ -18,7 +18,7 @@ async function getOrCreateWallet(tx: Prisma.TransactionClient, userId: string, c
   })
 }
 
-/** Build Empower / Trust score from Ajo reputation + wallet activity. */
+/** Build Empowerment / Trust score from Ajo reputation + wallet activity. */
 export async function computeCreditScore(userId: string) {
   const memberships = await prisma.ajoGroupMember.findMany({
     where: { userId, status: "ACTIVE" },

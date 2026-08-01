@@ -36,6 +36,7 @@ interface Config {
   withdrawalSmartApproveDelayMinutes?: number
   withdrawalPaystackBufferNgn?: number
   withdrawalInstantMaxNgn?: number | null
+  walletTopUpGateway?: string
 }
 
 export default function MoneyTransferConfig() {
@@ -74,6 +75,7 @@ export default function MoneyTransferConfig() {
     withdrawalSmartApproveDelayMinutes: 15,
     withdrawalPaystackBufferNgn: 50_000,
     withdrawalInstantMaxNgn: "",
+    walletTopUpGateway: "AUTO",
   })
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export default function MoneyTransferConfig() {
           c.withdrawalInstantMaxNgn != null && Number.isFinite(Number(c.withdrawalInstantMaxNgn))
             ? Number(c.withdrawalInstantMaxNgn)
             : "",
+        walletTopUpGateway: c.walletTopUpGateway || "AUTO",
       }))
     } catch (error) {
       console.error("Failed to fetch config:", error)
@@ -283,6 +286,72 @@ export default function MoneyTransferConfig() {
                   }
                   className="data-[state=checked]:bg-teal-500"
                 />
+              </div>
+
+              {/* Wallet top-up gateway preference */}
+              <div className="p-5 bg-teal-50/60 rounded-2xl border border-teal-100 space-y-4">
+                <div>
+                  <Label className="text-base font-bold text-slate-900">Wallet top-up card gateway</Label>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Choose how card deposits are processed. Preferred modes try the other gateway if the first fails.
+                    Bank deposits always use Paystack.
+                  </p>
+                </div>
+                <div className="grid gap-3">
+                  {[
+                    {
+                      value: "AUTO",
+                      title: "Auto (smart)",
+                      sub: "NGN prefers Paystack; other currencies prefer Stripe. Falls back to the other when needed.",
+                    },
+                    {
+                      value: "STRIPE_PREFERRED",
+                      title: "Stripe preferred",
+                      sub: "Try Stripe first, then Paystack if Stripe is unavailable.",
+                    },
+                    {
+                      value: "PAYSTACK_PREFERRED",
+                      title: "Paystack preferred",
+                      sub: "Try Paystack first, then Stripe if Paystack is unavailable.",
+                    },
+                    {
+                      value: "STRIPE_ONLY",
+                      title: "Stripe only",
+                      sub: "Card top-ups use Stripe only (no Paystack card checkout).",
+                    },
+                    {
+                      value: "PAYSTACK_ONLY",
+                      title: "Paystack only",
+                      sub: "Card top-ups use Paystack only (no Stripe card sheet).",
+                    },
+                  ].map((opt) => {
+                    const active = formData.walletTopUpGateway === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, walletTopUpGateway: opt.value })}
+                        className={`text-left rounded-xl border px-4 py-3 transition-all ${
+                          active
+                            ? "border-teal-500 bg-white shadow-sm ring-2 ring-teal-500/20"
+                            : "border-slate-200 bg-white/70 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{opt.title}</p>
+                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{opt.sub}</p>
+                          </div>
+                          <div
+                            className={`h-4 w-4 rounded-full border-2 shrink-0 ${
+                              active ? "border-teal-600 bg-teal-600" : "border-slate-300 bg-white"
+                            }`}
+                          />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Limits Grid */}

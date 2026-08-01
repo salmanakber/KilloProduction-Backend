@@ -5126,6 +5126,10 @@ model MoneyTransferConfig {
   /// NGN payouts at or below this amount use a 1-minute delay when autoPayoutEnabled (optional instant-ish path).
   withdrawalInstantMaxNgn               Float?
 
+  /// Wallet card top-up gateway preference.
+  /// AUTO | STRIPE_PREFERRED | PAYSTACK_PREFERRED | STRIPE_ONLY | PAYSTACK_ONLY
+  walletTopUpGateway String @default("AUTO")
+
   // Metadata
   metadata Json?
 

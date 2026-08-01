@@ -10,12 +10,54 @@ import {
 
 export type TopUpGateway = "PAYSTACK" | "STRIPE"
 export type TopUpPaymentMethod = "CARD" | "BANK"
+export type WalletTopUpGatewayMode =
+  | "AUTO"
+  | "STRIPE_PREFERRED"
+  | "PAYSTACK_PREFERRED"
+  | "STRIPE_ONLY"
+  | "PAYSTACK_ONLY"
 
-async function getPrimaryGateway(): Promise<TopUpGateway> {
-  const settings = await prisma.systemSettings.findFirst({ select: { paymentMethods: true } })
-  const paymentMethods = (settings?.paymentMethods || {}) as Record<string, unknown>
-  const primary = String(paymentMethods?.primaryGateway || paymentMethods?.primary || "STRIPE").toUpperCase()
-  return primary === "PAYSTACK" ? "PAYSTACK" : "STRIPE"
+function normalizeTopUpGatewayMode(raw: unknown): WalletTopUpGatewayMode {
+  const v = String(raw || "AUTO").toUpperCase()
+  if (
+    v === "STRIPE_PREFERRED" ||
+    v === "PAYSTACK_PREFERRED" ||
+    v === "STRIPE_ONLY" ||
+    v === "PAYSTACK_ONLY" ||
+    v === "STRIPE" ||
+    v === "PAYSTACK"
+  ) {
+    if (v === "STRIPE") return "STRIPE_ONLY"
+    if (v === "PAYSTACK") return "PAYSTACK_ONLY"
+    return v as WalletTopUpGatewayMode
+  }
+  return "AUTO"
+}
+
+async function getWalletTopUpGatewayMode(): Promise<WalletTopUpGatewayMode> {
+  const config = await prisma.moneyTransferConfig.findFirst({
+    select: { walletTopUpGateway: true },
+  })
+  return normalizeTopUpGatewayMode(config?.walletTopUpGateway)
+}
+
+/** Ordered gateways to try for card top-ups (excluding bank transfer). */
+async function resolveCardTopUpGatewayOrder(args: {
+  currency: string
+  preferInlineStripe?: boolean
+}): Promise<TopUpGateway[]> {
+  const mode = await getWalletTopUpGatewayMode()
+  const currency = args.currency.toUpperCase()
+
+  if (mode === "STRIPE_ONLY") return ["STRIPE"]
+  if (mode === "PAYSTACK_ONLY") return ["PAYSTACK"]
+  if (mode === "STRIPE_PREFERRED") return ["STRIPE", "PAYSTACK"]
+  if (mode === "PAYSTACK_PREFERRED") return ["PAYSTACK", "STRIPE"]
+
+  // AUTO: NGN leans Paystack; other currencies lean Stripe. preferInlineStripe bumps Stripe first.
+  if (args.preferInlineStripe) return ["STRIPE", "PAYSTACK"]
+  if (currency === "NGN") return ["PAYSTACK", "STRIPE"]
+  return ["STRIPE", "PAYSTACK"]
 }
 
 async function getMoneyTransferStripe(): Promise<Stripe> {
@@ -307,57 +349,63 @@ export async function createWalletTopUp(args: {
     }
   }
 
-  // ── Card: inline Stripe (CardField) when requested ──
-  if (args.preferInlineStripe) {
-    const errors: string[] = []
-    try {
-      const intent = await createMoneyWalletTopUpPaymentIntent({
-        userId: args.userId,
-        walletTransactionId: pendingTx.id,
-        reference,
-        amount,
-        currency,
-        saveCard: args.saveCard,
-      })
-      await prisma.moneyTransferWalletTransaction.update({
-        where: { id: pendingTx.id },
-        data: {
-          metadata: {
-            topupPending: true,
-            topupAmount: amount,
-            topupCurrency: currency,
-            paymentMethod: "CARD",
-            gateway: "STRIPE",
-            stripePaymentIntentId: intent.paymentIntentId,
-            saveCard: Boolean(args.saveCard),
-          } as Prisma.InputJsonValue,
-        },
-      })
-      return {
-        walletTransactionId: pendingTx.id,
-        reference,
-        payment: {
-          gateway: "STRIPE" as const,
-          method: "CARD" as const,
-          clientSecret: intent.clientSecret,
-          paymentIntentId: intent.paymentIntentId,
-        },
-      }
-    } catch (e) {
-      errors.push(e instanceof Error ? e.message : "Stripe unavailable")
-    }
+  // ── Card top-up: respect admin gateway preference (with optional fallback) ──
+  const gatewayMode = await getWalletTopUpGatewayMode()
+  const gatewayOrder = await resolveCardTopUpGatewayOrder({
+    currency,
+    preferInlineStripe: Boolean(args.preferInlineStripe),
+  })
+  const errors: string[] = []
+  const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL || ""}/money-transfer/return`
 
-    if (config.paystackSecretKey) {
+  for (const gateway of gatewayOrder) {
+    if (gateway === "STRIPE") {
       try {
-        const paystackCallback = `${process.env.NEXT_PUBLIC_APP_URL || ""}/money-transfer/return`
-        const init = await initializePaystack({
-          secretKey: config.paystackSecretKey,
-          email,
-          amount,
-          reference,
-          metadata,
-          channels: ["card"],
-          callbackUrl: paystackCallback || undefined,
+        if (args.preferInlineStripe) {
+          const intent = await createMoneyWalletTopUpPaymentIntent({
+            userId: args.userId,
+            walletTransactionId: pendingTx.id,
+            reference,
+            amount,
+            currency,
+            saveCard: args.saveCard,
+          })
+          await prisma.moneyTransferWalletTransaction.update({
+            where: { id: pendingTx.id },
+            data: {
+              metadata: {
+                topupPending: true,
+                topupAmount: amount,
+                topupCurrency: currency,
+                paymentMethod: "CARD",
+                gateway: "STRIPE",
+                stripePaymentIntentId: intent.paymentIntentId,
+                saveCard: Boolean(args.saveCard),
+                gatewayMode,
+              } as Prisma.InputJsonValue,
+            },
+          })
+          return {
+            walletTransactionId: pendingTx.id,
+            reference,
+            payment: {
+              gateway: "STRIPE" as const,
+              method: "CARD" as const,
+              clientSecret: intent.clientSecret,
+              paymentIntentId: intent.paymentIntentId,
+            },
+          }
+        }
+
+        const stripe = await getMoneyTransferStripe()
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(amount * 100),
+          currency: currency.toLowerCase(),
+          description: `Kilo wallet top-up ${reference}`,
+          metadata: {
+            ...metadata,
+            reference,
+          },
         })
         await prisma.moneyTransferWalletTransaction.update({
           where: { id: pendingTx.id },
@@ -367,36 +415,33 @@ export async function createWalletTopUp(args: {
               topupAmount: amount,
               topupCurrency: currency,
               paymentMethod: "CARD",
-              gateway: "PAYSTACK",
-              paystackReference: init.reference,
+              gateway: "STRIPE",
+              stripePaymentIntentId: paymentIntent.id,
+              gatewayMode,
             } as Prisma.InputJsonValue,
           },
         })
         return {
           walletTransactionId: pendingTx.id,
-          reference: init.reference,
+          reference,
           payment: {
-            gateway: "PAYSTACK" as const,
+            gateway: "STRIPE" as const,
             method: "CARD" as const,
-            authorizationUrl: init.authorization_url,
-            accessCode: init.access_code,
-            reference: init.reference,
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id,
           },
         }
       } catch (e) {
-        errors.push(e instanceof Error ? e.message : "Paystack unavailable")
+        errors.push(e instanceof Error ? e.message : "Card payment unavailable")
       }
+      continue
     }
 
-    throw new Error(errors.join(". ") || "Could not start card payment")
-  }
-
-  // ── Card: Paystack first (card channel), Stripe fallback ──
-  const primary = await getPrimaryGateway()
-  const errors: string[] = []
-  const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL || ""}/money-transfer/return`
-
-  if (config.paystackSecretKey) {
+    // PAYSTACK
+    if (!config.paystackSecretKey) {
+      errors.push("Paystack secret key not configured")
+      continue
+    }
     try {
       const init = await initializePaystack({
         secretKey: config.paystackSecretKey,
@@ -417,6 +462,7 @@ export async function createWalletTopUp(args: {
             paymentMethod: "CARD",
             gateway: "PAYSTACK",
             paystackReference: init.reference,
+            gatewayMode,
           } as Prisma.InputJsonValue,
         },
       })
@@ -433,52 +479,10 @@ export async function createWalletTopUp(args: {
       }
     } catch (e) {
       errors.push(e instanceof Error ? e.message : "Paystack unavailable")
-      if (primary === "PAYSTACK") {
-        // Primary is Paystack — still try Stripe as silent fallback
-      }
     }
-  } else if (primary === "PAYSTACK") {
-    errors.push("Paystack secret key not configured")
   }
 
-  try {
-    const stripe = await getMoneyTransferStripe()
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency: currency.toLowerCase(),
-      description: `Kilo wallet top-up ${reference}`,
-      metadata: {
-        ...metadata,
-        reference,
-      },
-    })
-    await prisma.moneyTransferWalletTransaction.update({
-      where: { id: pendingTx.id },
-      data: {
-        metadata: {
-          topupPending: true,
-          topupAmount: amount,
-          topupCurrency: currency,
-          paymentMethod: "CARD",
-          gateway: "STRIPE",
-          stripePaymentIntentId: paymentIntent.id,
-        } as Prisma.InputJsonValue,
-      },
-    })
-    return {
-      walletTransactionId: pendingTx.id,
-      reference,
-      payment: {
-        gateway: "STRIPE" as const,
-        method: "CARD" as const,
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-      },
-    }
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : "Card payment unavailable")
-    throw new Error(errors.join(". ") || "Could not start payment")
-  }
+  throw new Error(errors.join(". ") || "Could not start card payment")
 }
 
 async function verifyPaystackPayment(secretKey: string, reference: string) {
