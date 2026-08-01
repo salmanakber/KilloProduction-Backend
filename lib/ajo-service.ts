@@ -299,16 +299,32 @@ export async function processAjoContributionPayment(contributionId: string) {
     return { paid: false, alreadyPaid: true }
   }
 
+  const rules = parseAjoGroupRules(contribution.group.rules)
+  const graceEndsMs =
+    contribution.dueDate.getTime() + (rules.gracePeriodHours ?? 24) * 60 * 60 * 1000
+  const isPastGrace = Date.now() > graceEndsMs
+  const lateFeePercent = rules.lateFeePercent ?? 0
+  const lateFeeAmount =
+    isPastGrace && lateFeePercent > 0
+      ? roundMoney((contribution.amount * lateFeePercent) / 100)
+      : 0
+  const debitAmount = roundMoney(contribution.amount + lateFeeAmount)
+  // Late fee joins the cycle pool → paid to that cycle's recipient on payout (not platform, not creator).
+  const poolCredit = roundMoney(contribution.netAmount + lateFeeAmount)
+
   try {
     const result = await debitWalletForAjoContribution({
       userId: contribution.userId,
       recipientId: contribution.cycle.recipientId,
-      amount: contribution.amount,
+      amount: debitAmount,
       currency: contribution.currency,
       contributionId: contribution.id,
       groupId: contribution.groupId,
       cycleId: contribution.cycleId,
-      description: `Ajo contribution — ${contribution.group.name}`,
+      description:
+        lateFeeAmount > 0
+          ? `Ajo contribution + late fee — ${contribution.group.name}`
+          : `Ajo contribution — ${contribution.group.name}`,
     })
 
     const transferId = result.walletTx.transferId ?? null
@@ -321,6 +337,7 @@ export async function processAjoContributionPayment(contributionId: string) {
           paidAt: new Date(),
           walletTransactionId: result.walletTx.id,
           failureReason: null,
+          lateFeeAmount,
         },
       })
 
@@ -328,7 +345,7 @@ export async function processAjoContributionPayment(contributionId: string) {
         where: { id: contribution.cycleId },
         data: {
           poolCollected: {
-            increment: contribution.netAmount,
+            increment: poolCredit,
           },
         },
       })
@@ -336,7 +353,7 @@ export async function processAjoContributionPayment(contributionId: string) {
       await tx.ajoGroup.update({
         where: { id: contribution.groupId },
         data: {
-          treasuryBalance: { increment: contribution.netAmount },
+          treasuryBalance: { increment: poolCredit },
         },
       })
 
@@ -360,6 +377,7 @@ export async function processAjoContributionPayment(contributionId: string) {
       contributionId: contribution.id,
       transferId,
       walletTransactionId: result.walletTx.id,
+      lateFeeAmount,
     }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Payment failed"
@@ -1069,4 +1087,126 @@ export async function getAjoGroupStatementData(groupId: string, userId: string) 
   })
 
   return { group, contributions, payouts }
+}
+
+export async function getAjoGroupAnalytics(groupId: string, userId: string) {
+  const group = await getAjoGroupForUser(groupId, userId)
+  if (!group) throw new Error("Group not found")
+
+  const membership = group.members.find((m) => m.userId === userId)
+  const isAdmin =
+    group.creatorId === userId ||
+    membership?.role === "CREATOR" ||
+    membership?.role === "ADMIN"
+
+  const contributions = await prisma.ajoContribution.findMany({
+    where: { groupId },
+    include: {
+      user: { select: { id: true, name: true, avatar: true } },
+      cycle: { select: { cycleNumber: true, recipientId: true } },
+    },
+    orderBy: [{ cycle: { cycleNumber: "asc" } }, { dueDate: "asc" }],
+  })
+
+  const payouts = await prisma.ajoPayout.findMany({
+    where: { groupId },
+    include: {
+      recipient: { select: { id: true, name: true, avatar: true } },
+      cycle: { select: { cycleNumber: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  })
+
+  const paid = contributions.filter((c) => c.status === "PAID")
+  const waived = contributions.filter((c) => c.status === "WAIVED")
+  const failed = contributions.filter((c) => c.status === "FAILED" || c.status === "LATE")
+  const pending = contributions.filter((c) => c.status === "PENDING")
+  const totalContributed = paid.reduce((s, c) => s + c.amount, 0)
+  const totalLateFees = paid.reduce((s, c) => s + (c.lateFeeAmount || 0), 0)
+  const totalPaidOut = payouts
+    .filter((p) => p.status === "COMPLETED")
+    .reduce((s, c) => s + c.amount, 0)
+  const onTimePaid = paid.filter((c) => {
+    if (!c.paidAt) return false
+    return c.paidAt.getTime() <= c.dueDate.getTime()
+  }).length
+  const collectionRate =
+    contributions.length > 0 ? Math.round((paid.length / contributions.length) * 100) : 0
+
+  const myContributions = contributions.filter((c) => c.userId === userId)
+  const myPaid = myContributions.filter((c) => c.status === "PAID")
+  const myOnTime = myPaid.filter((c) => c.paidAt && c.paidAt.getTime() <= c.dueDate.getTime()).length
+  const myLateFees = myPaid.reduce((s, c) => s + (c.lateFeeAmount || 0), 0)
+  const myTotalPaid = myPaid.reduce((s, c) => s + c.amount + (c.lateFeeAmount || 0), 0)
+  const myPayouts = payouts.filter((p) => p.recipientId === userId)
+
+  const serializeContribution = (c: (typeof contributions)[number]) => ({
+    id: c.id,
+    cycleNumber: c.cycle.cycleNumber,
+    amount: c.amount,
+    lateFeeAmount: c.lateFeeAmount || 0,
+    platformFee: c.platformFee,
+    netAmount: c.netAmount,
+    currency: c.currency,
+    status: c.status,
+    dueDate: c.dueDate.toISOString(),
+    paidAt: c.paidAt?.toISOString() ?? null,
+    user: isAdmin || c.userId === userId ? c.user : { id: c.userId, name: "Member", avatar: null },
+  })
+
+  return {
+    group: {
+      id: group.id,
+      name: group.name,
+      status: group.status,
+      currency: group.currency,
+      contributionAmount: group.contributionAmount,
+      frequency: group.frequency,
+      currentCycleNumber: group.currentCycle,
+      totalCycles: group.totalCycles,
+      treasuryBalance: group.treasuryBalance,
+      memberCount: group.members.filter((m) => m.status === "ACTIVE" || m.status === "INVITED")
+        .length,
+    },
+    viewer: { isAdmin, userId },
+    summary: {
+      collectionRate,
+      totalContributions: contributions.length,
+      paidCount: paid.length,
+      pendingCount: pending.length,
+      failedCount: failed.length,
+      waivedCount: waived.length,
+      onTimePaid,
+      totalContributed,
+      totalLateFees,
+      totalPaidOut,
+      // Late fees are credited into the cycle pool and paid to that cycle's recipient.
+      lateFeeDestination: "CYCLE_RECIPIENT",
+    },
+    myStats: {
+      paidCount: myPaid.length,
+      pendingCount: myContributions.filter((c) => c.status === "PENDING").length,
+      failedCount: myContributions.filter((c) => c.status === "FAILED" || c.status === "LATE").length,
+      onTimeCount: myOnTime,
+      onTimeRate: myPaid.length > 0 ? Math.round((myOnTime / myPaid.length) * 100) : 0,
+      totalPaid: myTotalPaid,
+      lateFeesPaid: myLateFees,
+      reputationScore: membership?.reputationScore ?? 100,
+      payoutsReceived: myPayouts.length,
+      payoutTotal: myPayouts.reduce((s, p) => s + p.amount, 0),
+    },
+    transactions: {
+      contributions: (isAdmin ? contributions : myContributions).map(serializeContribution),
+      payouts: (isAdmin ? payouts : myPayouts).map((p) => ({
+        id: p.id,
+        cycleNumber: p.cycle.cycleNumber,
+        amount: p.amount,
+        currency: p.currency,
+        status: p.status,
+        processedAt: p.processedAt?.toISOString() ?? null,
+        createdAt: p.createdAt.toISOString(),
+        recipient: p.recipient,
+      })),
+    },
+  }
 }

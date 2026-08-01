@@ -5517,6 +5517,7 @@ model AjoContribution {
   amount              Float
   platformFee         Float                 @default(0)
   platformFeeRate     Float                 @default(0)
+  lateFeeAmount       Float                 @default(0)
   netAmount           Float
   currency            String                @default("NGN")
   status              AjoContributionStatus @default(PENDING)
