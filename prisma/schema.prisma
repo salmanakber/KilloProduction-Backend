@@ -5270,12 +5270,15 @@ model MoneyTransferTrustedDevice {
   lastIp            String?
   lastCountryCode   String?
   lastSeenAt        DateTime @default(now())
+  /// When trust expires — user must OTP again (unless unusual risk sooner).
+  trustedUntil      DateTime?
   createdAt         DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, deviceFingerprint])
   @@index([userId])
+  @@index([trustedUntil])
   @@map("money_transfer_trusted_devices")
 }
 

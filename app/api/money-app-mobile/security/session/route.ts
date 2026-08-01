@@ -48,6 +48,8 @@ export async function GET(request: NextRequest) {
       requiresStepUp: assessment.requiresStepUp,
       signals: assessment.signals,
       message: assessment.message,
+      // Client can keep using the app without re-OTP while device remains trusted
+      trustWindowDays: 30,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Session check failed"

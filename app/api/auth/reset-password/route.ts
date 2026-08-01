@@ -9,6 +9,7 @@ import {
   getPasswordPolicyFromSettings,
   validatePasswordAgainstPolicy,
 } from "@/lib/password-policy"
+import { revokeMoneyTrustedDevices } from "@/lib/money-transfer-risk"
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
 const getSecretKey = () => new TextEncoder().encode(JWT_SECRET)
@@ -70,6 +71,8 @@ export async function POST(request: NextRequest) {
           },
         })
         .catch(() => {})
+
+      await revokeMoneyTrustedDevices(user.id).catch(() => {})
 
       return NextResponse.json({ message: "Password reset successful" })
     }
@@ -136,6 +139,8 @@ export async function POST(request: NextRequest) {
         })
         .catch(() => {})
 
+      await revokeMoneyTrustedDevices(payload.userId).catch(() => {})
+
       return NextResponse.json({ message: "Password reset successful" })
     }
 
@@ -194,6 +199,8 @@ export async function POST(request: NextRequest) {
         },
       })
       .catch(() => {})
+
+    await revokeMoneyTrustedDevices(userId).catch(() => {})
 
     return NextResponse.json({ message: "Password reset successful" })
   } catch (error) {

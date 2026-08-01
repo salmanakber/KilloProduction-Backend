@@ -39,6 +39,43 @@ const SIGNAL_SCORES: Record<RiskSignal, number> = {
 
 const STEP_UP_THRESHOLD = 40
 const BLOCK_THRESHOLD = 80
+/** How long a device stays trusted after OTP (unless password change / unusual risk). */
+export const MONEY_TRUSTED_DEVICE_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** Risk signals that still force OTP even on a trusted device. */
+const UNUSUAL_ACTIVITY_SIGNALS: RiskSignal[] = [
+  "DEVELOPER_MODE",
+  "SIMULATOR",
+  "VPN_DETECTED",
+  "IP_COUNTRY_CHANGE",
+  "FREQUENT_RETRIES",
+]
+
+function trustedUntilDate(from = new Date()): Date {
+  return new Date(from.getTime() + MONEY_TRUSTED_DEVICE_DAYS * DAY_MS)
+}
+
+function isDeviceActivelyTrusted(trusted: {
+  trustedUntil: Date | null
+  createdAt: Date
+  lastSeenAt: Date
+} | null): boolean {
+  if (!trusted) return false
+  const until =
+    trusted.trustedUntil ??
+    new Date(Math.max(trusted.createdAt.getTime(), trusted.lastSeenAt.getTime()) + MONEY_TRUSTED_DEVICE_DAYS * DAY_MS)
+  return until.getTime() > Date.now()
+}
+
+/** Clear money-app device trust (e.g. after password reset). */
+export async function revokeMoneyTrustedDevices(userId: string): Promise<void> {
+  await prisma.moneyTransferTrustedDevice.deleteMany({ where: { userId } })
+  await prisma.moneyTransferStepUp.updateMany({
+    where: { userId, verifiedAt: { not: null }, expiresAt: { gt: new Date() } },
+    data: { expiresAt: new Date() },
+  })
+}
 
 export type MoneyRiskClientContext = {
   deviceFingerprint?: string
@@ -146,13 +183,15 @@ export async function assessMoneyTransferRisk(
   }
 
   const fingerprint = client?.deviceFingerprint?.trim()
+  let isActivelyTrusted = false
   if (!devBypass) {
     if (fingerprint) {
       const trusted = await prisma.moneyTransferTrustedDevice.findUnique({
         where: { userId_deviceFingerprint: { userId, deviceFingerprint: fingerprint } },
       })
-      if (!trusted) signals.push("NEW_DEVICE")
-      else if (countryCode && trusted.lastCountryCode && trusted.lastCountryCode !== countryCode) {
+      isActivelyTrusted = isDeviceActivelyTrusted(trusted)
+      if (!isActivelyTrusted) signals.push("NEW_DEVICE")
+      else if (countryCode && trusted?.lastCountryCode && trusted.lastCountryCode !== countryCode) {
         signals.push("IP_COUNTRY_CHANGE")
       }
     } else {
@@ -206,9 +245,20 @@ export async function assessMoneyTransferRisk(
     riskScore >= BLOCK_THRESHOLD ||
     recentBlocks >= 8
 
-  const requiresStepUp =
+  // Trusted device: skip routine OTP for MONEY_APP_OPEN unless unusual activity.
+  // Soft signals alone (e.g. late night) should not re-prompt every open.
+  let requiresStepUp =
     !blocked &&
     (riskScore >= STEP_UP_THRESHOLD || signals.includes("NEW_DEVICE"))
+
+  if (!blocked && isActivelyTrusted && action === "MONEY_APP_OPEN") {
+    requiresStepUp = signals.some((s) => UNUSUAL_ACTIVITY_SIGNALS.includes(s))
+  } else if (!blocked && isActivelyTrusted && !signals.includes("NEW_DEVICE")) {
+    // Trusted device for other actions: still step-up on unusual + high score, but not solely NEW_DEVICE
+    requiresStepUp =
+      signals.some((s) => UNUSUAL_ACTIVITY_SIGNALS.includes(s)) ||
+      riskScore >= STEP_UP_THRESHOLD
+  }
 
   let message: string | undefined
   if (blocked) {
@@ -238,11 +288,12 @@ export async function assessMoneyTransferRisk(
         amount,
         receiverId,
         bankAccountId: input.bankAccountId,
+        activelyTrusted: isActivelyTrusted,
       },
     },
   })
 
-  if (fingerprint && !blocked) {
+  if (fingerprint && !blocked && isActivelyTrusted) {
     const existing = await prisma.moneyTransferTrustedDevice.findUnique({
       where: { userId_deviceFingerprint: { userId, deviceFingerprint: fingerprint } },
     })
@@ -255,6 +306,8 @@ export async function assessMoneyTransferRisk(
           lastCountryCode: countryCode ?? existing.lastCountryCode,
           deviceLabel: client?.deviceLabel ?? existing.deviceLabel,
           platform: client?.platform ?? existing.platform,
+          // Keep existing trustedUntil — do not silently extend without OTP
+          trustedUntil: existing.trustedUntil ?? trustedUntilDate(existing.createdAt),
         },
       })
     }
@@ -336,13 +389,21 @@ export async function verifyMoneyStepUp(args: {
     throw new Error("Invalid or expired verification code")
   }
 
+  const shouldTrust = Boolean(args.trustDevice)
+  const fp = args.deviceFingerprint || challenge.deviceFingerprint
+  const until = trustedUntilDate()
+  const tokenExpiresAt = shouldTrust ? until : new Date(Date.now() + DAY_MS)
+
   await prisma.moneyTransferStepUp.update({
     where: { id: challenge.id },
-    data: { verifiedAt: new Date(), trustDevice: Boolean(args.trustDevice) },
+    data: {
+      verifiedAt: new Date(),
+      trustDevice: shouldTrust,
+      expiresAt: tokenExpiresAt,
+    },
   })
 
-  const fp = args.deviceFingerprint || challenge.deviceFingerprint
-  if (args.trustDevice && fp) {
+  if (shouldTrust && fp) {
     await prisma.moneyTransferTrustedDevice.upsert({
       where: { userId_deviceFingerprint: { userId: args.userId, deviceFingerprint: fp } },
       create: {
@@ -350,17 +411,19 @@ export async function verifyMoneyStepUp(args: {
         deviceFingerprint: fp,
         deviceLabel: args.deviceLabel,
         platform: args.platform,
+        trustedUntil: until,
+        lastSeenAt: new Date(),
       },
       update: {
         lastSeenAt: new Date(),
         deviceLabel: args.deviceLabel,
         platform: args.platform,
+        trustedUntil: until,
       },
     })
   }
 
-  const expiresAt = new Date(Date.now() + 15 * 60_000)
-  return { stepUpToken: challenge.id, expiresAt }
+  return { stepUpToken: challenge.id, expiresAt: tokenExpiresAt }
 }
 
 export async function assertValidMoneyStepUp(args: {
@@ -376,8 +439,8 @@ export async function assertValidMoneyStepUp(args: {
     where: {
       id: args.stepUpToken,
       userId: args.userId,
-      action: args.action,
       verifiedAt: { not: null },
+      expiresAt: { gt: new Date() },
     },
   })
 
@@ -385,9 +448,12 @@ export async function assertValidMoneyStepUp(args: {
     throw new MoneyRiskStepUpRequired("Invalid or expired step-up token")
   }
 
-  const maxAge = challenge.verifiedAt!.getTime() + 15 * 60_000
-  if (Date.now() > maxAge) {
-    throw new MoneyRiskStepUpRequired("Step-up verification expired. Please verify again.")
+  // Exact action, or a trusted MONEY_APP_OPEN session covering later money actions
+  if (
+    challenge.action !== args.action &&
+    !(challenge.trustDevice && challenge.action === "MONEY_APP_OPEN")
+  ) {
+    throw new MoneyRiskStepUpRequired("Step-up verification required for this action")
   }
 }
 
