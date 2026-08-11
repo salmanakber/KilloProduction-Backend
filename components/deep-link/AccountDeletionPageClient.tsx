@@ -54,10 +54,10 @@ function AccountDeletionPageClientInner({ appName }: AccountDeletionPageClientPr
 
   return (
     <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 space-y-3">
-      <h2 className="text-lg font-bold text-white">Delete in the {appName} app</h2>
+      <h2 className="text-lg font-bold text-white">Or delete in the {appName} app</h2>
       <p className="text-sm text-slate-300 leading-relaxed">
-        Account deletion must be confirmed inside the app while signed in. Tap below to open the
-        deletion screen directly.
+        Prefer to confirm while signed in? Open the app deletion screen below. You can also use the
+        web form above if you cannot access the app.
       </p>
       <button
         type="button"

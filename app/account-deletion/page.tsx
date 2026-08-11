@@ -1,10 +1,11 @@
 import AccountDeletionPageClient from "@/components/deep-link/AccountDeletionPageClient"
+import AccountDeletionRequestForm from "@/components/deep-link/AccountDeletionRequestForm"
 import { getAccountDeletionPolicy } from "@/lib/account-deletion-policy"
 
 export const metadata = {
   title: "Delete your Kilo account",
   description:
-    "Request account and data deletion for Kilo. Learn what is removed, retention period, and how to delete your account in the app.",
+    "Request account and data deletion for Kilo without logging in, or delete from the Kilo app. Learn what is removed and retention timing.",
 }
 
 export default function AccountDeletionPage() {
@@ -21,10 +22,16 @@ export default function AccountDeletionPage() {
           <p className="text-sm text-slate-300 leading-relaxed">{policy.summary}</p>
         </header>
 
+        {/* Public Play Store path — no login required */}
+        <AccountDeletionRequestForm
+          supportEmail={policy.supportEmail}
+          retentionDays={policy.retentionDays}
+        />
+
         <AccountDeletionPageClient appName={policy.appName} />
 
         <section className="space-y-3">
-          <h2 className="text-lg font-bold">How to request deletion</h2>
+          <h2 className="text-lg font-bold">How to delete in the app</h2>
           <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300">
             {policy.steps.map((step) => (
               <li key={step} className="leading-relaxed">
@@ -35,16 +42,16 @@ export default function AccountDeletionPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-bold">What happens after you confirm</h2>
+          <h2 className="text-lg font-bold">What happens after your request is confirmed</h2>
           <ul className="list-disc list-inside space-y-2 text-sm text-slate-300">
-            <li>Your account is disabled immediately and you are signed out.</li>
+            <li>Your account is disabled and you are signed out of active sessions.</li>
             <li>
               Personal data is scheduled for permanent secure purge after{" "}
               <strong className="text-white">{policy.retentionDays} days</strong>.
             </li>
             <li>
-              You can cancel a scheduled deletion by signing in again before the purge date (from
-              Account).
+              If you requested deletion in the app, you can cancel by signing in again before the
+              purge date (from Account).
             </li>
           </ul>
         </section>
@@ -85,12 +92,12 @@ export default function AccountDeletionPage() {
             >
               {policy.supportEmail}
             </a>{" "}
-            if you cannot access the app or need assistance with account removal.
+            if you need assistance with account removal.
           </p>
           <p className="text-xs text-slate-500 pt-2">
-            Public API (for store listings):{" "}
-            <a href={policy.apiUrl} className="text-emerald-400/80 hover:text-emerald-300 underline">
-              {policy.apiUrl}
+            Public page URL (use in Play Console):{" "}
+            <a href={policy.webUrl} className="text-emerald-400/80 hover:text-emerald-300 underline break-all">
+              {policy.webUrl}
             </a>
           </p>
         </section>

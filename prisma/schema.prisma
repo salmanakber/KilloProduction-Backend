@@ -6340,3 +6340,28 @@ model PropertyHostMember {
   @@index([hostVendorId])
   @@map("property_host_members")
 }
+
+/// Public web form account-deletion requests (Play Store / no-login path).
+model AccountDeletionWebRequest {
+  id            String    @id @default(cuid())
+  email         String?
+  phone         String?
+  fullName      String?
+  reason        String?
+  matchedUserId String?
+  status        String    @default("PENDING") // PENDING | PROCESSED | REJECTED
+  source        String    @default("PLAY_STORE_WEB")
+  userAgent     String?
+  ipAddress     String?
+  processedAt   DateTime?
+  processedById String?
+  adminNote     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([email])
+  @@index([phone])
+  @@index([matchedUserId])
+  @@map("account_deletion_web_requests")
+}

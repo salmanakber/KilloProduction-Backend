@@ -13,18 +13,36 @@ type DeletionLog = {
   performer?: { name?: string | null; email?: string | null } | null
 }
 
+type WebDeletionRequest = {
+  id: string
+  email?: string | null
+  phone?: string | null
+  fullName?: string | null
+  reason?: string | null
+  matchedUserId?: string | null
+  status: string
+  createdAt: string
+}
+
 export default function AccountDeletionLogsPage() {
   const [logs, setLogs] = useState<DeletionLog[]>([])
+  const [webRequests, setWebRequests] = useState<WebDeletionRequest[]>([])
   const [loading, setLoading] = useState(false)
   const [actingByLogId, setActingByLogId] = useState<string | null>(null)
+  const [actingWebId, setActingWebId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
 
   const fetchLogs = async () => {
     try {
       setLoading(true)
-      const res = await fetch("/api/admin/audit-logs?actionPrefix=ACCOUNT_&entityType=User&limit=200")
-      const data = await res.json()
+      const [auditRes, webRes] = await Promise.all([
+        fetch("/api/admin/audit-logs?actionPrefix=ACCOUNT_&entityType=User&limit=200"),
+        fetch("/api/admin/account-deletion-web-requests?limit=100"),
+      ])
+      const data = await auditRes.json()
+      const webData = await webRes.json().catch(() => ({}))
       setLogs(Array.isArray(data?.logs) ? data.logs : [])
+      setWebRequests(Array.isArray(webData?.requests) ? webData.requests : [])
     } finally {
       setLoading(false)
     }
@@ -94,6 +112,32 @@ export default function AccountDeletionLogsPage() {
     }
   }
 
+  const updateWebRequest = async (
+    id: string,
+    status: "PROCESSED" | "REJECTED",
+    scheduleDeletion = false,
+  ) => {
+    try {
+      setActingWebId(id)
+      const res = await fetch("/api/admin/account-deletion-web-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status, scheduleDeletion }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || "Update failed")
+      }
+      await fetchLogs()
+    } catch (error: any) {
+      alert(error?.message || "Unable to update web request")
+    } finally {
+      setActingWebId(null)
+    }
+  }
+
+  const pendingWeb = webRequests.filter((r) => r.status === "PENDING")
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-12">
       
@@ -101,7 +145,7 @@ export default function AccountDeletionLogsPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Account Deletion Logs</h1>
-          <p className="text-sm text-slate-500 mt-1">Track deactivation, deletion requests, and 30-day security purges.</p>
+          <p className="text-sm text-slate-500 mt-1">Track web form requests, in-app deletions, and 30-day security purges.</p>
         </div>
         <button
           onClick={fetchLogs}
@@ -111,6 +155,96 @@ export default function AccountDeletionLogsPage() {
           <RefreshCw className={`h-4 w-4 text-slate-500 group-hover:text-teal-600 ${loading ? "animate-spin text-teal-600" : ""}`} />
           {loading ? "Refreshing..." : "Refresh Logs"}
         </button>
+      </div>
+
+      {/* PUBLIC WEB REQUESTS */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Public web deletion requests</h3>
+            <p className="text-sm text-slate-500 mt-0.5">
+              From /account-deletion (no login). {pendingWeb.length} pending.
+            </p>
+          </div>
+        </div>
+        {webRequests.length === 0 ? (
+          <div className="h-24 flex items-center justify-center text-slate-400 text-sm border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/50">
+            No web deletion requests yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {webRequests.map((req) => (
+              <div
+                key={req.id}
+                className="flex flex-col md:flex-row md:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-slate-100 bg-slate-50/50 text-sm"
+              >
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${
+                        req.status === "PENDING"
+                          ? "bg-amber-50 text-amber-700 border border-amber-200"
+                          : req.status === "PROCESSED"
+                            ? "bg-teal-50 text-teal-700 border border-teal-200"
+                            : "bg-slate-100 text-slate-600 border border-slate-200"
+                      }`}
+                    >
+                      {req.status}
+                    </span>
+                    <span className="font-mono text-xs text-slate-500 truncate">{req.id}</span>
+                  </div>
+                  <p className="font-semibold text-slate-800">
+                    {req.fullName || "—"} · {req.email || "—"} · {req.phone || "—"}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Matched user:{" "}
+                    <span className="font-mono">{req.matchedUserId || "none"}</span>
+                    {" · "}
+                    {new Date(req.createdAt).toLocaleString()}
+                  </p>
+                  {req.reason ? (
+                    <p className="text-xs text-slate-600 line-clamp-2">{req.reason}</p>
+                  ) : null}
+                </div>
+                {req.status === "PENDING" ? (
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    {req.matchedUserId ? (
+                      <button
+                        disabled={actingWebId === req.id}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              "Disable this matched user and mark the web request as processed?",
+                            )
+                          ) {
+                            void updateWebRequest(req.id, "PROCESSED", true)
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 text-xs font-bold disabled:opacity-50"
+                      >
+                        {actingWebId === req.id ? "Working…" : "Process + disable user"}
+                      </button>
+                    ) : null}
+                    <button
+                      disabled={actingWebId === req.id}
+                      onClick={() => void updateWebRequest(req.id, "PROCESSED", false)}
+                      className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 text-xs font-bold disabled:opacity-50"
+                    >
+                      Mark processed
+                    </button>
+                    <button
+                      disabled={actingWebId === req.id}
+                      onClick={() => void updateWebRequest(req.id, "REJECTED", false)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 text-xs font-bold disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* MAIN CONTENT CARD */}

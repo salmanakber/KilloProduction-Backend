@@ -52,7 +52,7 @@ export function getAccountDeletionPolicy() {
     retentionDays: ACCOUNT_DELETION_RETENTION_DAYS,
     supportEmail: getAccountDeletionSupportEmail(),
     summary:
-      "You can request account deletion in the Kilo app. Your account is disabled immediately and personal data is permanently purged after a 30-day retention window.",
+      "You can request account deletion on this public web page (no login) or inside the Kilo app. After verification, your account is disabled and personal data is permanently purged after a 30-day retention window.",
     steps: [...ACCOUNT_DELETION_IN_APP_STEPS],
     dataDeleted: [...ACCOUNT_DELETION_DATA_REMOVED],
     dataRetained: [...ACCOUNT_DELETION_DATA_RETAINED],
