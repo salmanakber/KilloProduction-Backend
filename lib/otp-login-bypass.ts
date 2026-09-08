@@ -1,6 +1,6 @@
 import { formatPhoneForTwilio } from "@/lib/phoneUtils"
 
-const DEFAULT_COUNTRY = process.env.DEFAULT_PHONE_COUNTRY || "NG"
+const DEFAULT_COUNTRY = process.env.DEFAULT_PHONE_COUNTRY || "PK"
 
 function parseList(raw: string | undefined): string[] {
   if (!raw?.trim()) return []
