@@ -56,19 +56,42 @@ export async function GET(request: NextRequest) {
     const formattedEvents = logs
       .map((log) => {
         const action = String(log.action || "")
-        const critical = action.includes("FAILED_LOGIN") || action.includes("SUSPICIOUS")
-        const sev = critical ? "HIGH" : action.includes("SECURITY") ? "MEDIUM" : "LOW"
+        const upper = action.toUpperCase()
+        const isFailedLogin = upper.includes("LOGIN_FAILED") || upper.includes("FAILED_LOGIN")
+        const critical = isFailedLogin || upper.includes("SUSPICIOUS")
+        const sev = critical ? "HIGH" : upper.includes("SECURITY") ? "MEDIUM" : "LOW"
         const details = (log.details || {}) as any
+        const reason = details?.reason ? String(details.reason) : ""
+        const cause = details?.cause ? String(details.cause) : ""
+        const via = details?.via ? String(details.via) : ""
+        const entered =
+          details?.emailEntered || details?.phoneEntered || details?.email || details?.phone || ""
+        const description =
+          details?.description ||
+          [
+            action.replaceAll("_", " "),
+            reason && `(${reason})`,
+            cause,
+            via && `via ${via}`,
+            entered && `entered: ${entered}`,
+          ]
+            .filter(Boolean)
+            .join(" — ")
         return {
           id: log.id,
-          type: action.includes("FAILED_LOGIN") ? "FAILED_LOGIN" : action.includes("PASSWORD") ? "PASSWORD_CHANGE" : "LOGIN",
+          type: isFailedLogin
+            ? "FAILED_LOGIN"
+            : upper.includes("PASSWORD")
+              ? "PASSWORD_CHANGE"
+              : "LOGIN",
           severity: sev,
           userId: log.performedBy,
           userName: log.performer?.name || "Unknown",
           userRole: log.performer?.role || "ADMIN",
-          description: details?.description || action.replaceAll("_", " "),
-          ipAddress: log.ipAddress || "N/A",
-          userAgent: log.userAgent || "N/A",
+          description,
+          details,
+          ipAddress: log.ipAddress || details?.ipAddress || "N/A",
+          userAgent: log.userAgent || details?.userAgent || "N/A",
           location: "Unknown",
           timestamp: log.createdAt,
           status: statusMap.get(log.id) || "OPEN",

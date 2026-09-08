@@ -33,6 +33,7 @@ interface SecurityEvent {
   userName: string
   userRole: string
   description: string
+  details?: any
   ipAddress: string
   userAgent: string
   location: string
@@ -457,6 +458,70 @@ export default function SecurityAudit() {
                             {event.location}
                           </div>
                         </div>
+                        {event.details && (
+                          <div className="mt-3 rounded-md bg-white border border-gray-200 p-3 text-xs text-gray-700 space-y-1">
+                            {event.details.reason && (
+                              <div>
+                                <span className="font-semibold">Reason:</span> {String(event.details.reason)}
+                              </div>
+                            )}
+                            {event.details.cause && (
+                              <div>
+                                <span className="font-semibold">Cause:</span> {String(event.details.cause)}
+                              </div>
+                            )}
+                            {(event.details.emailEntered || event.details.phoneEntered) && (
+                              <div>
+                                <span className="font-semibold">Entered:</span>{" "}
+                                {event.details.emailEntered || event.details.phoneEntered}
+                                {event.details.via ? ` (${event.details.via})` : ""}
+                              </div>
+                            )}
+                            {(event.details.accountEmail || event.details.accountPhone) && (
+                              <div>
+                                <span className="font-semibold">Account:</span>{" "}
+                                {[event.details.accountEmail, event.details.accountPhone]
+                                  .filter(Boolean)
+                                  .join(" / ")}
+                              </div>
+                            )}
+                            {typeof event.details.passwordLength === "number" && (
+                              <div>
+                                <span className="font-semibold">Password meta:</span> length{" "}
+                                {event.details.passwordLength}
+                                {event.details.hasLeadingOrTrailingWhitespace
+                                  ? " · has leading/trailing spaces"
+                                  : ""}
+                                {event.details.passwordEmpty ? " · empty" : ""}
+                                {event.details.hasUppercase ? " · upper" : ""}
+                                {event.details.hasLowercase ? " · lower" : ""}
+                                {event.details.hasDigit ? " · digit" : ""}
+                                {event.details.hasSpecialChar ? " · special" : ""}
+                              </div>
+                            )}
+                            {typeof event.details.failedAttempts === "number" && (
+                              <div>
+                                <span className="font-semibold">Attempts:</span>{" "}
+                                {event.details.failedAttempts}
+                                {typeof event.details.attemptsRemaining === "number"
+                                  ? ` (${event.details.attemptsRemaining} left)`
+                                  : ""}
+                                {event.details.locked ? " · LOCKED" : ""}
+                              </div>
+                            )}
+                            {event.details.clientError && (
+                              <div>
+                                <span className="font-semibold">Shown to user:</span>{" "}
+                                {String(event.details.clientError)}
+                              </div>
+                            )}
+                            {event.userAgent && event.userAgent !== "N/A" && (
+                              <div className="truncate" title={event.userAgent}>
+                                <span className="font-semibold">UA:</span> {event.userAgent}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {event.status === "OPEN" && (
@@ -522,10 +587,15 @@ export default function SecurityAudit() {
                             {log.module}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4">
                           <div className="text-sm text-gray-900">
                             {log.targetType} {log.targetId ? `(${log.targetId})` : ""}
                           </div>
+                          {log.details && (
+                            <pre className="mt-1 max-w-md overflow-auto rounded bg-gray-50 p-2 text-[11px] text-gray-600">
+                              {JSON.stringify(log.details, null, 2)}
+                            </pre>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{new Date(log.timestamp).toLocaleString()}</div>
