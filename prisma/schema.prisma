@@ -248,22 +248,24 @@ model UserProfile {
 }
 
 model UserSettings {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  pushNotifications    Boolean  @default(true)
-  emailNotifications   Boolean  @default(true)
-  smsNotifications     Boolean  @default(true)
-  locationTracking     Boolean  @default(true)
-  dataSharing          Boolean  @default(false)
-  language             String   @default("en")
-  currency             String   @default("USD")
-  theme                String   @default("light")
-  autoReorder          Boolean  @default(false)
-  deliveryInstructions String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  deviceTokens         Json?
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  pushNotifications        Boolean  @default(true)
+  emailNotifications       Boolean  @default(true)
+  smsNotifications         Boolean  @default(true)
+  locationTracking         Boolean  @default(true)
+  dataSharing              Boolean  @default(false)
+  language                 String   @default("en")
+  currency                 String   @default("USD")
+  theme                    String   @default("light")
+  autoReorder              Boolean  @default(false)
+  deliveryInstructions     String?
+  /// Per-category push preferences for customers (orders, rides, promotions, health, money, property, chat).
+  notificationPreferences  Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  deviceTokens             Json?
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_settings")
 }

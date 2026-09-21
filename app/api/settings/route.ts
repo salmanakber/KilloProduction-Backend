@@ -62,6 +62,7 @@ export async function PUT(request: NextRequest) {
       autoReorder,
       deliveryInstructions,
       deviceTokens,
+      notificationPreferences,
     } = body
 
     // Update or create user settings
@@ -79,6 +80,7 @@ export async function PUT(request: NextRequest) {
         ...(autoReorder !== undefined && { autoReorder }),
         ...(deliveryInstructions !== undefined && { deliveryInstructions }),
         ...(deviceTokens !== undefined && { deviceTokens }),
+        ...(notificationPreferences !== undefined && { notificationPreferences }),
       },
       create: {
         userId: user.id,
@@ -93,6 +95,7 @@ export async function PUT(request: NextRequest) {
         autoReorder: autoReorder ?? false,
         deliveryInstructions,
         deviceTokens,
+        notificationPreferences: notificationPreferences ?? undefined,
       },
     })
 

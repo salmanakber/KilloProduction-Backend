@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma"
 import { sendEmail } from "@/lib/email"
+import {
+  isPushCategoryEnabled,
+  resolveNotificationPrefKey,
+} from "@/lib/notification-preferences"
 
 export interface NotificationData {
   userId: string
@@ -20,6 +24,8 @@ export interface PushNotificationData {
   data?: any
   imageUrl?: string
   actionUrl?: string
+  type?: string
+  module?: string
 }
 
 export interface EmailNotificationData {
@@ -35,6 +41,26 @@ export class NotificationBridge {
    */
   static async sendNotification(data: NotificationData) {
     try {
+      // Optional categories (esp. promotions): respect prefs before creating records
+      const settings = await prisma.userSettings.findUnique({
+        where: { userId: data.userId },
+        select: {
+          pushNotifications: true,
+          notificationPreferences: true,
+        },
+      })
+      const prefKey = resolveNotificationPrefKey({
+        type: data.type,
+        module: data.module,
+        data: data.data,
+      })
+      if (
+        prefKey === "promotions" &&
+        !isPushCategoryEnabled(settings?.notificationPreferences, "promotions")
+      ) {
+        return null
+      }
+
       // Create notification record
       const notification = await prisma.notification.create({
         data: {
@@ -52,14 +78,16 @@ export class NotificationBridge {
         }
       })
 
-      // Send push notification if user has device tokens
+      // Send push notification if user has device tokens + category prefs
       await this.sendPushNotification({
         userId: data.userId,
         title: data.title,
         body: data.message,
         data: data.data,
         imageUrl: data.imageUrl,
-        actionUrl: data.actionUrl
+        actionUrl: data.actionUrl,
+        type: data.type,
+        module: data.module,
       })
 
       // Always mirror to websocket (in-app badge + list), independent of push tokens
@@ -248,13 +276,23 @@ export class NotificationBridge {
           userSettings: {
             select: {
               pushNotifications: true,
-              deviceTokens: true
+              deviceTokens: true,
+              notificationPreferences: true,
             }
           }
         }
       })
 
       if (!user || !user.userSettings?.pushNotifications) {
+        return
+      }
+
+      const prefKey = resolveNotificationPrefKey({
+        type: data.type,
+        module: data.module,
+        data: data.data,
+      })
+      if (!isPushCategoryEnabled(user.userSettings.notificationPreferences, prefKey)) {
         return
       }
 
