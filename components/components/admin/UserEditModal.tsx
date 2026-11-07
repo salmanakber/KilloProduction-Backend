@@ -25,6 +25,7 @@ export function UserEditModal({ user, onSuccess, onClose, systemCurrency }: User
   const [role, setRole] = useState(user.role)
   const [status, setStatus] = useState(user.status)
   const [isVerified, setIsVerified] = useState(user.isVerified)
+  const [isDemoAccount, setIsDemoAccount] = useState(Boolean(user.isDemoAccount))
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
@@ -35,6 +36,7 @@ export function UserEditModal({ user, onSuccess, onClose, systemCurrency }: User
     setRole(user.role)
     setStatus(user.status)
     setIsVerified(user.isVerified)
+    setIsDemoAccount(Boolean(user.isDemoAccount))
   }, [user])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,6 +56,7 @@ export function UserEditModal({ user, onSuccess, onClose, systemCurrency }: User
           role,
           status,
           isVerified,
+          isDemoAccount,
         }),
       })
 
@@ -158,6 +161,22 @@ export function UserEditModal({ user, onSuccess, onClose, systemCurrency }: User
         />
         <Label htmlFor="isVerified" className="text-sm font-semibold text-slate-700 cursor-pointer">
           User is officially verified
+        </Label>
+      </div>
+
+      <div className="flex items-start space-x-3 bg-amber-50/80 p-4 rounded-xl border border-amber-200 mt-2">
+        <input
+          type="checkbox"
+          id="isDemoAccount"
+          checked={isDemoAccount}
+          onChange={(e) => setIsDemoAccount(e.target.checked)}
+          className="w-4 h-4 mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 transition-all cursor-pointer"
+        />
+        <Label htmlFor="isDemoAccount" className="text-sm font-semibold text-slate-800 cursor-pointer leading-snug">
+          Demo / App Store review account
+          <span className="block text-xs font-medium text-slate-500 mt-1">
+            Skips login OTP and all Money App step-up / bank-access OTPs. Use only for reviewer demo accounts.
+          </span>
         </Label>
       </div>
 

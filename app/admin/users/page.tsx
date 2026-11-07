@@ -163,6 +163,35 @@ export default function UserManagement() {
     }
   }
 
+  const handleDemoAccountChange = async (userId: string, isDemoAccount: boolean) => {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isDemoAccount }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: isDemoAccount ? "Demo Account Enabled" : "Demo Account Disabled",
+          description: isDemoAccount
+            ? "This user will skip login OTP and all Money / bank step-up OTPs."
+            : "Normal OTP security restored for this user.",
+        })
+        fetchUsers()
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to update demo account flag")
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "There was an error updating demo account.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleAccountAction = async (userId: string, accountAction: "RESTORE_ACCOUNT" | "ACTIVATE_ACCOUNT" | "DEACTIVATE_ACCOUNT") => {
     try {
       const response = await fetch(`/api/admin/users/${userId}`, {
@@ -525,6 +554,11 @@ export default function UserManagement() {
                             </>
                           )}
                         </div>
+                        {user.isDemoAccount ? (
+                          <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                            Demo / Review
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -643,6 +677,14 @@ export default function UserManagement() {
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleVerificationChange(user.id, false)} disabled={!user.isVerified} className="rounded-md font-medium cursor-pointer focus:bg-orange-50 focus:text-orange-700 text-orange-600">
                               <UserX className="h-4 w-4 mr-2 text-orange-500" /> Unverify User
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="bg-slate-100" />
+                            <DropdownMenuItem
+                              onClick={() => handleDemoAccountChange(user.id, !user.isDemoAccount)}
+                              className="rounded-md font-medium cursor-pointer focus:bg-amber-50 focus:text-amber-800"
+                            >
+                              <Star className="h-4 w-4 mr-2 text-amber-500" />
+                              {user.isDemoAccount ? "Remove Demo Account" : "Mark as Demo Account"}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

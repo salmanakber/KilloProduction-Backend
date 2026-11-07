@@ -300,6 +300,7 @@ export async function POST(request: NextRequest) {
             loginEmail: email,
             userPhone: user.phone,
             userEmail: user.email,
+            isDemoAccount: user.isDemoAccount,
           }),
           sanitization,
           passwordRawLength: cleaned.passwordRawLength,
@@ -333,6 +334,7 @@ export async function POST(request: NextRequest) {
       loginEmail: email,
       userPhone: user.phone,
       userEmail: user.email,
+      isDemoAccount: user.isDemoAccount,
     })
     const skipOTP =
       playstoreBypass ||
@@ -348,13 +350,15 @@ export async function POST(request: NextRequest) {
       details: {
         via: email ? "EMAIL" : "PHONE",
         otpRequired: !skipOTP,
-        otpBypassReason: playstoreBypass
-          ? "PLAYSTORE_REVIEW_ALLOWLIST"
-          : process.env.SKIP_OTP_VERIFICATION === "true"
-            ? "SKIP_OTP_VERIFICATION_ENV"
-            : otp === false
-              ? "CLIENT_OTP_FALSE"
-              : null,
+        otpBypassReason: user.isDemoAccount
+          ? "DEMO_ACCOUNT"
+          : playstoreBypass
+            ? "PLAYSTORE_REVIEW_ALLOWLIST"
+            : process.env.SKIP_OTP_VERIFICATION === "true"
+              ? "SKIP_OTP_VERIFICATION_ENV"
+              : otp === false
+                ? "CLIENT_OTP_FALSE"
+                : null,
         accountEmail: user.email,
         accountPhone: user.phone,
         accountRole: user.role,

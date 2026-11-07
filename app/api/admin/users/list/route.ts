@@ -109,6 +109,7 @@ export async function GET(request: NextRequest) {
           module: userModule,
           status: user.status || (user.isActive ? "ACTIVE" : "INACTIVE"),
           isVerified: user.isVerified,
+          isDemoAccount: Boolean(user.isDemoAccount),
           deletedAt: user.deletedAt ? user.deletedAt.toISOString() : null,
           recoverableUntil:
             user.deletedAt

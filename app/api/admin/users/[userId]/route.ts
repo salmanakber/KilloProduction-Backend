@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest, { params }: { params: { userId: 
     }
 
     const body = await request.json()
-    const { name, email, phone, role, isActive, isVerified } = body
+    const { name, email, phone, role, isActive, isVerified, isDemoAccount } = body
 
     const user = await prisma.user.update({
       where: { id: params.userId },
@@ -99,6 +99,7 @@ export async function PUT(request: NextRequest, { params }: { params: { userId: 
         role: role?.toUpperCase(),
         isActive,
         isVerified,
+        ...(typeof isDemoAccount === "boolean" ? { isDemoAccount } : {}),
       },
     })
 
@@ -123,6 +124,7 @@ export async function PUT(request: NextRequest, { params }: { params: { userId: 
         role: user.role.toLowerCase(),
         isActive: user.isActive,
         isVerified: user.isVerified,
+        isDemoAccount: user.isDemoAccount,
       },
     })
   } catch (error) {
@@ -147,7 +149,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
       return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
-    const { status, isVerified, isActive, accountAction, ...otherUpdates } = await request.json()
+    const { status, isVerified, isActive, isDemoAccount, accountAction, ...otherUpdates } =
+      await request.json()
 
     const updateData: any = {}
     const targetUser = await prisma.user.findUnique({
@@ -156,6 +159,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { userId
     })
     if (!targetUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    if (typeof isDemoAccount === "boolean") {
+      updateData.isDemoAccount = isDemoAccount
     }
 
     if (accountAction === "RESTORE_ACCOUNT") {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { generateOTP, sendOTP } from "@/lib/twilio"
 import { getRequestMeta } from "@/lib/money-transfer-admin"
 import { isMoneySecurityDevelopment } from "@/lib/money-security-env"
+import { isDemoAccountUserId } from "@/lib/otp-login-bypass"
 import { sendEmailFromTemplate } from "./email"
 import { systemSettings as getSystemSettings } from "./systemSettings"
 
@@ -168,6 +169,18 @@ export async function assessMoneyTransferRisk(
   input: AssessMoneyRiskInput,
 ): Promise<MoneyRiskAssessment> {
   const { userId, action, amount, receiverId, request, client } = input
+
+  // Admin-marked demo / App Store review accounts: never block or ask for money OTP
+  if (await isDemoAccountUserId(userId)) {
+    return {
+      riskScore: 0,
+      signals: [],
+      blocked: false,
+      requiresStepUp: false,
+      message: undefined,
+    }
+  }
+
   const meta = request ? getRequestMeta(request) : { ipAddress: null, userAgent: null }
   const headerCountry = countryFromHeaders(request)
   const ipIntel = await lookupIpIntel(meta.ipAddress)

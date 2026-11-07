@@ -1,4 +1,5 @@
 import { formatPhoneForTwilio } from "@/lib/phoneUtils"
+import { prisma } from "@/lib/prisma"
 
 const DEFAULT_COUNTRY = process.env.DEFAULT_PHONE_COUNTRY || "PK"
 
@@ -54,9 +55,26 @@ export function isPlaystoreReviewOtpBypassEnabled(): boolean {
   return getBypassPhones().length > 0 || getBypassEmails().length > 0
 }
 
+/** Admin-marked demo / store-review account on the User row. */
+export function isDemoAccountFlag(user?: { isDemoAccount?: boolean | null } | null): boolean {
+  return Boolean(user?.isDemoAccount)
+}
+
+/** Lookup helper for money security and other OTP gates. */
+export async function isDemoAccountUserId(userId: string | null | undefined): Promise<boolean> {
+  if (!userId?.trim()) return false
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isDemoAccount: true },
+  })
+  return isDemoAccountFlag(user)
+}
+
 /**
- * Returns true when the login identifier matches a Play Store review allowlist entry.
- * Configure via:
+ * Returns true when the login identifier matches a Play Store review allowlist entry
+ * OR the user is marked `isDemoAccount` in admin.
+ *
+ * Env allowlist (legacy):
  *   PLAYSTORE_REVIEW_OTP_BYPASS_PHONES=+2348012345678,+2348098765432
  *   PLAYSTORE_REVIEW_OTP_BYPASS_EMAILS=reviewer@example.com,playstore@kilo1app.com
  */
@@ -65,7 +83,12 @@ export function shouldBypassLoginOtp(args: {
   loginEmail?: string | null
   userPhone?: string | null
   userEmail?: string | null
+  isDemoAccount?: boolean | null
 }): boolean {
+  if (isDemoAccountFlag({ isDemoAccount: args.isDemoAccount })) {
+    return true
+  }
+
   const bypassPhones = getBypassPhones()
   const bypassEmails = getBypassEmails()
   if (bypassPhones.length === 0 && bypassEmails.length === 0) return false

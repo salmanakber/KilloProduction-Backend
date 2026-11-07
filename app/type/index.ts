@@ -7,6 +7,8 @@ export interface User {
   module?: "PHARMACY" | "AUTO_PARTS" | "FOOD" | "GROCERY" | "RIDING"
   status: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING"
   isVerified: boolean
+  /** App Store / Play demo account — skips login OTP and Money bank/step-up OTP */
+  isDemoAccount?: boolean
   joinedAt: string
   lastActive: string
   location: string

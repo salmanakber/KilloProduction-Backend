@@ -34,6 +34,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Demo / review accounts never need Money OTP
+    if (!assessment.requiresStepUp) {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        requiresStepUp: false,
+        message: "Verification not required for this account.",
+      })
+    }
+
     const challenge = await createMoneyStepUpChallenge({
       userId: user.id,
       action,
